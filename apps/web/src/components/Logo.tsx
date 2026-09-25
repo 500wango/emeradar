@@ -114,7 +114,7 @@ export function Logo({
           fill={`url(#${iconGradId})`}
         />
 
-        {/* Wordmark */}
+        {/* Wordmark without gap */}
         <text
           x="350"
           y="194"
@@ -122,22 +122,7 @@ export function Logo({
           fontSize="124"
           fontWeight="800"
           letterSpacing="-6"
-          fill={`url(#${emeGradId})`}
-        >
-          Eme
-        </text>
-
-        <text
-          x="625"
-          y="194"
-          fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"
-          fontSize="124"
-          fontWeight="800"
-          letterSpacing="-6"
-          fill="#0F172A"
-        >
-          Radar
-        </text>
+        ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill="#0F172A">Radar</tspan></text>
 
         {/* Tagline */}
         <text
@@ -208,7 +193,7 @@ export function Logo({
         fill={`url(#${iconGradId})`}
       />
 
-      {/* Wordmark */}
+      {/* Wordmark without gap */}
       <text
         x="330"
         y="180"
@@ -216,22 +201,7 @@ export function Logo({
         fontSize="120"
         fontWeight="800"
         letterSpacing="-6"
-        fill={`url(#${emeGradId})`}
-      >
-        Eme
-      </text>
-
-      <text
-        x="595"
-        y="180"
-        fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif"
-        fontSize="120"
-        fontWeight="800"
-        letterSpacing="-6"
-        fill="#0F172A"
-      >
-        Radar
-      </text>
+      ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill="#0F172A">Radar</tspan></text>
     </svg>
   );
 }
