@@ -35,9 +35,9 @@ export class AppError extends Error {
     super(opts.detail);
     this.name = 'AppError';
     this.status = opts.status;
-    this.code = opts.code;
+    this.code = opts.code || 'UNKNOWN_ERROR';
     this.detail = opts.detail;
-    this.typeUrl = opts.typeUrl || `https://docs.emeradar.com/errors/${opts.code.toLowerCase().replace(/_/g, '-')}`;
+    this.typeUrl = opts.typeUrl || `https://docs.emeradar.com/errors/${this.code.toLowerCase().replace(/_/g, '-')}`;
     this.upgrade = opts.upgrade;
     this.validationErrors = opts.validationErrors;
   }

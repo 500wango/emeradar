@@ -14,6 +14,8 @@
     "@emeradar/ledger": "workspace:*",
     "@emeradar/report": "workspace:*",
     "@emeradar/services": "workspace:*",
+    "@emeradar/collectors": "workspace:*",
+    "@emeradar/llm": "workspace:*",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {

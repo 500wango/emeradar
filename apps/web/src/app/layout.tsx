@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
+import { EvidenceDrawer } from '@/components/EvidenceDrawer';
 
 export const metadata: Metadata = {
   title: 'Emeradar | Search Opportunity Intelligence & Commercial Radar for Builders',
@@ -20,6 +21,7 @@ export default function RootLayout({
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />
+        <EvidenceDrawer />
       </body>
     </html>
   );

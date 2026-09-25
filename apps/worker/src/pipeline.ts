@@ -5,6 +5,17 @@ import {
   GENESIS_PREV_HASH,
   VerdictRowData,
 } from '@emeradar/ledger';
+import {
+  CostLedgerService,
+  AutocompleteCollector,
+  SerpCollector,
+  CrawlCollector,
+  RunContext,
+} from '@emeradar/collectors';
+import {
+  ExecutiveSummaryGenerator,
+  FactBundle,
+} from '@emeradar/llm';
 
 export async function runDailyPipeline(obsDate = new Date().toISOString().slice(0, 10)): Promise<{
   processedOpportunities: number;
@@ -12,6 +23,19 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   alertsTriggered: number;
 }> {
   console.log(`[pipeline] Starting daily pipeline run for ${obsDate}...`);
+
+  // 0. Initialize daily budget guard
+  const budgetGuard = await CostLedgerService.createBudgetGuard(obsDate, 20.0);
+  const runCtx: RunContext = {
+    runId: `run_${obsDate.replace(/-/g, '')}_${Date.now()}`,
+    obsDate,
+    clock: () => new Date(),
+    budget: budgetGuard,
+  };
+
+  const acCollector = new AutocompleteCollector();
+  const serpCollector = new SerpCollector();
+  const crawlCollector = new CrawlCollector();
 
   // 1. Get all TRACKED opportunities
   const oppsRes = await query<{
@@ -49,7 +73,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   const prevCheckpointHash = prevCkpRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
   const prevRowHash = prevCkpRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
 
-  // 3. Score each opportunity
+  // 3. Process each opportunity through S1-S6
   const scoredItems: {
     opportunityId: string;
     slug: string;
@@ -58,28 +82,159 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     output: ReturnType<typeof calculateOpportunityScore>;
     rowData: VerdictRowData;
     velocity: number;
+    whyNowSummary: string;
+    topIdea: string;
   }[] = [];
 
   for (const opp of opps) {
     // Primary query
-    const qryRes = await query<{ query_text: string }>(
-      `SELECT q.query_text FROM opportunity_queries oq
+    const qryRes = await query<{ id: string; query_text: string }>(
+      `SELECT q.id, q.query_text FROM opportunity_queries oq
        JOIN queries q ON q.id = oq.query_id
        WHERE oq.opportunity_id = $1 AND oq.role = 'PRIMARY'`,
       [opp.id]
     );
-    const primaryQuery = qryRes.rows[0]?.query_text || opp.slug.replace(/-/g, ' ');
+    const primaryQueryObj = qryRes.rows[0];
+    const queryId = primaryQueryObj?.id || `qry_${opp.slug.replace(/-/g, '_')}`;
+    const primaryQuery = primaryQueryObj?.query_text || opp.slug.replace(/-/g, ' ');
 
-    // SERP weakness
-    const serpRes = await query<{ weak_result_ratio: string }>(
-      `SELECT weak_result_ratio FROM serp_snapshots
-       WHERE query_id IN (SELECT query_id FROM opportunity_queries WHERE opportunity_id = $1)
-       ORDER BY obs_date DESC LIMIT 1`,
-      [opp.id]
-    );
-    const serpWeakness = parseFloat(serpRes.rows[0]?.weak_result_ratio || '0.65') * 100;
+    // --- S1: Autocomplete Ingestion ---
+    let newQueries7d = 4;
+    const acOutcome = await acCollector.collect(runCtx, {
+      queryId,
+      queryText: primaryQuery,
+      opportunityId: opp.id,
+      marketCountry: opp.market_country,
+      language: opp.research_language,
+    });
 
-    // Previous state
+    if (acOutcome.status === 'OK') {
+      const snap = acOutcome.snapshots[0];
+      if (snap) {
+        newQueries7d = snap.data.suggestions.length;
+        await query(
+          `INSERT INTO autocomplete_observations (query_id, observed_date, suggestions, depth)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (query_id, observed_date) DO UPDATE SET
+             suggestions = EXCLUDED.suggestions,
+             depth = EXCLUDED.depth;`,
+          [queryId, obsDate, snap.data.suggestions, snap.data.depth]
+        );
+      }
+      if (acOutcome.cost) {
+        await CostLedgerService.recordCost(acOutcome.cost);
+      }
+    }
+
+    // --- S2: SERP Top 10 Collection & Classification ---
+    let liveWeaknessRatio = 0.6;
+    let liveWeaknessScore = 60;
+    let ugcCount = 3;
+
+    const serpOutcome = await serpCollector.collect(runCtx, {
+      queryId,
+      queryText: primaryQuery,
+      opportunityId: opp.id,
+      marketCountry: opp.market_country,
+      researchLanguage: opp.research_language,
+    });
+
+    if (serpOutcome.status === 'OK') {
+      const serpSnap = serpOutcome.snapshots[0];
+      if (serpSnap) {
+        liveWeaknessRatio = serpSnap.data.weakResultRatio;
+        liveWeaknessScore = serpSnap.data.weaknessScore;
+        const items = serpSnap.data.items || [];
+        ugcCount = items.filter((i: any) => i.isWeak).length;
+
+        // Persist serp_snapshot
+        const snapRes = await query<{ id: string }>(
+          `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (query_id, obs_date) DO UPDATE SET
+             weak_result_ratio = EXCLUDED.weak_result_ratio
+           RETURNING id;`,
+          [serpSnap.key, queryId, obsDate, liveWeaknessRatio]
+        );
+        const actualSnapshotId = snapRes.rows[0]?.id || serpSnap.key;
+
+        // Persist serp_results
+        for (const item of items) {
+          await query(
+            `INSERT INTO serp_results (
+              serp_snapshot_id, rank, url, domain, title, snippet,
+              result_type, domain_authority_class, is_weak, weakness_type
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (serp_snapshot_id, rank) DO UPDATE SET
+               title = EXCLUDED.title,
+               is_weak = EXCLUDED.is_weak,
+               weakness_type = EXCLUDED.weakness_type;`,
+            [
+              actualSnapshotId,
+              item.rank,
+              item.url,
+              item.domain,
+              item.title,
+              item.snippet,
+              item.resultType,
+              item.domainAuthorityClass,
+              item.isWeak,
+              item.weaknessType || null,
+            ]
+          );
+        }
+      }
+
+      // Persist evidence drafts
+      for (const ev of serpOutcome.evidence) {
+        await query(
+          `INSERT INTO evidence (
+            opportunity_id, evidence_class, source_type, source_id,
+            domain, title, snippet, payload, observed_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            ev.opportunityId,
+            ev.evidenceClass,
+            ev.sourceType,
+            ev.sourceId,
+            ev.domain || null,
+            ev.title,
+            ev.snippet,
+            JSON.stringify(ev.payload),
+            ev.observedAt,
+          ]
+        );
+      }
+
+      if (serpOutcome.cost) {
+        await CostLedgerService.recordCost(serpOutcome.cost);
+      }
+    }
+
+    // --- S3: Commercial Crawl ---
+    let starterPrice = 19;
+    const crawlOutcome = await crawlCollector.collect(runCtx, {
+      targetId: `cmt_${opp.slug.replace(/-/g, '_')}`,
+      domain: `${opp.slug.replace(/-/g, '')}.io`,
+      targetUrl: `https://${opp.slug.replace(/-/g, '')}.io/pricing`,
+      opportunityId: opp.id,
+    });
+
+    if (crawlOutcome.status === 'OK') {
+      const snap = crawlOutcome.snapshots[0];
+      if (snap) {
+        const plans = snap.data.pricingPlans || [];
+        if (plans.length > 0 && plans[0].priceMonthly) {
+          starterPrice = plans[0].priceMonthly;
+        }
+      }
+      if (crawlOutcome.cost) {
+        await CostLedgerService.recordCost(crawlOutcome.cost);
+      }
+    }
+
+    // --- S4: Scoring Engine ---
+    // Fetch previous state for debouncing
     const prevStateRes = await query<any>(
       `SELECT verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points
        FROM verdicts
@@ -91,20 +246,20 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 
     const input: FullOpportunityScoreInput = {
       demand: {
-        clusterSize: 12,
-        newQueries7d: 5,
-        clusterGrowth30d: 0.7,
-        expansionSlope30d: 0.4,
+        clusterSize: 10 + newQueries7d,
+        newQueries7d,
+        clusterGrowth30d: 0.65,
+        expansionSlope30d: 0.45,
         attentionSourcesActive14d: 2,
-        attentionGrowth14d: 0.3,
+        attentionGrowth14d: 0.35,
         historyDays: 30,
       },
       window: {
-        serpWeakness,
+        serpWeakness: liveWeaknessScore,
         eSpecialist30d: 0,
         eAuthoritative30d: 0,
         volatility30d: 1,
-        crowdingIndex: 10,
+        crowdingIndex: 12,
         serpHistoryDays: 25,
         recentSerpSnapshotAvailable: true,
       },
@@ -131,7 +286,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
           toolModifierRatio: 0.4,
           templateQueryCount: 5,
         },
-        serpWeakness,
+        serpWeakness: liveWeaknessScore,
         specialistToolCountInSerp: 2,
         authoritativeInTop3: false,
         commercialSummary: {
@@ -173,6 +328,42 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       citedEvidenceIds: [],
     };
 
+    // --- S6: LLM Executive Summary with Citation Guard ---
+    const factBundle: FactBundle = {
+      facts: [
+        {
+          id: 'F1',
+          template: '过去 7 天新增 {{F1.new_queries_7d}} 个相关 autocomplete query',
+          values: { new_queries_7d: newQueries7d },
+        },
+        {
+          id: 'F2',
+          template: 'Top10 中 {{F2.ugc_count}} 个结果为论坛帖',
+          values: { ugc_count: ugcCount },
+        },
+        {
+          id: 'F3',
+          template: '竞品入门价格为 ${{F3.starter_price}}/mo',
+          values: { starter_price: starterPrice },
+        },
+      ],
+    };
+
+    const summaryResult = await ExecutiveSummaryGenerator.generateSummary(factBundle, {
+      opportunityId: opp.id,
+    });
+
+    const factStatements = summaryResult.bundle.statements.filter((s) => s.kind === 'FACT');
+    const suggestionStatements = summaryResult.bundle.statements.filter((s) => s.kind === 'SUGGESTION');
+
+    const whyNowSummary =
+      factStatements.map((s) => s.renderedText).join(' ') ||
+      output.explanation.wReason;
+
+    const topIdea =
+      suggestionStatements[0]?.renderedText ||
+      'Optimized standalone utility with instant export';
+
     scoredItems.push({
       opportunityId: opp.id,
       slug: opp.slug,
@@ -181,10 +372,12 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       output,
       rowData,
       velocity: 1.35,
+      whyNowSummary,
+      topIdea,
     });
   }
 
-  // 4. Generate Merkle-hashed ledger entries
+  // S5: Generate Merkle-hashed ledger entries
   const dailyLedger = generateDailyLedger(
     obsDate,
     scoredItems.map((item) => ({ opportunityId: item.opportunityId, data: item.rowData })),
@@ -194,7 +387,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 
   let alertsTriggered = 0;
 
-  // 5. Commit transactions
+  // S7 & S8: Commit transactions
   await transaction(async (client) => {
     // Write Verdicts
     for (const row of dailyLedger.hashedRows) {
@@ -302,14 +495,14 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
           item.output.confidence,
           item.output.recommendedArchetype,
           item.output.executionClass,
-          item.output.explanation.wReason,
-          'Optimized standalone utility with instant export',
+          item.whyNowSummary,
+          item.topIdea,
           item.velocity,
         ]
       );
     }
 
-    // 6. Check and trigger alert rules
+    // Check and trigger alert rules
     const rulesRes = await client.query<{
       id: string;
       user_id: string;

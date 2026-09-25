@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { OpportunityService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
+import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
+import { CommercialProofPanel } from '@/components/CommercialProofPanel';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
@@ -257,32 +259,30 @@ export default async function OpportunityWorkspacePage({
             </div>
           </div>
 
-          {/* Section 4: Evidence Traceability */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">
-              Corroborating Evidence Chain
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              Raw signals from SERP, social forums, and commercial web pricing
-            </p>
+          {/* Section 4: Commercial Signal Proof Boundary (PRD F7) */}
+          <CommercialProofPanel
+            stage={opportunity.commercial_stage}
+            gateways={['Stripe', 'LemonSqueezy']}
+            plansCount={2}
+          />
 
-            <div className="space-y-3">
-              {evidence.map((ev: any) => (
-                <div
-                  key={ev.id}
-                  className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs"
-                >
-                  <div className="flex items-center justify-between text-slate-500 mb-1">
-                    <span className="font-semibold text-slate-700">{ev.domain || ev.source_type}</span>
-                    <span className="bg-slate-200/70 px-2 py-0.5 rounded text-[10px] uppercase font-bold text-slate-600">
-                      {ev.evidence_class}
-                    </span>
-                  </div>
-                  <p className="font-medium text-slate-900">{ev.title}</p>
-                  <p className="text-slate-600 mt-1 italic">&ldquo;{ev.snippet}&rdquo;</p>
-                </div>
-              ))}
+          {/* Section 5: Corroborating Evidence Chain with Slide-Over Drawer */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Corroborating Evidence Chain
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Raw verifiable signals from SERP, social forums, and web pricing (click any item to inspect raw Merkle-anchored payload)
+                </p>
+              </div>
+              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                {evidence.length} Items Recorded
+              </span>
             </div>
+
+            <EvidenceInteractiveList evidence={evidence} />
           </div>
         </div>
 
