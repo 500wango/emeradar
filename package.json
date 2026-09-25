@@ -1,0 +1,20 @@
+{
+  "name": "emeradar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Emeradar - Search Opportunity Intelligence & Commercial Signal Radar for Builders",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:migrate": "pnpm --filter @emeradar/db run migrate",
+    "db:seed": "pnpm --filter @emeradar/db run seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2"
+  },
+  "packageManager": "pnpm@11.21.0"
+}

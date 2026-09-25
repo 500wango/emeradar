@@ -1,0 +1,259 @@
+import { query } from '@emeradar/db';
+import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
+
+export interface FeedCardFilterOptions {
+  verdict?: Verdict;
+  archetype?: BuildArchetype;
+  executionClass?: ExecutionClass;
+  minD?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FeedCardItem {
+  opportunityId: string;
+  slug: string;
+  title: string;
+  primaryQuery: string;
+  verdict: Verdict;
+  lifecycle: string;
+  dBasisPoints: number;
+  mBasisPoints: number;
+  wBasisPoints: number;
+  dBand: string;
+  mBand: string;
+  wBand: string;
+  confidence: string;
+  recommendedArchetype: BuildArchetype;
+  executionClass: ExecutionClass;
+  whyNowSummary: string;
+  topIdea: string;
+  firstObservedAt: string;
+  queryVelocity: number;
+  featuredEvidenceSnippet?: string;
+}
+
+export interface FeedResponse {
+  items: FeedCardItem[];
+  total: number;
+  hasMore: boolean;
+  activeFilters: FeedCardFilterOptions;
+  zeroStateAlternativeCount?: number;
+}
+
+export class OpportunityService {
+  /**
+   * Query feed cards with filtering, sorting, and pagination
+   */
+  static async listFeedCards(options: FeedCardFilterOptions = {}): Promise<FeedResponse> {
+    const {
+      verdict,
+      archetype,
+      executionClass,
+      minD,
+      search,
+      limit = 20,
+      offset = 0,
+    } = options;
+
+    const conditions: string[] = ['1=1'];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (verdict) {
+      conditions.push(`c.verdict = $${paramIdx++}`);
+      params.push(verdict);
+    }
+    if (archetype) {
+      conditions.push(`c.recommended_archetype = $${paramIdx++}`);
+      params.push(archetype);
+    }
+    if (executionClass) {
+      conditions.push(`c.execution_class = $${paramIdx++}`);
+      params.push(executionClass);
+    }
+    if (minD !== undefined) {
+      conditions.push(`c.d_basis_points >= $${paramIdx++}`);
+      params.push(minD);
+    }
+    if (search && search.trim().length > 0) {
+      conditions.push(
+        `(o.title ILIKE $${paramIdx} OR c.primary_query ILIKE $${paramIdx} OR c.why_now_summary ILIKE $${paramIdx})`
+      );
+      params.push(`%${search.trim()}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Count query
+    const countRes = await query<{ count: string }>(
+      `SELECT COUNT(*) as count 
+       FROM opportunity_cards c
+       JOIN opportunities o ON o.id = c.opportunity_id
+       WHERE ${whereClause}`,
+      params
+    );
+    const total = parseInt(countRes.rows[0]?.count ?? '0', 10);
+
+    // Items query (sorted by D-score descending by default)
+    const itemsRes = await query<any>(
+      `SELECT 
+        c.opportunity_id,
+        c.slug,
+        o.title,
+        c.primary_query,
+        c.verdict,
+        c.lifecycle,
+        c.d_basis_points,
+        c.m_basis_points,
+        c.w_basis_points,
+        c.d_band,
+        c.m_band,
+        c.w_band,
+        c.confidence,
+        c.recommended_archetype,
+        c.execution_class,
+        c.why_now_summary,
+        c.top_idea,
+        c.first_observed_at,
+        c.query_velocity,
+        c.featured_evidence_snippet
+       FROM opportunity_cards c
+       JOIN opportunities o ON o.id = c.opportunity_id
+       WHERE ${whereClause}
+       ORDER BY c.d_basis_points DESC
+       LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+      [...params, limit, offset]
+    );
+
+    const items: FeedCardItem[] = itemsRes.rows.map((r) => ({
+      opportunityId: r.opportunity_id,
+      slug: r.slug,
+      title: r.title,
+      primaryQuery: r.primary_query,
+      verdict: r.verdict,
+      lifecycle: r.lifecycle,
+      dBasisPoints: r.d_basis_points,
+      mBasisPoints: r.m_basis_points,
+      wBasisPoints: r.w_basis_points,
+      dBand: r.d_band,
+      mBand: r.m_band,
+      wBand: r.w_band,
+      confidence: r.confidence,
+      recommendedArchetype: r.recommended_archetype,
+      executionClass: r.execution_class,
+      whyNowSummary: r.why_now_summary,
+      topIdea: r.top_idea,
+      firstObservedAt: r.first_observed_at,
+      queryVelocity: parseFloat(r.query_velocity),
+      featuredEvidenceSnippet: r.featured_evidence_snippet,
+    }));
+
+    // Zero-state relaxed count fallback if 0 items found
+    let zeroStateAlternativeCount: number | undefined;
+    if (total === 0 && (verdict || archetype || executionClass)) {
+      const altRes = await query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM opportunity_cards`
+      );
+      zeroStateAlternativeCount = parseInt(altRes.rows[0]?.count ?? '0', 10);
+    }
+
+    return {
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      activeFilters: options,
+      zeroStateAlternativeCount,
+    };
+  }
+
+  /**
+   * Get full 9-section opportunity decision workspace details
+   */
+  static async getOpportunityDetail(idOrSlug: string): Promise<any> {
+    const oppRes = await query<any>(
+      `SELECT o.*, 
+        c.primary_query, c.verdict, c.lifecycle,
+        c.d_basis_points, c.m_basis_points, c.w_basis_points,
+        c.d_band, c.m_band, c.w_band, c.confidence,
+        c.why_now_summary, c.top_idea, c.query_velocity
+       FROM opportunities o
+       JOIN opportunity_cards c ON c.opportunity_id = o.id
+       WHERE o.id = $1 OR o.slug = $1`,
+      [idOrSlug]
+    );
+
+    if (oppRes.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.NOT_FOUND,
+        `Opportunity not found: ${idOrSlug}`,
+        404
+      );
+    }
+
+    const opp = oppRes.rows[0];
+
+    // Queries in cluster
+    const queriesRes = await query<any>(
+      `SELECT q.id, q.query_text, q.tier, oq.role
+       FROM opportunity_queries oq
+       JOIN queries q ON q.id = oq.query_id
+       WHERE oq.opportunity_id = $1
+       ORDER BY oq.role ASC, q.tier ASC`,
+      [opp.id]
+    );
+
+    // Latest SERP snapshot and results
+    const serpRes = await query<any>(
+      `SELECT s.id as serp_snapshot_id, s.weak_result_ratio,
+              r.rank, r.url, r.domain, r.title, r.snippet, r.result_type, r.is_weak, r.weakness_type
+       FROM serp_snapshots s
+       JOIN serp_results r ON r.serp_snapshot_id = s.id
+       JOIN opportunity_queries oq ON oq.query_id = s.query_id AND oq.role = 'PRIMARY'
+       WHERE oq.opportunity_id = $1
+       ORDER BY r.rank ASC`,
+      [opp.id]
+    );
+
+    // Evidence items
+    const evidenceRes = await query<any>(
+      `SELECT id, evidence_class, source_type, domain, title, snippet, payload, observed_at
+       FROM evidence
+       WHERE opportunity_id = $1
+       ORDER BY observed_at DESC`,
+      [opp.id]
+    );
+
+    // Kill criteria
+    const kcRes = await query<any>(
+      `SELECT id, rule_code, description, status, triggered_at
+       FROM kill_criteria
+       WHERE opportunity_id = $1
+       ORDER BY rule_code ASC`,
+      [opp.id]
+    );
+
+    // Latest verdict with cryptographic row_hash
+    const verdictRes = await query<any>(
+      `SELECT id, obs_date, scoring_config_version, verdict, lifecycle,
+              d_basis_points, m_basis_points, w_basis_points, confidence,
+              prev_hash, row_hash, created_at
+       FROM verdicts
+       WHERE opportunity_id = $1
+       ORDER BY obs_date DESC
+       LIMIT 1`,
+      [opp.id]
+    );
+
+    return {
+      opportunity: opp,
+      queries: queriesRes.rows,
+      serpResults: serpRes.rows,
+      evidence: evidenceRes.rows,
+      killCriteria: kcRes.rows,
+      latestVerdict: verdictRes.rows[0] || null,
+    };
+  }
+}

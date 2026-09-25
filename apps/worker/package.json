@@ -1,0 +1,24 @@
+{
+  "name": "@emeradar/worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "run-daily": "tsx src/cli.ts run-daily",
+    "verify-ledger": "tsx src/cli.ts verify-ledger"
+  },
+  "dependencies": {
+    "@emeradar/core": "workspace:*",
+    "@emeradar/db": "workspace:*",
+    "@emeradar/scoring": "workspace:*",
+    "@emeradar/ledger": "workspace:*",
+    "@emeradar/report": "workspace:*",
+    "@emeradar/services": "workspace:*",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
