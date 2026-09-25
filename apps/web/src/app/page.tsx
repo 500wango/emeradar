@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { OpportunityService } from '@emeradar/services';
 import { Logo } from '@/components/Logo';
+import { LiveScanner } from '@/components/LiveScanner';
 
 export default async function HomePage() {
   const feed = await OpportunityService.listFeedCards({ limit: 2 });
@@ -40,22 +41,9 @@ export default async function HomePage() {
             Emeradar scans millions of search queries to detect emerging customer intent, identifies attackable SERP weakness, and confirms commercial willingness to pay before you write a line of code.
           </p>
 
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Link
-              href="/feed"
-              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all text-sm group"
-            >
-              <span>Explore Live Opportunities</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-            </Link>
-
-            <Link
-              href="/track-record"
-              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 shadow-sm transition-all text-sm"
-            >
-              <FileCheck2 className="w-4 h-4 text-emerald-600" />
-              <span>Verify Track Record</span>
-            </Link>
+          {/* Live Scanner Search Bar in Hero */}
+          <div className="mt-10 max-w-2xl mx-auto text-left">
+            <LiveScanner />
           </div>
 
           {/* Social Proof Stats */}
@@ -256,8 +244,4 @@ export default async function HomePage() {
       </section>
     </div>
   );
-}
-
-function FileCheck2(props: any) {
-  return <ShieldCheck {...props} />;
 }

@@ -5,3 +5,4 @@ export * from './project.service';
 export * from './alert.service';
 export * from './track-record.service';
 export * from './auth.service';
+export * from './live-scan.service';
