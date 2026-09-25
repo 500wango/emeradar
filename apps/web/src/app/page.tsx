@@ -10,6 +10,7 @@ import {
 import { OpportunityService } from '@emeradar/services';
 import { Logo } from '@/components/Logo';
 import { LiveScanner } from '@/components/LiveScanner';
+import { IdeationHub } from '@/components/IdeationHub';
 
 export default async function HomePage() {
   const feed = await OpportunityService.listFeedCards({ limit: 2 });
@@ -147,6 +148,13 @@ export default async function HomePage() {
               </ul>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Builder Ideation & Niche Matrix */}
+      <section className="py-16 bg-white border-b border-slate-200/80">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <IdeationHub />
         </div>
       </section>
 

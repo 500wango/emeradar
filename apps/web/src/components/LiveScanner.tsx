@@ -10,16 +10,84 @@ import {
   CheckCircle2,
   AlertCircle,
   Search,
-  Compass,
+  Dices,
+  Shield,
+  Zap,
+  MessageSquareQuote,
+  Building2,
 } from 'lucide-react';
 
-const SUGGESTED_QUERIES = [
-  'ai vocal isolator web',
-  'deepseek cost calculator',
-  'shopify bundle discount',
-  'figma tokens to tailwind',
-  'markdown to academic pdf',
-  'screen recorder no watermark online',
+const SURPRISE_NICHES = [
+  'deepseek api pricing and cost calculator',
+  'free screen recorder no watermark online',
+  'ai vocal isolator web free',
+  'etsy seller profit calculator 2026',
+  'notion auto export backup to google drive',
+  'figma design tokens to tailwind config',
+  'supabase automated s3 backup cron',
+  'robots txt ai crawler disallow generator',
+  'split 1gb csv file online without crash',
+  'shopify tiered bundle pricing calculator',
+  'dynamic og image generator nextjs',
+  'local whisper subtitle translator mac',
+];
+
+const FORMULA_CATEGORIES = [
+  {
+    id: 'ALL',
+    label: '🔥 Trending Ideas',
+    icon: Sparkles,
+    queries: [
+      'deepseek api pricing and cost calculator',
+      'ai vocal isolator web free',
+      'figma design tokens to tailwind config',
+      'free screen recorder no watermark online',
+    ],
+  },
+  {
+    id: 'REDDIT',
+    label: '💬 Reddit 弱对手词',
+    icon: MessageSquareQuote,
+    badge: '首页全是讨论帖，无好工具',
+    queries: [
+      'free screen recorder no watermark online',
+      'split 1gb csv file online without crash',
+      'clean markdown to academic pdf converter',
+    ],
+  },
+  {
+    id: 'UNBUNDLE',
+    label: '🏢 大厂昂贵功能拆解',
+    icon: Building2,
+    badge: '截胡 $50+/mo 巨头的单点需求',
+    queries: [
+      'shopify tiered bundle pricing calculator',
+      'etsy seller profit calculator 2026',
+      'ios app store keyword density counter',
+    ],
+  },
+  {
+    id: 'WASM',
+    label: '🔒 纯本地 WASM 隐私工具',
+    icon: Shield,
+    badge: '零服务器成本，用户隐私安全',
+    queries: [
+      'ai vocal isolator web free',
+      'local whisper subtitle translator mac',
+      'google serp title tag pixel width preview',
+    ],
+  },
+  {
+    id: 'ARBITRAGE',
+    label: '⚡ 平台更新阵痛红利',
+    icon: Zap,
+    badge: '大模型/框架改版急需过渡工具',
+    queries: [
+      'deepseek api pricing and cost calculator',
+      'robots txt ai crawler disallow generator',
+      'dynamic og image generator nextjs',
+    ],
+  },
 ];
 
 interface LiveScanModalProps {
@@ -33,6 +101,8 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
   const [scanStep, setScanStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<any | null>(null);
+  const [selectedFormula, setSelectedFormula] = useState('ALL');
+  const [isRolling, setIsRolling] = useState(false);
 
   const scanSteps = [
     'Querying Google Autocomplete long-tail intent clusters...',
@@ -89,9 +159,25 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
     }
   };
 
+  // 🎲 Surprise Me: pick a random high-potential niche
+  const handleSurpriseMe = () => {
+    setIsRolling(true);
+    const randomIndex = Math.floor(Math.random() * SURPRISE_NICHES.length);
+    const pickedNiche = SURPRISE_NICHES[randomIndex];
+    setQuery(pickedNiche);
+
+    setTimeout(() => {
+      setIsRolling(false);
+      handleScan(pickedNiche);
+    }, 400);
+  };
+
   const handleOpenWorkspace = (slug: string) => {
     router.push(`/opportunities/${slug}`);
   };
+
+  const currentCategory =
+    FORMULA_CATEGORIES.find((c) => c.id === selectedFormula) || FORMULA_CATEGORIES[0];
 
   return (
     <div className="w-full">
@@ -117,11 +203,26 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={isScanning}
-            placeholder="Scan any keyword, niche or competitor (e.g. 'notion habit tracker', 'invoice generator free')..."
+            placeholder="Scan any keyword or niche (e.g. 'notion habit tracker', 'invoice generator free')..."
             className="w-full py-3.5 sm:py-4 px-2 text-sm sm:text-base text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none disabled:opacity-50"
           />
 
-          <div className="pr-2 sm:pr-3 shrink-0">
+          <div className="pr-2 sm:pr-3 flex items-center gap-1.5 shrink-0">
+            {/* 🎲 Surprise Me Button */}
+            <button
+              type="button"
+              onClick={handleSurpriseMe}
+              disabled={isScanning || isRolling}
+              title="不知道搜什么？随机抽一个高潜力商机"
+              className="px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl font-semibold text-xs text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 border border-slate-200 transition-all flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Dices
+                className={`w-4 h-4 text-indigo-600 ${isRolling ? 'animate-spin' : ''}`}
+              />
+              <span className="hidden md:inline">给我一个灵感</span>
+            </button>
+
+            {/* Scan Market Button */}
             <button
               type="submit"
               disabled={isScanning || !query.trim()}
@@ -142,32 +243,60 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
           </div>
         </form>
 
-        {/* Suggested keywords badges */}
-        <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
-          <span className="text-slate-400 font-medium flex items-center gap-1 shrink-0">
-            <Compass className="w-3.5 h-3.5 text-slate-400" />
-            Try scanning:
-          </span>
-          {SUGGESTED_QUERIES.map((sq) => (
-            <button
-              key={sq}
-              type="button"
-              onClick={() => {
-                setQuery(sq);
-                handleScan(sq);
-              }}
-              disabled={isScanning}
-              className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 font-medium transition text-[11px] disabled:opacity-50"
-            >
-              {sq}
-            </button>
-          ))}
+        {/* 4 大立项公式快捷切换标签 */}
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {FORMULA_CATEGORIES.map((cat) => {
+              const Icon = cat.icon;
+              const active = selectedFormula === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedFormula(cat.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{cat.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 公式说明与快捷点选词 */}
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap text-xs">
+            {currentCategory.badge && (
+              <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium shrink-0">
+                {currentCategory.badge}
+              </span>
+            )}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {currentCategory.queries.map((qText) => (
+                <button
+                  key={qText}
+                  type="button"
+                  onClick={() => {
+                    setQuery(qText);
+                    handleScan(qText);
+                  }}
+                  disabled={isScanning}
+                  className="px-2.5 py-1 rounded-full bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-600 font-medium transition text-[11px] border border-slate-200/80 shadow-2xs disabled:opacity-50"
+                >
+                  {qText}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Scanning In-Progress Feedback */}
       {isScanning && (
-        <div className="mt-4 p-5 rounded-2xl bg-blue-50/80 border border-blue-200 text-blue-900 shadow-sm animate-pulse">
+        <div className="mt-5 p-5 rounded-2xl bg-blue-50/80 border border-blue-200 text-blue-900 shadow-sm animate-pulse">
           <div className="flex items-center gap-3">
             <Radar className="w-5 h-5 text-blue-600 animate-spin" />
             <div className="flex-1">

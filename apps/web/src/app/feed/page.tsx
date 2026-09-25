@@ -1,6 +1,7 @@
 import { OpportunityService } from '@emeradar/services';
 import { FeedClient } from '@/components/FeedClient';
 import { LiveScanner } from '@/components/LiveScanner';
+import { IdeationHub } from '@/components/IdeationHub';
 import { Radar, Sparkles } from 'lucide-react';
 
 export default async function FeedPage() {
@@ -42,6 +43,11 @@ export default async function FeedPage() {
 
       {/* Interactive Client Feed */}
       <FeedClient initialItems={feed.items} total={feed.total} />
+
+      {/* Builder Ideation Hub */}
+      <div className="mt-16 pt-12 border-t border-slate-200">
+        <IdeationHub />
+      </div>
     </div>
   );
 }
