@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { ShieldCheck, Radar } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
+import { Logo } from './Logo';
 
 export function Footer() {
   return (
@@ -7,10 +8,7 @@ export function Footer() {
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white">
-              <Radar className="w-4 h-4" />
-            </div>
-            <span className="font-bold text-slate-800 tracking-tight">Emeradar</span>
+            <Logo variant="header" className="h-7 w-auto" idPrefix="footer" />
             <span className="text-xs text-slate-400">|</span>
             <span className="text-xs text-slate-500">
               Search Opportunity Intelligence & Commercial Signal Radar for Builders

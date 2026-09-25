@@ -8,6 +8,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { OpportunityService } from '@emeradar/services';
+import { Logo } from '@/components/Logo';
 
 export default async function HomePage() {
   const feed = await OpportunityService.listFeedCards({ limit: 2 });
@@ -15,8 +16,13 @@ export default async function HomePage() {
   return (
     <div className="flex flex-col">
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/50 via-white to-slate-50 border-b border-slate-200/80 pt-16 pb-20 lg:pt-24 lg:pb-28">
+      <section className="relative overflow-hidden bg-gradient-to-b from-blue-50/50 via-white to-slate-50 border-b border-slate-200/80 pt-16 pb-20 lg:pt-20 lg:pb-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
+          {/* Main Logo Display */}
+          <div className="flex justify-center mb-8">
+            <Logo variant="full" className="h-20 sm:h-24 w-auto max-w-full drop-shadow-sm" idPrefix="hero-main" />
+          </div>
+
           {/* Top Badge */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-blue-100/80 text-blue-800 border border-blue-200 mb-8 shadow-sm">
             <ShieldCheck className="w-4 h-4 text-blue-600" />

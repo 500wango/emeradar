@@ -1,0 +1,37 @@
+<svg
+  width="265"
+  height="215"
+  viewBox="45 55 265 215"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  role="img"
+>
+  <defs>
+    <linearGradient
+      id="appIconGradient"
+      x1="60"
+      y1="230"
+      x2="300"
+      y2="70"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="35%" stop-color="#2563EB"/>
+      <stop offset="68%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+  </defs>
+
+  <path
+    d="M58 205 Q58 193 69 188 L115 166 Q128 160 128 174 L128 230 Q128 239 119 243 L73 260 Q58 265 58 249 Z"
+    fill="url(#appIconGradient)"
+  />
+  <path
+    d="M138 159 Q138 148 149 142 L213 109 Q227 102 227 118 L227 211 Q227 221 218 226 L155 258 Q138 266 138 248 Z"
+    fill="url(#appIconGradient)"
+  />
+  <path
+    d="M230 101 L286 72 Q299 65 299 80 L299 151 Q299 159 292 164 L254 190 Q242 198 242 183 L242 125 L218 125 Q204 125 214 114 Z"
+    fill="url(#appIconGradient)"
+  />
+</svg>
