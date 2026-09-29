@@ -1,15 +1,20 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import {
   Bell,
   ShieldAlert,
   ArrowUpRight,
   Clock,
 } from 'lucide-react';
-import { AlertService } from '@emeradar/services';
+import { AlertService, AuthService } from '@emeradar/services';
 import { formatDateTime } from '@/lib/format';
 
 export default async function AlertsPage() {
-  const userId = 'usr_demo_pro';
+  const token = (await cookies()).get('emeradar_session')?.value;
+  const session = token ? await AuthService.getSessionUser(token) : null;
+  if (!session) redirect('/login');
+  const userId = session.user.id;
   const rules = await AlertService.listAlertRules(userId);
   const notifications = await AlertService.listNotifications(userId);
 

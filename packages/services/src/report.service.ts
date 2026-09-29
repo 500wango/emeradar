@@ -22,6 +22,13 @@ export class ReportService {
     markdown: string;
     cached: boolean;
   }> {
+    const gate = await query<{ status: string; verdict: string; confidence: string }>(
+      `SELECT o.status, c.verdict, c.confidence FROM opportunities o
+       JOIN opportunity_cards c ON c.opportunity_id = o.id WHERE o.id = $1`, [opportunityId]);
+    if (gate.rows.length === 0) throw new EmeradarError(ErrorCode.NOT_FOUND, `Opportunity not found: ${opportunityId}`, 404);
+    if (gate.rows[0].status !== 'TRACKED' || !['BUILD_NOW', 'EARLY_BET'].includes(gate.rows[0].verdict) || gate.rows[0].confidence === 'LOW') {
+      throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'Reports require a published BUILD_NOW or EARLY_BET opportunity.', 409);
+    }
     // 1. Check for cached report matching latest snapshot
     const cachedRes = await query<{
       id: string;
@@ -31,7 +38,11 @@ export class ReportService {
     }>(
       `SELECT r.id, r.content, r.content_markdown, r.stale
        FROM opportunity_reports r
+       JOIN opportunity_cards c ON c.opportunity_id = r.opportunity_id
+       JOIN opportunity_snapshots os ON os.opportunity_id = r.opportunity_id AND os.obs_date = CURRENT_DATE
        WHERE r.opportunity_id = $1 AND r.user_id = $2 AND r.locale = $3
+         AND r.snapshot_id = os.id
+         AND r.content->'metadata'->>'verdict' = c.verdict
        ORDER BY r.created_at DESC
        LIMIT 1`,
       [opportunityId, userId, locale]
@@ -58,8 +69,10 @@ export class ReportService {
                 c.d_basis_points, c.m_basis_points, c.w_basis_points,
                 c.d_band, c.m_band, c.w_band, c.confidence,
                 c.recommended_archetype, c.execution_class,
+                c.search_intent, c.recommended_product_shape, c.site_strategy,
+                c.intent_evidence,
                 c.why_now_summary, c.top_idea, c.query_velocity,
-                s.id as snapshot_id, v.id as verdict_id
+                s.id as snapshot_id, s.obs_date as snapshot_obs_date, v.id as verdict_id
          FROM opportunities o
          JOIN opportunity_cards c ON c.opportunity_id = o.id
          LEFT JOIN opportunity_snapshots s ON s.opportunity_id = o.id AND s.obs_date = CURRENT_DATE
@@ -78,18 +91,22 @@ export class ReportService {
 
       const opp = oppRes.rows[0];
       const reportId = `rpt_${opportunityId}_${Date.now()}`;
-      const snapshotId = opp.snapshot_id || `snp_${opportunityId}_today`;
-      const verdictId = opp.verdict_id || `vdt_${opportunityId}_today`;
+      if (!opp.snapshot_id || !opp.verdict_id) {
+        throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'A sealed snapshot and verdict are required before generating a report.', 409);
+      }
+      const snapshotId = opp.snapshot_id;
+      const verdictId = opp.verdict_id;
 
       // Fetch SERP top 10
       const serpRes = await query<any>(
-        `SELECT r.rank, r.domain, r.title, r.result_type, r.is_weak, r.weakness_type
-         FROM serp_snapshots s
-         JOIN serp_results r ON r.serp_snapshot_id = s.id
-         JOIN opportunity_queries oq ON oq.query_id = s.query_id AND oq.role = 'PRIMARY'
+        `SELECT r.rank, r.url, r.domain, r.title, r.result_type, r.is_weak, r.weakness_type
+         FROM serp_snapshots ss
+         JOIN serp_results r ON r.serp_snapshot_id = ss.id
+         JOIN opportunity_queries oq ON oq.query_id = ss.query_id AND oq.role = 'PRIMARY'
+         JOIN opportunity_snapshots os ON os.opportunity_id = $1 AND os.id = $2 AND os.obs_date = ss.obs_date
          WHERE oq.opportunity_id = $1
          ORDER BY r.rank ASC LIMIT 10`,
-        [opportunityId]
+        [opportunityId, snapshotId]
       );
 
       // Fetch Kill Criteria
@@ -115,7 +132,7 @@ export class ReportService {
           rawVerdict: opp.verdict,
           lifecycle: opp.lifecycle,
           confidence: opp.confidence,
-          confidenceScore: 0.85,
+          confidenceScore: 0,
           dScore: opp.d_basis_points,
           mScore: opp.m_basis_points,
           wScore: opp.w_basis_points,
@@ -124,21 +141,28 @@ export class ReportService {
           wBand: opp.w_band,
           flags: [],
           explanation: {
-            dReason: `Search velocity ${opp.query_velocity}x baseline`,
-            mReason: 'Demonstrated monetization headroom',
-            wReason: opp.why_now_summary,
-            verdictReason: `D=${opp.d_basis_points}, M=${opp.m_basis_points}, W=${opp.w_basis_points}`,
-            rulesTriggered: ['RULE_' + opp.verdict],
+            dReason: `Demand band on file: ${opp.d_band}.`,
+            mReason:
+              Number(opp.m_basis_points) > 0
+                ? `Commercial band on file: ${opp.m_band}.`
+                : 'No pricing or checkout observation is stored.',
+            wReason: `Window band on file: ${opp.w_band}. ${opp.why_now_summary}`,
+            verdictReason: opp.why_now_summary,
+            rulesTriggered: [],
           },
           recommendedArchetype: opp.recommended_archetype,
           executionClass: opp.execution_class,
         },
-        obsDate: new Date().toISOString().slice(0, 10),
+        obsDate: opp.snapshot_obs_date,
         locale,
         primaryQuery: opp.primary_query,
+        searchIntent: opp.search_intent || undefined,
+        recommendedProductShape: opp.recommended_product_shape || undefined,
+        siteStrategy: opp.site_strategy || undefined,
         queryVelocity: parseFloat(opp.query_velocity),
         top10Serp: serpRes.rows.map((r) => ({
           rank: r.rank,
+          url: r.url,
           domain: r.domain,
           title: r.title,
           resultType: r.result_type,
@@ -216,8 +240,18 @@ export class ReportService {
    */
   static async exportReportFormat(
     reportId: string,
-    format: 'markdown' | 'json' | 'html'
+    format: 'markdown' | 'json' | 'html',
+    userId: string
   ): Promise<{ content: string; contentType: string; filename: string }> {
+    const ent = await EntitlementService.getUserEntitlements(userId);
+    if (!ent.deepReportExport) {
+      throw new EmeradarError(
+        ErrorCode.FORBIDDEN,
+        'Report export is available on Builder Pro and Team plans.',
+        403,
+        { upgradeUrl: '/pricing' }
+      );
+    }
     const res = await query<{
       id: string;
       opportunity_id: string;
@@ -226,8 +260,8 @@ export class ReportService {
     }>(
       `SELECT id, opportunity_id, content, content_markdown
        FROM opportunity_reports
-       WHERE id = $1`,
-      [reportId]
+       WHERE id = $1 AND user_id = $2`,
+      [reportId, userId]
     );
 
     if (res.rows.length === 0) {

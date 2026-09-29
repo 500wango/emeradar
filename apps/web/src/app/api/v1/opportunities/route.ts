@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { OpportunityService } from '@emeradar/services';
+import { EntitlementService, OpportunityService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { getAuthUser } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await getAuthUser(request);
+    if (!auth) {
+      return NextResponse.json(
+        { type: 'about:blank', title: 'Unauthorized', status: 401, detail: 'Authentication required to view opportunities.' },
+        { status: 401 }
+      );
+    }
+    const ent = await EntitlementService.getUserEntitlements(auth.user.id);
     const { searchParams } = new URL(request.url);
     const verdict = searchParams.get('verdict') as any;
     const archetype = searchParams.get('archetype') as any;
     const executionClass = searchParams.get('execution_class') as any;
     const minD = searchParams.get('min_d') ? parseInt(searchParams.get('min_d')!, 10) : undefined;
     const search = searchParams.get('search') || undefined;
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 20;
-    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!, 10) : 0;
+    const limit = Math.min(50, Math.max(1, Number.parseInt(searchParams.get('limit') || '20', 10) || 20));
+    const offset = Math.max(0, Number.parseInt(searchParams.get('offset') || '0', 10) || 0);
 
     const data = await OpportunityService.listFeedCards({
       verdict,
@@ -21,6 +30,7 @@ export async function GET(request: NextRequest) {
       search,
       limit,
       offset,
+      minAgeDays: ent.feedDelayDays,
     });
 
     return NextResponse.json(data);

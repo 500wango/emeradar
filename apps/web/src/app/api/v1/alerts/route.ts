@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AlertService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { getAuthUser } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.headers.get('x-user-id') || 'usr_demo_pro';
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const userId = auth.user.id;
     const rules = await AlertService.listAlertRules(userId);
     const notifications = await AlertService.listNotifications(userId);
     return NextResponse.json({ rules, notifications });
@@ -21,7 +24,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = request.headers.get('x-user-id') || 'usr_demo_pro';
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const userId = auth.user.id;
     const body = await request.json();
 
     if (!body.opportunityId || !body.ruleType) {

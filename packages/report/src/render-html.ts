@@ -1,5 +1,9 @@
 import { OpportunityReportData } from './types';
 
+function esc(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
+}
+
 export function renderReportToHtml(report: OpportunityReportData): string {
   const { metadata, section1, section2, section3, section4, section5, section6 } = report;
 
@@ -8,10 +12,10 @@ export function renderReportToHtml(report: OpportunityReportData): string {
   const wPct = (metadata.scores.wBasisPoints / 100).toFixed(1);
 
   return `<!DOCTYPE html>
-<html lang="${metadata.locale}">
+<html lang="${esc(metadata.locale)}">
 <head>
   <meta charset="UTF-8">
-  <title>Opportunity Research Report: ${metadata.title}</title>
+  <title>Opportunity Research Report: ${esc(metadata.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
@@ -142,15 +146,15 @@ export function renderReportToHtml(report: OpportunityReportData): string {
           : metadata.verdict === 'PASS'
           ? 'badge-pass'
           : 'badge-watch'
-      }">${metadata.verdict}</span>
+      }">${esc(metadata.verdict)}</span>
       <span style="font-size: 12px; color: #64748b;">Emeradar Intelligence Radar</span>
     </div>
-    <h1 class="title">${metadata.title}</h1>
+    <h1 class="title">${esc(metadata.title)}</h1>
     <div class="meta-bar">
-      <span><strong>Report ID:</strong> ${metadata.reportId}</span>
-      <span><strong>Obs Date:</strong> ${metadata.obsDate}</span>
-      <span><strong>Archetype:</strong> ${metadata.recommendedArchetype}</span>
-      <span><strong>Execution Class:</strong> ${metadata.executionClass}</span>
+      <span><strong>Report ID:</strong> ${esc(metadata.reportId)}</span>
+      <span><strong>Obs Date:</strong> ${esc(metadata.obsDate)}</span>
+      <span><strong>Archetype:</strong> ${esc(metadata.recommendedArchetype)}</span>
+      <span><strong>Execution Class:</strong> ${esc(metadata.executionClass)}</span>
     </div>
   </div>
 
@@ -169,26 +173,28 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     </div>
     <div class="metric-card">
       <div class="metric-label">Confidence</div>
-      <div class="metric-val" style="color: #475569;">${metadata.scores.confidence}</div>
+      <div class="metric-val" style="color: #475569;">${esc(metadata.scores.confidence)}</div>
     </div>
   </div>
 
   <h2>1. Executive Summary & Radar Verdict</h2>
-  <p><strong>Strategic Thesis:</strong> ${section1.thesis}</p>
+  <p><strong>Strategic Thesis:</strong> ${esc(section1.thesis)}</p>
   <div class="callout callout-note">
-    <strong>Why Now?</strong> ${section1.whyNow}
+    <strong>Why Now?</strong> ${esc(section1.whyNow)}
   </div>
-  <p>💡 <strong>High-Leverage Product Concept:</strong> ${section1.topIdea}</p>
+  <p>💡 <strong>High-Leverage Product Concept:</strong> ${esc(section1.topIdea)}</p>
   <h3>Key Risks & Assumptions</h3>
   <ul>
-    ${section1.keyRisks.map((risk) => `<li>${risk}</li>`).join('')}
+    ${section1.keyRisks.map((risk) => `<li>${esc(risk)}</li>`).join('')}
   </ul>
   <div class="callout callout-important">
-    <strong>Actionable Recommendation:</strong> ${section1.decisionRecommendation}
+    <strong>Actionable Recommendation:</strong> ${esc(section1.decisionRecommendation)}
   </div>
 
   <h2>2. Search Demand & Query Clustering</h2>
-  <p><strong>Primary Query:</strong> <code>${section2.primaryQuery}</code> (Velocity: ${section2.queryVelocity}x baseline)</p>
+  <p><strong>Primary Query:</strong> <code>${esc(section2.primaryQuery)}</code> (Velocity: ${section2.queryVelocity}x baseline)</p>
+  <p><strong>Search Intent:</strong> ${esc(section2.searchIntent)} &nbsp; <strong>Recommended Shape:</strong> ${esc(section2.recommendedProductShape)}</p>
+  <p><strong>Core Job:</strong> ${esc(section2.jobToBeDone)}</p>
   <table>
     <thead>
       <tr>
@@ -198,13 +204,14 @@ export function renderReportToHtml(report: OpportunityReportData): string {
       </tr>
     </thead>
     <tbody>
-      ${section2.clusterQueries.map((q) => `<tr><td><code>${q.query}</code></td><td>${q.intent}</td><td>${q.volumeTier}</td></tr>`).join('')}
+      ${section2.clusterQueries.map((q) => `<tr><td><code>${esc(q.query)}</code></td><td>${esc(q.intent)}</td><td>${esc(q.volumeTier)}</td></tr>`).join('')}
     </tbody>
   </table>
-  <p><strong>Momentum Assessment:</strong> ${section2.momentumAssessment}</p>
+  <p><strong>Momentum Assessment:</strong> ${esc(section2.momentumAssessment)}</p>
 
   <h2>3. Competitive Landscape & SERP Weakness</h2>
   <p><strong>SERP Weakness Score:</strong> ${section3.serpWeaknessScore.toFixed(1)} / 100 (${(section3.weakResultsRatio * 100).toFixed(0)}% vulnerable Top 10 results)</p>
+  <p><strong>Homepage / Inner-page Mix:</strong> ${(section3.homepageRatio * 100).toFixed(0)}% / ${(section3.innerPageRatio * 100).toFixed(0)}%</p>
   <table>
     <thead>
       <tr>
@@ -218,10 +225,10 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     <tbody>
       ${section3.top10Results.map((r) => `<tr>
         <td style="text-align: center; font-weight: 600;">${r.rank}</td>
-        <td><strong>${r.domain}</strong></td>
-        <td>${r.title}</td>
-        <td><code>${r.resultType}</code></td>
-        <td>${r.isWeak ? `<span style="color: #dc2626; font-weight: 600;">WEAK</span> (${r.weaknessReason || 'Outdated/UGC'})` : '<span style="color: #16a34a;">STRONG</span>'}</td>
+        <td><strong>${esc(r.domain)}</strong></td>
+        <td>${esc(r.title)}</td>
+        <td><code>${esc(r.resultType)}</code></td>
+        <td>${r.isWeak ? `<span style="color: #dc2626; font-weight: 600;">WEAK</span> (${esc(r.weaknessReason || 'Outdated/UGC')})` : '<span style="color: #16a34a;">STRONG</span>'}</td>
       </tr>`).join('')}
     </tbody>
   </table>
@@ -238,21 +245,24 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     </thead>
     <tbody>
       ${section4.paidCompetitors.map((c) => `<tr>
-        <td><strong>${c.domain}</strong></td>
-        <td>${c.pricingModel}</td>
-        <td>${c.priceRange}</td>
-        <td>${c.paymentGateways.join(', ')}</td>
+        <td><strong>${esc(c.domain)}</strong></td>
+        <td>${esc(c.pricingModel)}</td>
+        <td>${esc(c.priceRange)}</td>
+        <td>${esc(c.paymentGateways.join(', '))}</td>
       </tr>`).join('')}
     </tbody>
   </table>
-  <p>${section4.monetizationHeadroom}</p>
+  <p>${esc(section4.monetizationHeadroom)}</p>
 
   <h2>5. Execution Blueprint & 14-Day Sprint</h2>
-  <p><strong>Recommended Stack:</strong> ${section5.recommendedStack.frontend} | ${section5.recommendedStack.database} | ${section5.recommendedStack.hosting}</p>
+  <div class="callout callout-important"><strong>Minimum Execution Brief</strong><br>Core job: ${esc(section5.executionBrief.coreJob)}<br>MVP page type: ${esc(section5.executionBrief.mvpPageType)}<br>Core action: ${esc(section5.executionBrief.coreAction)}</div>
+  <h3>Initial Pages</h3>
+  <ul>${section5.executionBrief.initialPages.map((p) => `<li><code>${esc(p.path)}</code>: ${esc(p.purpose)}</li>`).join('')}</ul>
+  <p><strong>Recommended Stack:</strong> ${esc(section5.recommendedStack.frontend)} | ${esc(section5.recommendedStack.database)} | ${esc(section5.recommendedStack.hosting)}</p>
   ${section5.sprintPlan14d.map((s) => `
-    <h3>${s.phase} (${s.days})</h3>
+    <h3>${esc(s.phase)} (${esc(s.days)})</h3>
     <ul>
-      ${s.deliverables.map((d) => `<li>${d}</li>`).join('')}
+      ${s.deliverables.map((d) => `<li>${esc(d)}</li>`).join('')}
     </ul>
   `).join('')}
 
@@ -260,10 +270,10 @@ export function renderReportToHtml(report: OpportunityReportData): string {
   <div class="callout callout-warning">
     <strong>Automatic Kill Rules:</strong>
     <ul>
-      ${section6.activeRules.map((r) => `<li><strong>${r.code}:</strong> ${r.rule} &mdash; <em>${r.rationale}</em></li>`).join('')}
+      ${section6.activeRules.map((r) => `<li><strong>${esc(r.code)}:</strong> ${esc(r.rule)} &mdash; <em>${esc(r.rationale)}</em></li>`).join('')}
     </ul>
   </div>
-  <p style="font-size: 13px; color: #64748b; margin-top: 16px;">${section6.radarWatchGuidance}</p>
+  <p style="font-size: 13px; color: #64748b; margin-top: 16px;">${esc(section6.radarWatchGuidance)}</p>
 </body>
 </html>`;
 }

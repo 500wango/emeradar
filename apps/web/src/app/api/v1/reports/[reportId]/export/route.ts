@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReportService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { getAuthUser } from '@/lib/auth-server';
 
 export async function GET(
   request: NextRequest,
@@ -8,10 +9,12 @@ export async function GET(
 ) {
   try {
     const { reportId } = await params;
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
     const { searchParams } = new URL(request.url);
     const format = (searchParams.get('format') || 'markdown') as 'markdown' | 'json' | 'html';
 
-    const exported = await ReportService.exportReportFormat(reportId, format);
+    const exported = await ReportService.exportReportFormat(reportId, format, auth.user.id);
 
     return new NextResponse(exported.content, {
       status: 200,

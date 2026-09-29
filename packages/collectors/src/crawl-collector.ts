@@ -85,10 +85,13 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       // If 0 plans detected and dynamic SPA shell detected, upgrade to Tier 2 Headless
       if (plans.length === 0 && this.isDynamicPricingShell(html)) {
         if (ctx.budget.canSpend(this.costTier2Usd)) {
-          fetchTier = 'HEADLESS';
-          html = await this.renderHeadless(item.targetUrl);
-          plans = this.extractPricingPlans(html);
-          gateways = Array.from(new Set([...gateways, ...this.detectPaymentGateways(html)]));
+          const rendered = await this.renderHeadless(item.targetUrl);
+          if (rendered) {
+            fetchTier = 'HEADLESS';
+            html = rendered;
+            plans = this.extractPricingPlans(html);
+            gateways = Array.from(new Set([...gateways, ...this.detectPaymentGateways(html)]));
+          }
         }
       }
 
@@ -219,12 +222,12 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
   private async fetchStaticHtml(url: string): Promise<string> {
     const lowerUrl = url.toLowerCase();
-    if (
+    if (process.env.NODE_ENV !== 'production' && (
       lowerUrl.includes('.test') ||
       lowerUrl.includes('.example') ||
       lowerUrl.includes('.local') ||
       lowerUrl.includes('synthetic')
-    ) {
+    )) {
       return this.generateSyntheticHtml(url);
     }
 
@@ -242,9 +245,8 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
         throw new Error(`HTTP ${res.status}`);
       }
       return await res.text();
-    } catch {
-      // Deterministic synthetic HTML fallback for offline tests
-      return this.generateSyntheticHtml(url);
+    } catch (err) {
+      throw err;
     }
   }
 
@@ -263,14 +265,14 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
     return hasSpaRoot || hasStripeScript;
   }
 
-  private async renderHeadless(url: string): Promise<string> {
+  private async renderHeadless(url: string): Promise<string | null> {
     const lowerUrl = url.toLowerCase();
-    if (
+    if (process.env.NODE_ENV !== 'production' && (
       lowerUrl.includes('.test') ||
       lowerUrl.includes('.example') ||
       lowerUrl.includes('.local') ||
       lowerUrl.includes('synthetic')
-    ) {
+    )) {
       return `
         <html>
           <body>
@@ -311,26 +313,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       }
     }
 
-    // Synthetic headless rendered response (tab expanded)
-    return `
-      <html>
-        <body>
-          <div id="__next">
-            <div class="pricing-card">
-              <h3>Hobby</h3>
-              <div class="price">$19/mo</div>
-              <p>For independent developers</p>
-            </div>
-            <div class="pricing-card">
-              <h3>Pro</h3>
-              <div class="price">$49/mo</div>
-              <p>For growing micro-saas teams</p>
-            </div>
-            <script src="https://js.stripe.com/v3/pricing-table.js"></script>
-          </div>
-        </body>
-      </html>
-    `;
+    return null;
   }
 
   extractPricingPlans(html: string): PricingPlan[] {

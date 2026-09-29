@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EntitlementService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { getAuthUser } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.headers.get('x-user-id') || 'usr_demo_pro';
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const userId = auth.user.id;
     const entitlements = await EntitlementService.getUserEntitlements(userId);
     return NextResponse.json(entitlements);
   } catch (error: any) {

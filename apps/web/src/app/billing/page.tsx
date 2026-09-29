@@ -2,10 +2,15 @@ import {
   CheckCircle2,
   Sparkles,
 } from 'lucide-react';
-import { EntitlementService } from '@emeradar/services';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { AuthService, EntitlementService } from '@emeradar/services';
 
 export default async function BillingPage() {
-  const userId = 'usr_demo_pro';
+  const token = (await cookies()).get('emeradar_session')?.value;
+  const session = token ? await AuthService.getSessionUser(token) : null;
+  if (!session) redirect('/login');
+  const userId = session.user.id;
   const ent = await EntitlementService.getUserEntitlements(userId);
 
   return (
@@ -17,10 +22,11 @@ export default async function BillingPage() {
           <span>Transparent Builder Pricing</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Subscriptions & Entitlements
+          Free and Pro
         </h1>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Predictable monthly quotas with zero hidden API surcharges. Scaled specifically for indie builders and micro-SaaS developers.
+          Pro is the realtime decision feed, the full evidence, report export, alerts, and projects.
+          Price is set with design partners. This page does not invent a rate.
         </p>
       </div>
 
@@ -32,12 +38,9 @@ export default async function BillingPage() {
               Current Plan
             </span>
             <div className="text-xl font-bold text-slate-900 mt-0.5">
-              Builder Pro ({ent.tier}) &bull; Active
+              Workspace tier: {ent.tier}
             </div>
           </div>
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            Next renewal in 24 days
-          </span>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
@@ -126,28 +129,26 @@ export default async function BillingPage() {
         {/* Free Starter */}
         <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-lg text-slate-900">Free Starter</h3>
-            <p className="text-xs text-slate-500 mt-1">For casual builders exploring ideas</p>
+            <h3 className="font-bold text-lg text-slate-900">Free</h3>
+            <p className="text-xs text-slate-500 mt-1">Track record and delayed decisions</p>
             <div className="text-3xl font-extrabold text-slate-900 mt-4">$0</div>
 
             <ul className="mt-6 space-y-3 text-xs text-slate-600">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                10 Feed Opportunity Cards / month
+                Public track record, hits and misses
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                1 Research Report export / month
+                Opportunities delayed 45 days
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                1 Tracked Project
+                1 report preview / month, no export
               </li>
-              <li className="flex items-center gap-2 text-slate-400">
-                &mdash; Radar Alert Rules
-              </li>
-              <li className="flex items-center gap-2 text-slate-400">
-                &mdash; REST API Access
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                1 project
               </li>
             </ul>
           </div>
@@ -163,81 +164,55 @@ export default async function BillingPage() {
         {/* Builder Pro (Active) */}
         <div className="bg-white rounded-2xl border-2 border-blue-600 p-8 shadow-lg relative flex flex-col justify-between">
           <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm">
-            Most Popular &bull; Your Plan
+            Design partners
           </div>
 
           <div>
-            <h3 className="font-bold text-lg text-slate-900">Builder Pro</h3>
-            <p className="text-xs text-slate-500 mt-1">For active indie hackers shipping weekly</p>
+            <h3 className="font-bold text-lg text-slate-900">Pro</h3>
+            <p className="text-xs text-slate-500 mt-1">The paid decision loop</p>
             <div className="text-3xl font-extrabold text-slate-900 mt-4">
-              $49 <span className="text-xs font-normal text-slate-500">/ month</span>
+              Pricing in interviews
             </div>
 
             <ul className="mt-6 space-y-3 text-xs text-slate-700">
               <li className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                <strong>Unlimited</strong> Feed Opportunities
+                Realtime feed, up to 10 published decisions a day
               </li>
               <li className="flex items-center gap-2 font-medium">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                <strong>30</strong> Full Research Reports / month
+                Full detail and 30 report exports / month
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                10 Tracked Projects with GSC sync
+                Watch, email alerts, up to 50 projects
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                20 Active Radar Alert Rules
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                REST API Scoped Access
+                GO binds the project to that verdict
               </li>
             </ul>
           </div>
 
-          <button className="w-full mt-8 py-2.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold hover:bg-blue-100 transition-colors">
-            Manage Subscription
-          </button>
+          <a
+            href="/register"
+            className="w-full mt-8 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors text-center"
+          >
+            Join the design partners
+          </a>
         </div>
 
         {/* Scale Team */}
         <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-lg text-slate-900">Scale Team</h3>
-            <p className="text-xs text-slate-500 mt-1">For studios, agencies, and micro-funds</p>
-            <div className="text-3xl font-extrabold text-slate-900 mt-4">
-              $149 <span className="text-xs font-normal text-slate-500">/ month</span>
-            </div>
-
-            <ul className="mt-6 space-y-3 text-xs text-slate-600">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Unlimited Feed Opportunities
-              </li>
-              <li className="flex items-center gap-2 font-medium text-slate-800">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <strong>100</strong> Research Reports / month
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                50 Tracked Projects
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                100 Active Radar Alert Rules
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                High-Volume REST API & Webhooks
-              </li>
+            <h3 className="font-bold text-lg text-slate-900">Not in this release</h3>
+            <p className="text-xs text-slate-500 mt-1">Team seats and a public API wait until the decision loop is paid for.</p>
+            <ul className="mt-6 space-y-3 text-xs text-slate-500">
+              <li>Team plans</li>
+              <li>Open API as a product</li>
+              <li>Multiple research markets</li>
             </ul>
           </div>
-
-          <button className="w-full mt-8 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm">
-            Upgrade to Team
-          </button>
         </div>
       </div>
     </div>

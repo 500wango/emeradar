@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReportService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { getAuthUser } from '@/lib/auth-server';
 
 export async function GET(
   request: NextRequest,
@@ -11,8 +12,9 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const locale = (searchParams.get('locale') || 'en-US') as any;
 
-    // In production auth, extract user ID from session. For demo, use usr_demo_pro.
-    const userId = request.headers.get('x-user-id') || 'usr_demo_pro';
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const userId = auth.user.id;
 
     const result = await ReportService.getOrGenerateReport(id, userId, locale);
     return NextResponse.json(result);

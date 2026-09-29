@@ -38,6 +38,10 @@ export interface Section1ExecutiveSummary {
 
 export interface Section2DemandBreakdown {
   primaryQuery: string;
+  searchIntent: 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL';
+  jobToBeDone: string;
+  recommendedProductShape: string;
+  siteStrategy: 'INDEPENDENT_SITE' | 'EXISTING_SITE_PAGE' | 'WATCH';
   clusterQueries: {
     query: string;
     intent: 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL';
@@ -53,12 +57,15 @@ export interface Section3CompetitiveWeakness {
   weakResultsRatio: number;
   top10Results: {
     rank: number;
+    url?: string;
     domain: string;
     title: string;
     resultType: string;
     isWeak: boolean;
     weaknessReason?: string;
   }[];
+  homepageRatio: number;
+  innerPageRatio: number;
   vulnerableGaps: string[];
 }
 
@@ -101,6 +108,18 @@ export interface Section5ExecutionBlueprint {
     days: string;
     deliverables: string[];
   }[];
+  executionBrief: {
+    primaryQuery: string;
+    searchIntent: string;
+    coreJob: string;
+    mvpPageType: string;
+    coreAction: string;
+    requiredVariants: string[];
+    initialPages: { path: string; purpose: string }[];
+    internalLinkPlan: string[];
+    launchChecklist: string[];
+    nonGoals: string[];
+  };
 }
 
 export interface Section6KillCriteria {

@@ -62,12 +62,20 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     }
 
     try {
-      // 2. Fetch SERP results (via provider API or fallback)
       const rawItems = await this.fetchSerp(
         item.queryText,
         item.marketCountry || 'US',
         item.researchLanguage || 'en'
       );
+      if (!rawItems || rawItems.length === 0) {
+        return {
+          status: 'FAILED',
+          retryable: true,
+          errorCode: 'SERP_UNAVAILABLE',
+          message:
+            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI) or BRAVE_API_KEY. A failed fetch is not scored.',
+        };
+      }
 
       // 3. Classify and evaluate weakness
       const scoredInput: SerpItemInput[] = rawItems.map((raw) => ({
@@ -77,7 +85,6 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
         title: raw.title,
         resultType: raw.resultType,
         ageDays: raw.ageDays,
-        relevance: raw.relevance,
       }));
 
       const weaknessResult = calculateSerpWeakness(scoredInput);
@@ -132,7 +139,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           sourceId: this.sourceId,
           domain: topWeak?.domain,
           title: `SERP Top 10 Weakness Ratio for "${item.queryText}"`,
-          snippet: `${weakCount}/10 positions filled by forum/QA/thin affiliate pages (weakness ratio: ${Math.round(
+          snippet: `${weakCount}/${items.length} stored organic results are marked weak (ratio ${Math.round(
             weakRatio * 100
           )}%).`,
           payload: {
@@ -235,41 +242,86 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       ageDays?: number;
       relevance?: number;
       publishedAt?: Date;
-    }>
+    }> | null
   > {
-    // If SERP_API_KEY is configured in env, call provider; otherwise return reproducible realistic data
-    const apiKey = process.env.SERP_API_KEY;
-    if (apiKey) {
-      try {
-        const url = `https://api.searchprovider.com/v1/search?q=${encodeURIComponent(
-          query
-        )}&gl=${marketCountry}&hl=${language}&num=10&api_key=${apiKey}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.organic_results)) {
-            return data.organic_results.map((r: any, idx: number) => {
-              const urlStr = r.link || `https://example.com/res-${idx + 1}`;
-              const parsedDomain = this.extractDomain(urlStr);
-              return {
-                rank: idx + 1,
-                url: urlStr,
-                domain: parsedDomain,
-                title: r.title || `Result ${idx + 1}`,
-                snippet: r.snippet || '',
-                resultType: this.inferResultType(urlStr, r.title || '', r.snippet || ''),
-                relevance: 0.9,
-              };
-            });
-          }
-        }
-      } catch {
-        // Fallback to deterministic generator
-      }
+    const serpApiKey = process.env.SERP_API_KEY;
+    if (serpApiKey) {
+      const fromSerpApi = await this.fetchSerpApi(query, marketCountry, language, serpApiKey);
+      if (fromSerpApi && fromSerpApi.length > 0) return fromSerpApi;
     }
 
-    // Deterministic realistic SERP generator for tests and offline runs
-    return this.generateSyntheticSerp(query);
+    const braveKey = process.env.BRAVE_API_KEY;
+    if (braveKey) {
+      const fromBrave = await this.fetchBrave(query, marketCountry, braveKey);
+      if (fromBrave && fromBrave.length > 0) return fromBrave;
+    }
+
+    return null;
+  }
+
+  private async fetchSerpApi(
+    query: string,
+    marketCountry: string,
+    language: string,
+    apiKey: string
+  ) {
+    try {
+      const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
+        query
+      )}&gl=${encodeURIComponent(marketCountry)}&hl=${encodeURIComponent(language)}&num=10&api_key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!Array.isArray(data.organic_results)) return null;
+      return data.organic_results
+        .slice(0, 10)
+        .map((r: any, idx: number) => {
+          const urlStr = String(r.link || '');
+          return {
+            rank: idx + 1,
+            url: urlStr,
+            domain: this.extractDomain(urlStr),
+            title: String(r.title || ''),
+            snippet: String(r.snippet || ''),
+            resultType: this.inferResultType(urlStr, r.title || '', r.snippet || ''),
+          };
+        })
+        .filter((row: { url: string }) => row.url.startsWith('http'));
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchBrave(query: string, marketCountry: string, apiKey: string) {
+    try {
+      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
+        query
+      )}&count=10&country=${encodeURIComponent(marketCountry)}`;
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const results = data.web?.results;
+      if (!Array.isArray(results)) return null;
+      return results
+        .slice(0, 10)
+        .map((r: any, idx: number) => {
+          const urlStr = String(r.url || '');
+          return {
+            rank: idx + 1,
+            url: urlStr,
+            domain: this.extractDomain(urlStr),
+            title: String(r.title || ''),
+            snippet: String(r.description || ''),
+            resultType: this.inferResultType(urlStr, r.title || '', r.description || ''),
+          };
+        })
+        .filter((row: { url: string }) => row.url.startsWith('http'));
+    } catch {
+      return null;
+    }
   }
 
   private extractDomain(urlStr: string): string {
@@ -304,121 +356,4 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     return 'SPECIALIST';
   }
 
-  private generateSyntheticSerp(query: string) {
-    const qLower = query.toLowerCase();
-    const isForumProne =
-      qLower.includes('how') ||
-      qLower.includes('why') ||
-      qLower.includes('reddit') ||
-      qLower.includes('free');
-
-    return [
-      {
-        rank: 1,
-        url: `https://www.${qLower.replace(/[^a-z0-9]/g, '')}-tools.io`,
-        domain: `${qLower.replace(/[^a-z0-9]/g, '')}-tools.io`,
-        title: `${query} - The Official Modern Web App`,
-        snippet: `Run ${query} instantly in your browser. Simple, free online developer tool.`,
-        resultType: 'SPECIALIST' as ResultType,
-        ageDays: 120,
-        relevance: 1.0,
-      },
-      {
-        rank: 2,
-        url: isForumProne
-          ? `https://www.reddit.com/r/webdev/comments/best_${qLower.replace(/\s+/g, '_')}`
-          : `https://blog.techmagazine.com/review-${qLower.replace(/\s+/g, '-')}`,
-        domain: isForumProne ? 'reddit.com' : 'techmagazine.com',
-        title: isForumProne
-          ? `Any good tool for ${query}? : r/webdev`
-          : `Top 10 ${query} in 2026 - Reviews & Pricing`,
-        snippet: isForumProne
-          ? `Looking for a lightweight solution for ${query}. Most existing services are outdated or bloated.`
-          : `We tested 15 options to find the best tools. Compare features, pricing, and limits.`,
-        resultType: (isForumProne ? 'UGC_THREAD' : 'LISTICLE_AFFILIATE') as ResultType,
-        ageDays: 450,
-        relevance: 0.85,
-      },
-      {
-        rank: 3,
-        url: `https://www.quora.com/What-is-the-easiest-way-to-handle-${qLower.replace(/\s+/g, '-')}`,
-        domain: 'quora.com',
-        title: `What is the easiest way to handle ${query}? - Quora`,
-        snippet: `3 answers: You can use an open-source script or subscribe to an enterprise gateway...`,
-        resultType: 'QA' as ResultType,
-        ageDays: 800,
-        relevance: 0.7,
-      },
-      {
-        rank: 4,
-        url: `https://github.com/topics/${qLower.replace(/\s+/g, '-')}`,
-        domain: 'github.com',
-        title: `${query} · GitHub Topics`,
-        snippet: `Explore open-source repositories and packages matching ${query}.`,
-        resultType: 'SPECIALIST' as ResultType,
-        ageDays: 200,
-        relevance: 0.9,
-      },
-      {
-        rank: 5,
-        url: `https://medium.com/@coder/how-i-solved-${qLower.replace(/\s+/g, '-')}-in-2023`,
-        domain: 'medium.com',
-        title: `How I solved ${query} with a simple Bash script`,
-        snippet: `Outdated step-by-step tutorial for setting up a custom pipeline.`,
-        resultType: 'THIN_PAGE' as ResultType,
-        ageDays: 950,
-        relevance: 0.45,
-      },
-      {
-        rank: 6,
-        url: `https://softwarereviewhub.com/category/${qLower.replace(/\s+/g, '-')}`,
-        domain: 'softwarereviewhub.com',
-        title: `Best 5 ${query} Software Alternatives (Updated 2026)`,
-        snippet: `Affiliate roundup comparison of commercial vendors.`,
-        resultType: 'LISTICLE_AFFILIATE' as ResultType,
-        ageDays: 150,
-        relevance: 0.75,
-      },
-      {
-        rank: 7,
-        url: `https://stackoverflow.com/questions/987654/${qLower.replace(/\s+/g, '-')}`,
-        domain: 'stackoverflow.com',
-        title: `Javascript - error when running ${query} locally - Stack Overflow`,
-        snippet: `Asked 4 years ago. How to resolve module not found exception.`,
-        resultType: 'UGC_THREAD' as ResultType,
-        ageDays: 1400,
-        relevance: 0.6,
-      },
-      {
-        rank: 8,
-        url: `https://www.producthunt.com/products/${qLower.replace(/\s+/g, '-')}`,
-        domain: 'producthunt.com',
-        title: `${query} - Product Hunt`,
-        snippet: `Discover new products and community launches related to ${query}.`,
-        resultType: 'DIRECTORY' as ResultType,
-        ageDays: 300,
-        relevance: 0.8,
-      },
-      {
-        rank: 9,
-        url: `https://news.ycombinator.com/item?id=38192019`,
-        domain: 'news.ycombinator.com',
-        title: `Ask HN: What do you use for ${query}?`,
-        snippet: `42 comments discussing the lack of modern indie developer alternatives.`,
-        resultType: 'UGC_THREAD' as ResultType,
-        ageDays: 520,
-        relevance: 0.8,
-      },
-      {
-        rank: 10,
-        url: `https://wikipedia.org/wiki/${encodeURIComponent(query)}`,
-        domain: 'wikipedia.org',
-        title: `${query} - Wikipedia`,
-        snippet: `General background definition and computing terminology.`,
-        resultType: 'OFF_TOPIC' as ResultType,
-        ageDays: 1800,
-        relevance: 0.3,
-      },
-    ];
-  }
 }

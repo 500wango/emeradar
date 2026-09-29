@@ -9,6 +9,8 @@ export interface FeedCardFilterOptions {
   search?: string;
   limit?: number;
   offset?: number;
+  /** Hide decisions newer than this many days. 0 shows the realtime published feed. */
+  minAgeDays?: number;
 }
 
 export interface FeedCardItem {
@@ -32,6 +34,13 @@ export interface FeedCardItem {
   firstObservedAt: string;
   queryVelocity: number;
   featuredEvidenceSnippet?: string;
+  marketCountry: string;
+  researchLanguage: string;
+  firstObservedDate?: string;
+  discoverySource?: string | null;
+  candidateReason?: string | null;
+  observationDays?: number;
+  serpObservationDays?: number;
 }
 
 export interface FeedResponse {
@@ -55,11 +64,16 @@ export class OpportunityService {
       search,
       limit = 20,
       offset = 0,
+      minAgeDays = 0,
     } = options;
 
-    const conditions: string[] = ['1=1'];
+    const conditions: string[] = [`o.status = 'TRACKED'`];
     const params: any[] = [];
     let paramIdx = 1;
+    if (minAgeDays > 0) {
+      conditions.push(`c.first_observed_at <= NOW() - ($${paramIdx++} || ' days')::interval`);
+      params.push(String(minAgeDays));
+    }
 
     if (verdict) {
       conditions.push(`c.verdict = $${paramIdx++}`);
@@ -119,7 +133,14 @@ export class OpportunityService {
         c.top_idea,
         c.first_observed_at,
         c.query_velocity,
-        c.featured_evidence_snippet
+        c.featured_evidence_snippet,
+        o.market_country,
+        o.research_language,
+        o.first_observed_date,
+        o.discovery_source,
+        o.candidate_reason,
+        COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
+        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE ${whereClause}
@@ -149,13 +170,23 @@ export class OpportunityService {
       firstObservedAt: r.first_observed_at,
       queryVelocity: parseFloat(r.query_velocity),
       featuredEvidenceSnippet: r.featured_evidence_snippet,
+      marketCountry: r.market_country,
+      researchLanguage: r.research_language,
+      firstObservedDate: r.first_observed_date,
+      discoverySource: r.discovery_source,
+      candidateReason: r.candidate_reason,
+      observationDays: r.observation_days,
+      serpObservationDays: r.serp_observation_days,
     }));
 
     // Zero-state relaxed count fallback if 0 items found
     let zeroStateAlternativeCount: number | undefined;
     if (total === 0 && (verdict || archetype || executionClass)) {
       const altRes = await query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM opportunity_cards`
+        `SELECT COUNT(*) as count
+         FROM opportunity_cards c
+         JOIN opportunities o ON o.id = c.opportunity_id
+         WHERE o.status = 'TRACKED'`
       );
       zeroStateAlternativeCount = parseInt(altRes.rows[0]?.count ?? '0', 10);
     }
@@ -167,6 +198,80 @@ export class OpportunityService {
       activeFilters: options,
       zeroStateAlternativeCount,
     };
+  }
+
+  /**
+   * Live observations that have not passed the publication gate.
+   * These rows are fetched from source APIs and are not build decisions.
+   */
+  static async listLiveObservations(options: { limit?: number } = {}): Promise<FeedCardItem[]> {
+    const limit = options.limit ?? 20;
+    const itemsRes = await query<any>(
+      `SELECT
+        c.opportunity_id,
+        c.slug,
+        o.title,
+        c.primary_query,
+        c.verdict,
+        c.lifecycle,
+        c.d_basis_points,
+        c.m_basis_points,
+        c.w_basis_points,
+        c.d_band,
+        c.m_band,
+        c.w_band,
+        c.confidence,
+        c.recommended_archetype,
+        c.execution_class,
+        c.why_now_summary,
+        c.top_idea,
+        c.first_observed_at,
+        c.query_velocity,
+        c.featured_evidence_snippet,
+        o.market_country,
+        o.research_language,
+        o.first_observed_date,
+        o.discovery_source,
+        o.candidate_reason,
+        COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
+        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days
+       FROM opportunity_cards c
+       JOIN opportunities o ON o.id = c.opportunity_id
+       WHERE o.status = 'CANDIDATE'
+       ORDER BY c.first_observed_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+
+    return itemsRes.rows.map((r) => ({
+      opportunityId: r.opportunity_id,
+      slug: r.slug,
+      title: r.title,
+      primaryQuery: r.primary_query,
+      verdict: r.verdict,
+      lifecycle: r.lifecycle,
+      dBasisPoints: r.d_basis_points,
+      mBasisPoints: r.m_basis_points,
+      wBasisPoints: r.w_basis_points,
+      dBand: r.d_band,
+      mBand: r.m_band,
+      wBand: r.w_band,
+      confidence: r.confidence,
+      recommendedArchetype: r.recommended_archetype,
+      executionClass: r.execution_class,
+      whyNowSummary: r.why_now_summary,
+      topIdea: r.top_idea,
+      firstObservedAt: r.first_observed_at,
+      queryVelocity: parseFloat(r.query_velocity),
+      featuredEvidenceSnippet: r.featured_evidence_snippet,
+      marketCountry: r.market_country,
+      researchLanguage: r.research_language,
+      firstObservedDate: r.first_observed_date,
+      discoverySource: r.discovery_source,
+      candidateReason: r.candidate_reason,
+      observationDays: r.observation_days,
+      serpObservationDays: r.serp_observation_days,
+    }));
   }
 
   /**
@@ -212,7 +317,10 @@ export class OpportunityService {
        FROM serp_snapshots s
        JOIN serp_results r ON r.serp_snapshot_id = s.id
        JOIN opportunity_queries oq ON oq.query_id = s.query_id AND oq.role = 'PRIMARY'
-       WHERE oq.opportunity_id = $1
+       WHERE oq.opportunity_id = $1 AND s.obs_date = (
+         SELECT MAX(s2.obs_date) FROM serp_snapshots s2
+         JOIN opportunity_queries oq2 ON oq2.query_id = s2.query_id AND oq2.opportunity_id = $1 AND oq2.role = 'PRIMARY'
+       )
        ORDER BY r.rank ASC`,
       [opp.id]
     );
@@ -224,6 +332,41 @@ export class OpportunityService {
        WHERE opportunity_id = $1
        ORDER BY observed_at DESC`,
       [opp.id]
+    );
+
+    const commercialRes = await query<any>(
+      `SELECT cs.commercial_stage,
+              COALESCE(jsonb_array_length(cs.pricing_plans), 0)::int AS plans_count,
+              cs.payment_gateways
+       FROM commercial_snapshots cs
+       JOIN commercial_targets ct ON ct.id = cs.commercial_target_id
+       WHERE EXISTS (
+         SELECT 1 FROM evidence e
+         WHERE e.opportunity_id = $1
+           AND e.domain = ct.domain
+           AND e.observed_at::date = cs.obs_date
+       )
+         AND cs.obs_date = (
+         SELECT MAX(cs2.obs_date)
+         FROM commercial_snapshots cs2
+         JOIN commercial_targets ct2 ON ct2.id = cs2.commercial_target_id
+         WHERE EXISTS (
+           SELECT 1 FROM evidence e2
+           WHERE e2.opportunity_id = $1
+             AND e2.domain = ct2.domain
+             AND e2.observed_at::date = cs2.obs_date
+         )
+       )
+       ORDER BY cs.created_at DESC`,
+      [opp.id]
+    );
+    const commercialProof = commercialRes.rows.reduce(
+      (acc, row) => ({
+        stage: acc.stage === 'NONE' ? row.commercial_stage : acc.stage,
+        plansCount: acc.plansCount + Number(row.plans_count || 0),
+        gateways: [...new Set([...acc.gateways, ...(row.payment_gateways || [])])],
+      }),
+      { stage: 'NONE', plansCount: 0, gateways: [] as string[] }
     );
 
     // Kill criteria
@@ -252,6 +395,7 @@ export class OpportunityService {
       queries: queriesRes.rows,
       serpResults: serpRes.rows,
       evidence: evidenceRes.rows,
+      commercialProof,
       killCriteria: kcRes.rows,
       latestVerdict: verdictRes.rows[0] || null,
     };

@@ -6,6 +6,12 @@ import { getAuthUser } from '@/lib/auth-server';
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthUser(request);
+    if (!auth) {
+      return NextResponse.json(
+        { type: 'about:blank', title: 'Unauthorized', status: 401, detail: 'Authentication required to scan opportunities.' },
+        { status: 401 }
+      );
+    }
     const body = await request.json().catch(() => ({}));
     const { query, marketCountry, language, archetype } = body;
 
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     const result = await LiveScanService.scan({
       query: query.trim(),
-      userId: auth?.user.id,
+      userId: auth.user.id,
       marketCountry: marketCountry || 'US',
       language: language || 'en-US',
       preferredArchetype: archetype,
@@ -32,8 +38,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       opportunity: result,
       message: result.isNew
-        ? 'Live search opportunity scanned and cataloged successfully.'
-        : 'Retrieved verified opportunity from radar catalog.',
+        ? 'Tracking started. The first observation is WATCH with insufficient evidence, not a build decision.'
+        : 'This query is already on file.',
     });
   } catch (error: any) {
     if (error instanceof AppError) {

@@ -20,7 +20,7 @@ interface FeedClientProps {
 }
 
 export function FeedClient({ initialItems, total }: FeedClientProps) {
-  const [selectedVerdict, setSelectedVerdict] = useState<string>('ALL');
+  const [selectedVerdict, setSelectedVerdict] = useState<string>('BUILD_NOW');
   const [selectedArchetype, setSelectedArchetype] = useState<string>('ALL');
   const [selectedClass, setSelectedClass] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -47,7 +47,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
   });
 
   const resetFilters = () => {
-    setSelectedVerdict('ALL');
+    setSelectedVerdict('BUILD_NOW');
     setSelectedArchetype('ALL');
     setSelectedClass('ALL');
     setSearchQuery('');
@@ -89,7 +89,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search keyword or idea..."
+              placeholder="Filter published decisions"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
@@ -133,7 +133,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
 
           <div className="flex items-center gap-2">
             <span className="text-slate-400">Showing {filtered.length} of {total} radar items</span>
-            {(selectedVerdict !== 'ALL' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
+            {(selectedVerdict !== 'BUILD_NOW' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
               <button
                 onClick={resetFilters}
                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
@@ -152,25 +152,21 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
           <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-6 h-6" />
           </div>
-          <h3 className="text-lg font-bold text-slate-900">No opportunities match current criteria</h3>
+          <h3 className="text-lg font-bold text-slate-900">Nothing in this tab passed the gate</h3>
           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            Try switching to another verdict category or resetting filters to browse all verified opportunities currently on radar.
+            BUILD NOW is supposed to stay scarce. Candidates and low-confidence observations are not used to fill the gap.
           </p>
           <button
-            onClick={resetFilters}
+            onClick={() => setSelectedVerdict('ALL')}
             className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
           >
-            Show All Opportunities ({total})
+            Show published decisions ({total})
           </button>
         </div>
       ) : (
         /* Opportunity Cards Grid */
         <div className="grid md:grid-cols-2 gap-6">
           {filtered.map((opp) => {
-            const dScore = (opp.dBasisPoints / 100).toFixed(0);
-            const mScore = (opp.mBasisPoints / 100).toFixed(0);
-            const wScore = (opp.wBasisPoints / 100).toFixed(0);
-
             const isBuildNow = opp.verdict === 'BUILD_NOW';
             const isEarlyBet = opp.verdict === 'EARLY_BET';
             const isClosing = opp.verdict === 'WINDOW_CLOSING';
@@ -224,10 +220,15 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                     <code className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded font-mono">
                       {opp.primaryQuery}
                     </code>
-                    <span className="text-emerald-600 font-semibold">
-                      +{((opp.queryVelocity - 1) * 100).toFixed(0)}% velocity
+                    <span className="text-slate-500">
+                      {opp.marketCountry} · {opp.researchLanguage}
                     </span>
                   </div>
+                  {isEarlyBet && (
+                    <p className="mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
+                      Commercial case unverified
+                    </p>
+                  )}
 
                   {/* Top Idea Concept */}
                   <div className="my-4 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
@@ -245,56 +246,40 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <TrendingUp className="w-3 h-3 text-blue-500" />
-                        <span>Demand (D)</span>
+                        <span>Demand</span>
                       </div>
-                      <div className="text-xl font-bold text-blue-600 mt-1">{dScore}</div>
-                      <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
-                        <div
-                          className="bg-blue-600 h-full rounded-full"
-                          style={{ width: `${dScore}%` }}
-                        ></div>
-                      </div>
+                      <div className="text-sm font-bold text-blue-700 mt-1">{opp.dBand}</div>
                     </div>
-
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <Sparkles className="w-3 h-3 text-emerald-500" />
-                        <span>Commercial (M)</span>
+                        <span>Commercial</span>
                       </div>
-                      <div className="text-xl font-bold text-emerald-600 mt-1">{mScore}</div>
-                      <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
-                        <div
-                          className="bg-emerald-600 h-full rounded-full"
-                          style={{ width: `${mScore}%` }}
-                        ></div>
-                      </div>
+                      <div className="text-sm font-bold text-emerald-700 mt-1">{opp.mBand}</div>
                     </div>
-
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <Zap className="w-3 h-3 text-amber-500" />
-                        <span>Window (W)</span>
+                        <span>Window</span>
                       </div>
-                      <div className="text-xl font-bold text-amber-600 mt-1">{wScore}</div>
-                      <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
-                        <div
-                          className="bg-amber-600 h-full rounded-full"
-                          style={{ width: `${wScore}%` }}
-                        ></div>
-                      </div>
+                      <div className="text-sm font-bold text-amber-700 mt-1">{opp.wBand}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Card Actions */}
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
-                  <Link
-                    href={`/opportunities/${opp.slug}/report`}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>View Report</span>
-                  </Link>
+                  {isBuildNow || isEarlyBet ? (
+                    <Link
+                      href={`/opportunities/${opp.slug}/report`}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>View Report</span>
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-slate-400">Report follows a build verdict</span>
+                  )}
 
                   <Link
                     href={`/opportunities/${opp.slug}`}

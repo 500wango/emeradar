@@ -39,6 +39,21 @@ export class AlertService {
     userId: string,
     input: CreateAlertRuleInput
   ): Promise<any> {
+    const opportunityRes = await query<{ id: string }>(
+      `SELECT o.id
+       FROM opportunities o
+       JOIN opportunity_cards c ON c.opportunity_id = o.id
+       WHERE o.id = $1 AND o.status = 'TRACKED'`,
+      [input.opportunityId]
+    );
+    if (opportunityRes.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.NOT_FOUND,
+        `Published opportunity not found: ${input.opportunityId}`,
+        404
+      );
+    }
+
     const ent = await EntitlementService.getUserEntitlements(userId);
     if (ent.currentAlertsCount >= ent.maxAlerts) {
       throw new EmeradarError(

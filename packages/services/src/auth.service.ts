@@ -68,7 +68,7 @@ export class AuthService {
 
     const userId = `usr_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
     const passwordHash = this.hashPassword(input.password);
-    const tier = input.tier || 'PRO'; // Default to Pro trial for new signups
+    const tier = input.tier || 'FREE';
     const displayName = input.displayName || email.split('@')[0];
 
     const sessionToken = `sess_${randomBytes(24).toString('hex')}`;
@@ -134,14 +134,18 @@ export class AuthService {
 
     const row = userRes.rows[0];
 
-    // If password provided and not demo login, verify hash
-    if (!input.isDemoLogin) {
+    // Demo login is development-only and restricted to seeded demo accounts.
+    const demoAllowed = process.env.NODE_ENV !== 'production' && input.isDemoLogin === true;
+    if (!demoAllowed) {
       const accRes = await query<{ refresh_token: string }>(
         `SELECT refresh_token FROM accounts 
          WHERE user_id = $1 AND provider = 'credentials'`,
         [row.id]
       );
 
+      if (accRes.rows.length === 0 || !accRes.rows[0].refresh_token) {
+        throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Incorrect credentials.', 401);
+      }
       if (accRes.rows.length > 0 && accRes.rows[0].refresh_token) {
         const expectedHash = accRes.rows[0].refresh_token;
         const inputHash = this.hashPassword(input.password || '');
@@ -202,7 +206,7 @@ export class AuthService {
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN user_preferences p ON p.user_id = u.id
-       WHERE s.session_token = $1 AND s.expires > NOW()`,
+       WHERE s.session_token = $1 AND s.expires > NOW() AND u.status = 'ACTIVE'`,
       [sessionToken]
     );
 
@@ -279,10 +283,10 @@ export class AuthService {
          onboarding_completed = COALESCE($5, user_preferences.onboarding_completed)`,
       [
         userId,
-        prefs.uiLocale || 'zh-CN',
-        prefs.preferredMarkets || ['US'],
-        prefs.preferredBuildTypes || ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS'],
-        prefs.onboardingCompleted ?? true,
+        prefs.uiLocale ?? 'zh-CN',
+        prefs.preferredMarkets ?? [],
+        prefs.preferredBuildTypes ?? [],
+        prefs.onboardingCompleted ?? false,
       ]
     );
 

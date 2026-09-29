@@ -190,6 +190,12 @@ export function ReportStudioClient({
             <p className="text-xs text-slate-600 mb-4">
               Seed Query: <code className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-800">{section2.primaryQuery}</code> (Velocity: {section2.queryVelocity}x)
             </p>
+            <div className="grid sm:grid-cols-3 gap-3 mb-4 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg"><span className="text-slate-500">Intent</span><strong className="block text-slate-900 mt-1">{section2.searchIntent}</strong></div>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg"><span className="text-slate-500">Product shape</span><strong className="block text-slate-900 mt-1">{section2.recommendedProductShape}</strong></div>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg"><span className="text-slate-500">Site strategy</span><strong className="block text-slate-900 mt-1">{section2.siteStrategy}</strong></div>
+            </div>
+            <p className="text-xs text-slate-700 mb-4"><strong>Core job:</strong> {section2.jobToBeDone}</p>
 
             <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden">
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -285,6 +291,11 @@ export function ReportStudioClient({
             </h3>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700 mb-4">
               <strong>Stack:</strong> {section5.recommendedStack.frontend} &bull; {section5.recommendedStack.database}
+            </div>
+            <div className="p-4 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-900 mb-4">
+              <strong>Minimum execution brief:</strong> {section5.executionBrief.coreAction}
+              <div className="mt-2"><strong>Initial pages:</strong> {section5.executionBrief.initialPages.map((p) => p.path).join(' · ')}</div>
+              <div className="mt-2"><strong>Launch checks:</strong> {section5.executionBrief.launchChecklist.join(' ')}</div>
             </div>
 
             <div className="space-y-4">

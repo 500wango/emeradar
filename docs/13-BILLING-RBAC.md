@@ -45,7 +45,7 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
     "alert_channels": { "type": "set", "value": ["EMAIL", "WEBHOOK"] },
     "projects_max": { "type": "number", "value": 50 },
     "gsc_connections_max": { "type": "number", "value": 50 },
-    "api_access": { "type": "boolean", "value": true },
+    "api_access": { "type": "boolean", "value": false },
     "history_window_days": { "type": "number", "value": 365 },
     "compare_history": { "type": "boolean", "value": true }
   }
@@ -70,7 +70,7 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 | `alert_rules_max` | 1（仅 `DAILY` digest） | 20 |
 | `alert_channels` | `["EMAIL"]` | `["EMAIL","WEBHOOK"]` |
 | `projects_max` | 1 | 50 |
-| `api_access` | `false` | `true` |
+| `api_access` | `false` | `false`（首发不售卖；字段保留，Phase 2 再打开） |
 | `history_window_days` | 30 | 365 |
 
 ### 3.3 版本化
@@ -119,6 +119,15 @@ type ReservationResult =
 | `ProjectService.create` | `projects_max` | `check` | 同上 |
 | `OpportunityService.compare` | `compare_max_items` | `check` | 请求体 `ids.length` ≤ 上限，非消耗型 |
 | REST API Key 调用 | `api_access` | `check` | 布尔前置检查 |
+
+## 4.4 首发包装约束
+与 `20-COMMERCIAL-RELEASE.md` 一致，避免免费路径绕过付费窗口：
+
+- 「申请追踪」创建 `CANDIDATE`，不视为 `feed_realtime`，不扣 `deep_report_generate`。
+- `opportunity_detail_full` 对 `CANDIDATE` 关闭：调用方看到观察状态、缺了哪一类证据、预计何时可复评。已发布裁决的完整详情才按套餐打开。
+- Free 的信息流只含延迟公开投影（15，默认 45 天）。Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计。
+- 报告导出只针对已发布的 `BUILD_NOW` / `EARLY_BET`。同一快照重复导出不重复扣额。
+- Team 不在首发结账页出现。
 
 ## 5. 配额耗尽与降级 UX
 - REST：见 10 §1.1 错误格式，`QUOTA_EXCEEDED` / `PLAN_REQUIRED`，响应体含 `upgrade.url`。

@@ -13,6 +13,9 @@ export interface UserEntitlementsInfo {
   maxAlerts: number;
   currentAlertsCount: number;
   apiAccess: boolean;
+  feedDelayDays: number;
+  opportunityDetailFull: boolean;
+  deepReportExport: boolean;
 }
 
 export class EntitlementService {
@@ -48,6 +51,11 @@ export class EntitlementService {
     const maxProjects = ent.max_projects ?? 1;
     const maxAlerts = ent.max_alerts ?? 0;
     const apiAccess = !!ent.api_access;
+    const opportunityDetailFull = row.plan_code !== 'FREE';
+    const deepReportExport = row.plan_code !== 'FREE';
+    const realtime = row.plan_code === 'PRO' || row.plan_code === 'TEAM';
+    const feedDelayDays =
+      typeof ent.feed_delay_days === 'number' ? ent.feed_delay_days : realtime ? 0 : 45;
 
     // Check usage in current month
     const startOfMonth = new Date();
@@ -89,6 +97,9 @@ export class EntitlementService {
       maxAlerts,
       currentAlertsCount: alertCount,
       apiAccess,
+      feedDelayDays,
+      opportunityDetailFull,
+      deepReportExport,
     };
   }
 
@@ -100,9 +111,15 @@ export class EntitlementService {
     opportunityId: string
   ): Promise<{ reservationToken: string; isUnlimited: boolean }> {
     return transaction(async (client) => {
-      const ent = await this.getUserEntitlements(userId);
+      const entRes = await client.query<{ plan_code: string; entitlements: any }>(
+        `SELECT COALESCE(s.plan_code, 'FREE') AS plan_code, p.entitlements
+         FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
+         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, 'FREE') WHERE u.id = $1 AND u.status = 'ACTIVE'`, [userId]);
+      if (entRes.rows.length === 0) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
+      const ent = entRes.rows[0];
+      const exportLimit = ent.entitlements?.export_reports_monthly ?? 1;
 
-      if (ent.exportReportsMonthlyLimit === -1) {
+      if (exportLimit === -1) {
         // Unlimited tier (Pro / Team)
         return {
           reservationToken: `unlimited_${Date.now()}`,
@@ -110,34 +127,31 @@ export class EntitlementService {
         };
       }
 
-      if (ent.remainingReports <= 0) {
+      const periodStart = new Date();
+      periodStart.setDate(1);
+      const period = periodStart.toISOString().slice(0, 10);
+      const counter = await client.query<{ used: number }>(
+        `INSERT INTO usage_counters (user_id, feature, period_start, used)
+         VALUES ($1, 'EXPORT_REPORT', $2, 1)
+         ON CONFLICT (user_id, feature, period_start) DO UPDATE
+         SET used = usage_counters.used + 1
+         WHERE usage_counters.used < $3
+         RETURNING used`, [userId, period, exportLimit]);
+      if (counter.rows.length === 0) {
         throw new EmeradarError(
           ErrorCode.QUOTA_EXCEEDED,
-          `You have reached your monthly report export limit (${ent.exportReportsMonthlyLimit}). Please upgrade to Builder Pro for 30 exports/month.`,
+          `You have reached your monthly report export limit (${exportLimit}). Please upgrade to Builder Pro for 30 exports/month.`,
           429,
           {
             upgradeUrl: '/billing',
-            currentPlan: ent.planCode,
-            limit: ent.exportReportsMonthlyLimit,
+            currentPlan: ent.plan_code,
+            limit: exportLimit,
           }
         );
       }
 
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      const periodStart = startOfMonth.toISOString().slice(0, 10);
-
-      // Increment usage counter atomically
-      await client.query(
-        `INSERT INTO usage_counters (user_id, feature, period_start, used)
-         VALUES ($1, 'EXPORT_REPORT', $2, 1)
-         ON CONFLICT (user_id, feature, period_start)
-         DO UPDATE SET used = usage_counters.used + 1;`,
-        [userId, periodStart]
-      );
-
       const reservationToken = `res_${userId}_${opportunityId}_${Date.now()}`;
-      return { reservationToken, isUnlimited: false };
+      return { reservationToken: `${reservationToken}:${period}`, isUnlimited: false };
     });
   }
 
@@ -172,9 +186,8 @@ export class EntitlementService {
       return;
     }
 
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    const periodStart = startOfMonth.toISOString().slice(0, 10);
+    const periodStart = reservationToken.split(':').pop();
+    if (!periodStart || !/^\d{4}-\d{2}-\d{2}$/.test(periodStart)) return;
 
     await query(
       `UPDATE usage_counters

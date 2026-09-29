@@ -138,6 +138,10 @@ CREATE TABLE IF NOT EXISTS opportunities (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS discovery_source TEXT;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMPTZ;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS candidate_reason TEXT;
+
 CREATE TABLE IF NOT EXISTS opportunity_queries (
   opportunity_id TEXT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
   query_id TEXT NOT NULL REFERENCES queries(id) ON DELETE CASCADE,
@@ -180,6 +184,11 @@ CREATE TABLE IF NOT EXISTS opportunity_cards (
   stale BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE opportunity_cards ADD COLUMN IF NOT EXISTS search_intent TEXT;
+ALTER TABLE opportunity_cards ADD COLUMN IF NOT EXISTS recommended_product_shape TEXT;
+ALTER TABLE opportunity_cards ADD COLUMN IF NOT EXISTS site_strategy TEXT;
+ALTER TABLE opportunity_cards ADD COLUMN IF NOT EXISTS intent_evidence JSONB NOT NULL DEFAULT '{}';
 
 -- 5. 采集观察：Autocomplete 与 SERP
 CREATE TABLE IF NOT EXISTS autocomplete_observations (
@@ -295,9 +304,11 @@ CREATE TABLE IF NOT EXISTS ledger_checkpoints (
   total_records INTEGER NOT NULL,
   merkle_root CHAR(64) NOT NULL,
   final_row_hash CHAR(64) NOT NULL,
+  checkpoint_hash CHAR(64),
   signature TEXT NOT NULL DEFAULT '',
   verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE ledger_checkpoints ADD COLUMN IF NOT EXISTS checkpoint_hash CHAR(64);
 
 -- 9. 机会研究报告 (Opportunity Reports)
 CREATE TABLE IF NOT EXISTS opportunity_reports (
@@ -422,6 +433,19 @@ CREATE TABLE IF NOT EXISTS gsc_metrics_weekly (
   PRIMARY KEY (project_id, week_start_date)
 );
 
+CREATE TABLE IF NOT EXISTS gsc_metrics_weekly_detail (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  week_start_date DATE NOT NULL,
+  page_url TEXT NOT NULL DEFAULT '',
+  query TEXT NOT NULL DEFAULT '',
+  impressions INTEGER NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  average_position NUMERIC(5,2) NOT NULL DEFAULT 0.0,
+  source TEXT NOT NULL DEFAULT 'GSC' CHECK (source IN ('GSC','SELF_REPORTED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, week_start_date, page_url, query)
+);
+
 -- 12. 计费、套餐与配额 (Billing & Entitlements)
 CREATE TABLE IF NOT EXISTS plans (
   code TEXT PRIMARY KEY,                       -- FREE, PRO, TEAM
@@ -512,6 +536,9 @@ CREATE TABLE IF NOT EXISTS public_pages (
   published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (slug, locale)
 );
+
+ALTER TABLE public_pages ADD COLUMN IF NOT EXISTS eligibility JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE public_pages ADD COLUMN IF NOT EXISTS quality_report JSONB NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,

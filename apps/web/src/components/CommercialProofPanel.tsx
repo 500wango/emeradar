@@ -2,16 +2,17 @@ import React from 'react';
 import { CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface CommercialProofPanelProps {
-  stage: string;
+  stage?: string;
   gateways?: string[];
   plansCount?: number;
 }
 
 export function CommercialProofPanel({
-  stage,
-  gateways = ['Stripe'],
-  plansCount = 2,
+  stage = 'NONE',
+  gateways = [],
+  plansCount = 0,
 }: CommercialProofPanelProps) {
+  const observedCommercial = plansCount > 0 || gateways.length > 0;
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
@@ -37,24 +38,33 @@ export function CommercialProofPanel({
             <span>此信号能证明什么 (What This Proves)</span>
           </div>
           <ul className="space-y-2 text-xs text-emerald-950">
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-500 font-bold">•</span>
-              <span>
-                <strong>基准定价模型存在：</strong>竞品已公开标注文档与套餐（已识别 {plansCount} 个套餐），市场有先验价格锚点。
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-500 font-bold">•</span>
-              <span>
-                <strong>真实支付基建在线：</strong>检测到活跃支付网关（{gateways.join(', ') || 'Stripe'}），证明其并非纯概念站点，已具备收款能力。
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-500 font-bold">•</span>
-              <span>
-                <strong>商业意图明确：</strong>目标受众在搜索此长尾词时，存在向商业工具转化的既有心理预期。
-              </span>
-            </li>
+            {observedCommercial ? (
+              <>
+                {plansCount > 0 && (
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    <span>
+                      Observed pricing on file: {plansCount} plan{plansCount === 1 ? '' : 's'}. This is a price anchor, not revenue.
+                    </span>
+                  </li>
+                )}
+                {gateways.length > 0 && (
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500 font-bold">•</span>
+                    <span>
+                      Checkout infrastructure observed: {gateways.join(', ')}. A payment button proves the provider is present.
+                    </span>
+                  </li>
+                )}
+              </>
+            ) : (
+              <li className="flex items-start gap-2">
+                <span className="text-emerald-500 font-bold">•</span>
+                <span>
+                  No observed pricing or checkout is stored for this opportunity. Stage on file: {stage}.
+                </span>
+              </li>
+            )}
           </ul>
         </div>
 
@@ -68,13 +78,13 @@ export function CommercialProofPanel({
             <li className="flex items-start gap-2">
               <span className="text-amber-500 font-bold">•</span>
               <span>
-                <strong>不能证明营收规模与盈利：</strong>公开定价不等于真实经常性收入（ARR），不能断定竞品目前盈利或盈亏平衡。
+                Observed prices and payment buttons do not prove revenue, profit, or retention.
               </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-amber-500 font-bold">•</span>
               <span>
-                <strong>不能保证客户留存率：</strong>竞品可能面临高流失率（High Churn），需通过差异化功能与更好体验留存用户。
+                A commercial word in the query is inferred intent. It does not prove anyone is paying.
               </span>
             </li>
             <li className="flex items-start gap-2">

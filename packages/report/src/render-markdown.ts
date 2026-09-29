@@ -26,7 +26,7 @@ export function renderReportToMarkdown(report: OpportunityReportData): string {
 | **Demand Score (D)** | **${dPct} / 100** (${metadata.scores.dBasisPoints} bps) | Search demand velocity & cluster growth |
 | **Commercial Signal (M)** | **${mPct} / 100** (${metadata.scores.mBasisPoints} bps) | Verified monetization & paid competition |
 | **Competitive Window (W)** | **${wPct} / 100** (${metadata.scores.wBasisPoints} bps) | SERP weakness & low incumbent resistance |
-| **Evidence Confidence** | \`${metadata.scores.confidence}\` (${(metadata.scores.confidenceScore * 100).toFixed(0)}%) | Multi-source corroboration strength |
+| **Evidence Confidence** | \`${metadata.scores.confidence}\` | Stored confidence band |
 
 ### Strategic Thesis
 ${section1.thesis}
@@ -49,6 +49,10 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 ## 2. 🔍 Search Demand & Query Clustering
 
 - **Primary Query**: \`${section2.primaryQuery}\`
+- **Search Intent**: \`${section2.searchIntent}\`
+- **Core Job**: ${section2.jobToBeDone}
+- **Recommended Shape**: **${section2.recommendedProductShape}**
+- **Site Strategy**: \`${section2.siteStrategy}\`
 - **Query Momentum Velocity**: \`${section2.queryVelocity}x baseline\`
 
 ### Query Cluster Matrix
@@ -68,11 +72,12 @@ ${section2.momentumAssessment}
 
 - **SERP Weakness Score**: **${section3.serpWeaknessScore.toFixed(1)} / 100**
 - **Vulnerable Results Ratio**: **${(section3.weakResultsRatio * 100).toFixed(0)}%** of Top 10 results display addressable quality gaps
+- **Homepage / Inner-page Mix**: ${(section3.homepageRatio * 100).toFixed(0)}% / ${(section3.innerPageRatio * 100).toFixed(0)}%
 
 ### Top 10 Organic Search Results
 | Rank | Domain | Title | Result Type | Weakness Status | Reason |
 |:----:|--------|-------|:-----------:|:---------------:|--------|
-${section3.top10Results.map((r) => `| ${r.rank} | **${r.domain}** | ${r.title} | \`${r.resultType}\` | ${r.isWeak ? '🔴 WEAK' : '🟢 STRONG'} | ${r.weaknessReason || 'Incumbent specialist entry'} |`).join('\n')}
+${section3.top10Results.map((r) => `| ${r.rank} | **${r.domain}** | ${r.title} | \`${r.resultType}\` | ${r.isWeak ? '🔴 WEAK' : '🟢 STRONG'} | ${r.weaknessReason || ''} |`).join('\n')}
 
 ### Attackable Gaps & Competitor Blindspots
 ${section3.vulnerableGaps.map((gap) => `- 🎯 ${gap}`).join('\n')}
@@ -101,6 +106,23 @@ ${section4.monetizationHeadroom}
 - **Product Archetype**: \`${section5.archetype}\`
 - **Execution Class**: \`${section5.executionClass}\`
 - **Target Launch Window**: **${section5.targetTimeframeDays} Days**
+
+### Minimum Execution Brief
+- **Core Job**: ${section5.executionBrief.coreJob}
+- **MVP Page Type**: ${section5.executionBrief.mvpPageType}
+- **Core Action**: ${section5.executionBrief.coreAction}
+
+#### Initial Pages
+${section5.executionBrief.initialPages.map((p) => `- \`${p.path}\`: ${p.purpose}`).join('\n')}
+
+#### Internal Linking
+${section5.executionBrief.internalLinkPlan.map((p) => `- ${p}`).join('\n')}
+
+#### Launch Checklist
+${section5.executionBrief.launchChecklist.map((p) => `- [ ] ${p}`).join('\n')}
+
+#### Non-goals
+${section5.executionBrief.nonGoals.map((p) => `- ${p}`).join('\n')}
 
 ### Scope Definition
 | In Scope (MVP) | Out of Scope (Post-Validation) |

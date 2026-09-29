@@ -24,6 +24,10 @@ export interface ReportGenerationInput {
   obsDate: string;
   locale?: Locale;
   primaryQuery: string;
+  searchIntent?: Section2DemandBreakdown['searchIntent'];
+  jobToBeDone?: string;
+  recommendedProductShape?: string;
+  siteStrategy?: Section2DemandBreakdown['siteStrategy'];
   clusterQueries?: {
     query: string;
     intent: 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL';
@@ -33,6 +37,7 @@ export interface ReportGenerationInput {
   autocompleteSuggestions?: string[];
   top10Serp?: {
     rank: number;
+    url?: string;
     domain: string;
     title: string;
     resultType: string;
@@ -96,28 +101,16 @@ export function generateOpportunityReport(
     thesis:
       input.llmSummaryNarrative?.thesis ||
       (isZh
-        ? `针对 "${input.primaryQuery}" 搜索机会，当前判定为 ${input.scoring.verdict}。需求热度充足（${(input.scoring.dScore / 100).toFixed(1)}/100），竞争窗口呈现显著切入空间（${(input.scoring.wScore / 100).toFixed(1)}/100）。`
-        : `Validated ${input.scoring.verdict} opportunity around "${input.primaryQuery}". Robust search demand (${(input.scoring.dScore / 100).toFixed(1)}/100) intersects with an addressable competitive window (${(input.scoring.wScore / 100).toFixed(1)}/100).`),
+        ? `查询「${input.primaryQuery}」的库存裁决是 ${input.scoring.verdict}。需求 ${input.scoring.dScore} 基点，商业 ${input.scoring.mScore} 基点，窗口 ${input.scoring.wScore} 基点。`
+        : `Stored verdict for "${input.primaryQuery}" is ${input.scoring.verdict}. Demand ${input.scoring.dScore} basis points, commercial ${input.scoring.mScore}, window ${input.scoring.wScore}.`),
     whyNow:
       input.llmSummaryNarrative?.whyNow ||
       input.scoring.explanation.wReason ||
-      (isZh
-        ? '近期行业规范与外部环境发生变化，现有头部站点内容滞后，形成短期内可快速切入的利基窗口。'
-        : 'Recent industry shifts and outdated incumbent SERP content create an immediate tactical entry window.'),
+      (isZh ? '没有存下来的 Why Now。' : 'No why-now statement is stored.'),
     topIdea:
       input.llmSummaryNarrative?.topIdea ||
-      (isZh
-        ? `构建聚焦轻量即用的 ${input.scoring.recommendedArchetype}，解决用户核心计算与导出诉求。`
-        : `Ship a focused ${input.scoring.recommendedArchetype} addressing the direct user workflow with frictionless onboarding.`),
-    keyRisks: isZh
-      ? [
-          '官方平台可能在未来大版本中推出内置原生功能',
-          '若未在 60 天内建立品牌或外链沉淀，窗口可能随竞品涌入迅速关闭',
-        ]
-      : [
-          'Platform provider may introduce native baseline features in future major updates',
-          'Competitive window may narrow within 60 days as copycat tools replicate organic footprint',
-        ],
+      (isZh ? '没有存下来的产品形态。' : 'No build shape is stored.'),
+    keyRisks: [],
     decisionRecommendation:
       input.scoring.verdict === 'BUILD_NOW'
         ? isZh
@@ -129,87 +122,57 @@ export function generateOpportunityReport(
   };
 
   // 3. Section 2: Demand Breakdown
-  const defaultClusters = [
-    { query: input.primaryQuery, intent: 'COMMERCIAL' as const, volumeTier: 'HIGH' as const },
-    { query: `${input.primaryQuery} free`, intent: 'TRANSACTIONAL' as const, volumeTier: 'HIGH' as const },
-    { query: `best ${input.primaryQuery} online`, intent: 'COMMERCIAL' as const, volumeTier: 'MEDIUM' as const },
-    { query: `how to use ${input.primaryQuery}`, intent: 'INFORMATIONAL' as const, volumeTier: 'EMERGING' as const },
-  ];
-
   const section2: Section2DemandBreakdown = {
     primaryQuery: input.primaryQuery,
-    clusterQueries: input.clusterQueries && input.clusterQueries.length > 0 ? input.clusterQueries : defaultClusters,
-    queryVelocity: input.queryVelocity ?? 1.25,
-    autocompleteSignals: input.autocompleteSuggestions || [
-      `${input.primaryQuery} 2026`,
-      `${input.primaryQuery} open source`,
-      `${input.primaryQuery} alternative`,
-    ],
+    searchIntent: input.searchIntent ?? (input.scoring.recommendedArchetype === 'LIGHTWEIGHT_TOOL' ? 'TRANSACTIONAL' : 'INFORMATIONAL'),
+    jobToBeDone: input.jobToBeDone ?? (isZh ? `帮助用户完成“${input.primaryQuery}”对应的核心任务。` : `Help the user complete the core task behind "${input.primaryQuery}".`),
+    recommendedProductShape: input.recommendedProductShape ?? (input.scoring.recommendedArchetype === 'LIGHTWEIGHT_TOOL' ? (isZh ? '免登录免费工具' : 'Free, no-login tool') : input.scoring.recommendedArchetype),
+    siteStrategy: input.siteStrategy ?? (input.scoring.verdict === 'BUILD_NOW' ? 'INDEPENDENT_SITE' : 'WATCH'),
+    clusterQueries: input.clusterQueries ?? [],
+    queryVelocity: input.queryVelocity ?? 0,
+    autocompleteSignals: input.autocompleteSuggestions ?? [],
     momentumAssessment: isZh
-      ? `簇内长尾词数量稳定增长，7 天新增查询率维持在健康区间，表明该利基正处于由早鸟探索向大众需求扩散的关键阶段。`
-      : `Healthy cluster expansion across long-tail modifiers indicates growing search adoption moving from early adopters to mainstream users.`,
+      ? '没有足够的重复观测，不能判断需求动量。'
+      : 'Not enough repeated observations to assess momentum.',
   };
 
   // 4. Section 3: Competitive Landscape & SERP Weakness
-  const top10 = input.top10Serp && input.top10Serp.length > 0
-    ? input.top10Serp
-    : [
-        { rank: 1, domain: 'reddit.com', title: 'Reddit discussion thread', resultType: 'UGC_THREAD', isWeak: true, weaknessReason: 'Unstructured community discussion without dedicated interactive tool' },
-        { rank: 2, domain: 'legacy-blog.org', title: 'Comprehensive guide 2022', resultType: 'EDITORIAL_MEDIA', isWeak: true, weaknessReason: 'Outdated content published >24 months ago' },
-        { rank: 3, domain: 'affiliate-roundup.io', title: 'Top 5 tools listed', resultType: 'LISTICLE_AFFILIATE', isWeak: true, weaknessReason: 'Thin affiliate comparison without unique utility' },
-        { rank: 4, domain: 'incumbent-saas.com', title: 'Enterprise Suite Features', resultType: 'SPECIALIST', isWeak: false },
-        { rank: 5, domain: 'stackoverflow.com', title: 'Code snippet question', resultType: 'QA', isWeak: true, weaknessReason: 'Developer QA forum snippet requiring manual configuration' },
-      ];
-
+  const top10 = input.top10Serp ?? [];
   const weakCount = top10.filter((item) => item.isWeak).length;
+  const isHomepage = (url?: string): boolean => {
+    if (!url) return true;
+    try {
+      const pathname = new URL(url).pathname.replace(/\/+$/, '');
+      return pathname === '';
+    } catch {
+      return url.replace(/^\/+|\/+$/g, '').split('/').length <= 1;
+    }
+  };
 
   const section3: Section3CompetitiveWeakness = {
     serpWeaknessScore: input.scoring.wScore / 100,
-    weakResultsRatio: top10.length > 0 ? weakCount / top10.length : 0.6,
+    weakResultsRatio: top10.length > 0 ? weakCount / top10.length : 0,
     top10Results: top10,
-    vulnerableGaps: isZh
-      ? [
-          '前 5 位结果中存在过时的博客与 Reddit 论坛帖，缺乏现代交互式专用工具',
-          '现存商业竞品价格门槛过高，中小用户被拒之门外，急需自助轻量方案',
-        ]
-      : [
-          'High density of forum threads and legacy blog posts in Top 5 indicates insufficient specialist competition',
-          'Incumbent commercial solutions are bloated and priced out of reach for indie and SMB operators',
-        ],
+    homepageRatio: top10.length ? top10.filter((item) => isHomepage(item.url)).length / top10.length : 0,
+    innerPageRatio: top10.length ? top10.filter((item) => !isHomepage(item.url)).length / top10.length : 0,
+    vulnerableGaps: [],
   };
 
   // 5. Section 4: Commercial Validation
-  const paidCompetitors = input.paidCompetitors && input.paidCompetitors.length > 0
-    ? input.paidCompetitors
-    : [
-        {
-          domain: 'tool-pro.com',
-          pricingModel: 'Subscription',
-          priceRange: '$19 - $79 / mo',
-          paymentGateways: ['Stripe', 'Credit Card'],
-        },
-        {
-          domain: 'calc-cloud.io',
-          pricingModel: 'Usage-based',
-          priceRange: '$0.05 / transaction',
-          paymentGateways: ['Stripe'],
-        },
-      ];
-
   const section4: Section4CommercialValidation = {
     evidenceCount: input.evidenceCounts || {
-      total: 8,
-      observed: 5,
-      selfReported: 2,
-      estimated: 1,
+      total: 0,
+      observed: 0,
+      selfReported: 0,
+      estimated: 0,
     },
-    paidCompetitors,
+    paidCompetitors: input.paidCompetitors ?? [],
     monetizationHeadroom: isZh
-      ? '已观测到至少 2 家独立付费竞品稳定运营，商业意图明确，支持按月订阅与单次付费混合模式。'
-      : 'At least 2 active paid competitors demonstrate proven commercial willingness to pay in this segment.',
+      ? '没有存下来的定价或结账观测。'
+      : 'No pricing or checkout observation is stored.',
     negativeSignalCheck: {
-      passed: true,
-      findings: [],
+      passed: false,
+      findings: [isZh ? '尚未做负面信号检查。' : 'Negative signals have not been checked.'],
     },
   };
 
@@ -219,81 +182,41 @@ export function generateOpportunityReport(
     executionClass: input.scoring.executionClass,
     targetTimeframeDays: input.scoring.executionClass === 'S' ? 14 : 30,
     mvpScope: {
-      inScope: isZh
-        ? [
-            '核心交互式计算器 / 转换器功能，无需注册即刻体验',
-            '结果导出为 CSV / PDF / Markdown',
-            '基础付费墙（Stripe 结账）提供高级功能或无限制导出',
-          ]
-        : [
-            'Frictionless core utility accessible without upfront account registration',
-            'Structured exports in CSV, JSON, and PDF formats',
-            'Lightweight paywall (Stripe Checkout) unlocking unlimited batches and premium rules',
-          ],
-      outOfScope: isZh
-        ? ['复杂团队权限协作管理', '企业级单点登录 (SSO)', '全量多币种本地税务对账引擎']
-        : ['Complex multi-tenant workspace permissions', 'Enterprise SAML/SSO', 'Custom ERP integrations'],
+      inScope: [],
+      outOfScope: [],
     },
     recommendedStack: {
-      frontend: 'Next.js 15+ (App Router) + Tailwind CSS + Lucide Icons',
-      backend: 'Next.js API Route Handlers + TypeScript',
-      database: 'PostgreSQL (Supabase / Neon)',
-      hosting: 'Vercel / Cloudflare Workers',
+      frontend: '',
+      backend: '',
+      database: '',
+      hosting: '',
     },
-    sprintPlan14d: [
-      {
-        phase: 'Sprint 1: Core Engine & UI',
-        days: 'Day 1 - 4',
-        deliverables: [
-          'Implement core calculation/generation logic with 100% test coverage',
-          'Build clean Tailwind responsive interface with instant feedback',
-        ],
-      },
-      {
-        phase: 'Sprint 2: Monetization & SEO',
-        days: 'Day 5 - 9',
-        deliverables: [
-          'Integrate Stripe Checkout and Customer Portal',
-          'Deploy optimized Programmatic/Static SEO landing pages targeting cluster queries',
-        ],
-      },
-      {
-        phase: 'Sprint 3: Launch & Tracking',
-        days: 'Day 10 - 14',
-        deliverables: [
-          'Deploy to production domain with OpenGraph cards and analytics',
-          'Submit sitemap to Google Search Console and link Emeradar project tracking',
-        ],
-      },
-    ],
+    sprintPlan14d: [],
+    executionBrief: {
+      primaryQuery: input.primaryQuery,
+      searchIntent: input.searchIntent ?? 'TRANSACTIONAL',
+      coreJob: input.jobToBeDone ?? `Help the user complete the core task behind "${input.primaryQuery}".`,
+      mvpPageType: input.recommendedProductShape ?? 'Lightweight tool landing page',
+      coreAction: input.scoring.recommendedArchetype === 'LIGHTWEIGHT_TOOL' ? 'Complete the core task without sign-up.' : 'Answer the primary search question with verifiable evidence.',
+      requiredVariants: (input.clusterQueries ?? []).slice(0, 8).map((q) => q.query),
+      initialPages: [
+        { path: '/', purpose: 'Primary task and value proposition' },
+        { path: '/how-it-works', purpose: 'Explain the result and establish trust' },
+        { path: '/faq', purpose: 'Cover high-intent questions and objections' },
+      ],
+      internalLinkPlan: ['Home links to the primary task page and supporting pages.', 'Supporting pages link back to the primary task and the parent topic.', 'Every page links to one next-step action.'],
+      launchChecklist: ['Verify server-rendered primary content.', 'Submit sitemap and connect GSC.', 'Publish only pages with distinct search intent.', 'Review impressions, queries and indexing at T+7 and T+14.'],
+      nonGoals: ['No bulk page generation before indexing evidence.', 'No ranking or traffic guarantee.', 'No paid or low-quality link scheme.'],
+    },
   };
 
   // 7. Section 6: Kill Criteria
   const section6: Section6KillCriteria = {
-    activeRules: input.killCriteria || [
-      {
-        code: 'KC-01',
-        rule: 'Official platform releases free built-in tool',
-        rationale: 'Destroys independent standalone conversion motivation.',
-      },
-      {
-        code: 'KC-02',
-        rule: 'Top 3 SERP occupied by authoritative domain with specialist tool',
-        rationale: 'Drives acquisition cost above reasonable unit economics for bootstrappers.',
-      },
-    ],
-    invalidationConditions: isZh
-      ? [
-          '若 60 天内该查询簇在 Google Search Console 中无任何曝光（<100 次曝光），应果断关闭项目',
-          '若自然搜索转化率低于 0.5%，表明用户仅寻找纯免费信息，商业假设不成立',
-        ]
-      : [
-          'If organic impressions remain <100 after 60 days on production domain, discontinue active maintenance',
-          'If visitor-to-conversion rate remains below 0.5%, monetization thesis is invalidated',
-        ],
+    activeRules: input.killCriteria ?? [],
+    invalidationConditions: [],
     radarWatchGuidance: isZh
-      ? '已在 Emeradar 中激活每日雷达跟踪：若该机会评分降级为 PASS 或竞争窗口显著收窄，系统将自动触发即时告警。'
-      : 'Continuous radar monitoring enabled: Emeradar will trigger alerts if verdict shifts or new authoritative entrants emerge.',
+      ? '没有单独的失效条件。发布资格仍要求 14 天联想历史和一份单一来源的自然搜索快照。'
+      : 'No extra invalidation rule is stored. Publication still requires 14 days of autocomplete history and one single-source organic SERP snapshot.',
   };
 
   return {

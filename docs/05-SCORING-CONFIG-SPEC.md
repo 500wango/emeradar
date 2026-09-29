@@ -60,6 +60,12 @@ serp_weakness = 100 × Σ r_i × w_i
 ```
 输出同时返回**逐结果弱度明细**，供 UI 列出"具体弱结果"（PRD F6）。`UNCLASSIFIED` 使用中性值并计入 `coverage` 惩罚。
 
+**来源纯度（与 01 §1.7 一致）**
+- 排名权重只适用于**同一次、单一来源**的自然搜索结果快照（授权 SERP API 或经书面决策的等价采集）。新闻、代码仓库、问答、百科、社区是各自的证据，不得穿插后重新编号为 Top 10 再套用 `r`。
+- `age_adj` 只在 `published_at` 或等价时间戳已写入该行时生效。缺时间戳则 `age_adj = 0`，且不得标 `OUTDATED_CONTENT`。
+- `relevance_adj` 只在该次采集持久化了 `relevance` 时生效。按来源写死的常数不算观测，调整量为 0。
+- 不满足上述条件时，这次采集可以落成辅助证据，但 `serp_history_days` 不增加，W 轴为 `INSUFFICIENT`。
+
 ### 3.4 M 轴输入
 M 轴由 `commercial_summary`（07 §5）输入，含：独立域名数、各证据类型计数、持续性天数、负面信号、验证级别。分档函数 `bandM()` 位于 `@app/scoring`（纯函数），检测与抽取位于 `@app/commercial`（IO）。
 
@@ -111,6 +117,24 @@ observed_share = OBSERVED 证据占本机会有效证据的比例
 `HIGH` ≥ 0.75；`MEDIUM` ≥ 0.50；否则 `LOW`。`n_independent_sources` = 近 30 天内对该机会有数据贡献的不同 `source_id` 个数。
 
 ## 5. Verdict
+
+### 5.0 发布资格
+`evaluateVerdict` 之前先算 `publication`。任一条件失败，则本次输出强制为：
+
+| 字段 | 值 |
+|------|----|
+| `verdict` / `raw_verdict` | `WATCH` |
+| `flags` | 含 `PARTIAL_DATA`；历史不足 14 天再加 `BASELINE_PERIOD` |
+| `confidence` | 不得为 `HIGH`。关键源失败或历史不足时为 `LOW` |
+| 机会 `status` | 保持或降为 `CANDIDATE`，信息流查询排除它 |
+
+失败条件：
+- `history_days < 14`，或 D 轴覆盖不足（§4.1 的 `INSUFFICIENT`）
+- `serp_history_days < 14`，或最近一份快照不是 §3.3 认可的单一来源自然搜索结果
+- M 轴唯一支撑是 `INFERRED`（例如查询词里的商业修饰词），且没有 observed 定价 / 结账
+- 任一关键采集源在本批失败，而调用方用空列表继续打分
+
+即时追踪申请（01 F3）走这条路径：它可以保存第一次联想观测和辅助来源行，但不得调用 §5.1 的升档规则。每日批处理在资格满足后才第一次允许 `BUILD_NOW` / `EARLY_BET`。`WINDOW_CLOSING` 另外要求 `prev.verdict` 已是发布过的 `BUILD_NOW` 或 `EARLY_BET`。
 
 ### 5.1 原始 Verdict（`raw_verdict`）
 自上而下评估，首个命中即返回：

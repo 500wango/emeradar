@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import {
   FolderKanban,
   ExternalLink,
@@ -6,11 +8,14 @@ import {
   MousePointerClick,
   Eye,
 } from 'lucide-react';
-import { ProjectService } from '@emeradar/services';
+import { AuthService, ProjectService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
 
 export default async function ProjectsPage() {
-  const userId = 'usr_demo_pro';
+  const token = (await cookies()).get('emeradar_session')?.value;
+  const session = token ? await AuthService.getSessionUser(token) : null;
+  if (!session) redirect('/login');
+  const userId = session.user.id;
   const projects = await ProjectService.listUserProjects(userId);
 
   return (
@@ -83,7 +88,7 @@ export default async function ProjectsPage() {
                     </span>
                   </div>
 
-                  <h3 className="text-xl font-bold text-slate-900">{p.title}</h3>
+                  <h3 className="text-xl font-bold text-slate-900"><Link href={`/projects/${p.id}`} className="hover:text-blue-600">{p.title}</Link></h3>
 
                   {p.domain && (
                     <div className="mt-1 flex items-center gap-2 text-xs text-blue-600">
@@ -135,7 +140,7 @@ export default async function ProjectsPage() {
               </div>
 
               {/* Target Keywords */}
-              <div className="mt-5 flex flex-wrap items-center gap-2">
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-500 font-semibold mr-1">
                   Target Search Keywords:
                 </span>
@@ -147,8 +152,8 @@ export default async function ProjectsPage() {
                     {kw}
                   </span>
                 ))}
-              </div>
-            </div>
+                  </div>
+                </div>
           ))}
         </div>
       )}

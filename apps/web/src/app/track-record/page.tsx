@@ -36,10 +36,10 @@ export default async function TrackRecordPage() {
             30-Day Hit Rate
           </span>
           <div className="text-3xl font-bold text-emerald-600 mt-2">
-            {stats.hitRate30d}
+            {stats.hitRate30d ?? '—'}
           </div>
           <span className="text-xs text-slate-400 mt-1 block">
-            Cohort market formation
+            {stats.hitRate30d ? 'Cohort market formation' : 'No T+30 outcomes yet'}
           </span>
         </div>
 
@@ -96,6 +96,11 @@ export default async function TrackRecordPage() {
           </span>
         </div>
 
+        {episodes.length === 0 && (
+          <p className="px-6 py-8 text-sm text-slate-600">
+            No evaluated episodes yet. A hit rate is published only after a real verdict has a T+30 outcome. Example rows are not shown.
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">

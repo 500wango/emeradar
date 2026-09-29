@@ -55,6 +55,14 @@ export class AutocompleteCollector
     try {
       // 2. Depth 0: Fetch base seed suggestions
       const baseSuggestions = await this.fetchSuggestions(item.queryText);
+      if (!baseSuggestions) {
+        return {
+          status: 'FAILED',
+          retryable: true,
+          errorCode: 'AC_FETCH_ERROR',
+          message: 'Autocomplete returned no live suggestions.',
+        };
+      }
 
       const allSuggestions = new Set<string>(baseSuggestions);
 
@@ -73,7 +81,7 @@ export class AutocompleteCollector
             `${item.queryText} ${mod}`
           );
           totalRequests++;
-          for (const s of subSuggestions) {
+          for (const s of subSuggestions ?? []) {
             allSuggestions.add(s);
           }
         }
@@ -149,7 +157,7 @@ export class AutocompleteCollector
     }
   }
 
-  private async fetchSuggestions(query: string): Promise<string[]> {
+  private async fetchSuggestions(query: string): Promise<string[] | null> {
     try {
       const url = `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(
         query
@@ -157,30 +165,20 @@ export class AutocompleteCollector
       const res = await fetch(url, {
         headers: {
           'User-Agent':
-            'EmeradarIntelligenceBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(4000),
       });
 
-      if (!res.ok) {
-        throw new Error(`Google Autocomplete returned status ${res.status}`);
-      }
+      if (!res.ok) return null;
 
       const data = await res.json();
-      // Format: [query, [suggestions...], ...]
-      if (Array.isArray(data) && Array.isArray(data[1])) {
+      if (Array.isArray(data) && Array.isArray(data[1]) && data[1].length > 0) {
         return data[1].map((s: any) => String(s));
       }
-      return [];
+      return null;
     } catch {
-      // Deterministic synthetic fallback when offline or rate-limited
-      return [
-        `${query} free`,
-        `${query} online`,
-        `${query} 2026`,
-        `${query} alternative`,
-        `best ${query}`,
-      ];
+      return null;
     }
   }
 }

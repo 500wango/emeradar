@@ -45,7 +45,9 @@ export class CostLedgerService {
       maxDailyBudgetUsd,
       currentSpentUsd: currentSpent,
       canSpend(costUsd: number): boolean {
-        return spent + costUsd <= maxDailyBudgetUsd;
+        if (spent + costUsd > maxDailyBudgetUsd) return false;
+        spent += costUsd;
+        return true;
       },
     };
   }

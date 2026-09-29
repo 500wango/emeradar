@@ -41,9 +41,24 @@
 
 ### 1.6 非目标
 - 不做 Ahrefs / Semrush 的全功能替代；不以 Keyword Difficulty / 反链库为核心。
-- 不做纯热点新闻工具。
-- 不依赖单一数据源生存。
-- 首发不做团队协作、组合管理、多研究市场同时验证。
+- 不做「输入任意关键词、当场给出裁决」的搜索审计。用户申请追踪一个词，只创建观察记录。
+- 不做创意目录，不展示未经观测的收入区间。
+- 不做纯热点新闻工具，不把新闻、代码仓库、问答、百科穿插后称作 Google 自然排名。
+- 不依赖单一数据源生存。每个源只服务一条轴，失败时该轴为 `INSUFFICIENT`。
+- 首发不做团队协作、组合管理、多研究市场、开放 API、对话式助手、程序化 SEO 页面。
+
+### 1.7 首发商业产品
+首发卖的是每日少数可执行决定，以及这些决定事后能否被复盘。完整包装、页面与门槛见 `20-COMMERCIAL-RELEASE.md`。这里只锁定会改变行为的规则：
+
+1. **发布资格先于裁决。** 主查询的联想观测少于 14 天，或还没有一份单一来源的自然搜索结果快照，或任一关键轴为 `INSUFFICIENT`，或置信度为 `LOW`：不得发布 `BUILD_NOW`、`EARLY_BET`、`WINDOW_CLOSING`。记录状态为 `CANDIDATE`，裁决为 `WATCH`，并带 `PARTIAL_DATA`。信息流不展示 `CANDIDATE`。
+2. **窗口关闭有前置裁决。** `WINDOW_CLOSING` 只可能来自一条已经发布的 `BUILD_NOW` 或 `EARLY_BET`，且 W 在 14 天内下降至少一档。当天竞争看起来不强，不是窗口关闭。
+3. **商业高档要有观测。** 查询里出现 pricing、tool、api 等词只是 `INFERRED`，M 轴最高为 `LOW`，且不能单独把机会推进 `BUILD_NOW`。`HIGH` 仍要求至少两个独立域名上的 observed 定价或结账。支付按钮只证明有收款设施。
+4. **信息流回答做不做。** 每天最多 10 条已发布机会，默认页是 `BUILD_NOW`。`EARLY_BET` 必须标明「商业未验证」。卡片显示分档，不把基点当成百分制主视觉。
+5. **动作闭环。** 已发布的 `BUILD_NOW` / `EARLY_BET` 可以关注、做、放弃、导出报告。「做」写入 `decisions` 并创建 Project，绑当时的 `verdict_id`。放弃必须选择原因。「做」不能作用在 `CANDIDATE` 上。
+6. **付费物。** Free：战绩、延迟 45 天的机会摘要、每月 1 份报告预览且不能导出。Pro：实时信息流、完整详情、每月 30 份报告导出、关注与邮件告警、项目追踪。首发不卖 Team，不把 API 当作套餐卖点。
+7. **对外数字。** 在战绩页同时有命中和失误、并写明样本数与 T+30/60/90 之前，首页、徽章和广告不得出现预测准确率。不得写「扫描了数百万查询」除非数据源登记里有对应体量。
+
+研究市场首发固定为美国英语（`market_country = US`，`research_language = en-US`）。每张卡片写明这一点。界面可以是英语或中文，原始查询和证据标题不翻译。
 
 ---
 
@@ -162,11 +177,11 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 |---------|---------------|
 | **BUILD NOW** | D ≥ Medium ∧ M = High ∧ W ≥ Medium ∧ Confidence ≥ Medium |
 | **EARLY BET** | D = High ∧ W = High ∧ M ∈ {Low, Medium, Insufficient}；界面明确标注"商业未验证" |
-| **WINDOW CLOSING** | 此前为 BUILD NOW / EARLY BET，且 W 在 14 天内下降 ≥ 1 档 |
+| **WINDOW CLOSING** | 此前已发布的裁决为 BUILD NOW / EARLY BET，且 W 在 14 天内下降 ≥ 1 档。没有前置发布裁决时，低 W 落入 WATCH（数据不足）或 PASS（窗口确已关闭且需求档不是 INSUFFICIENT），不得叫窗口关闭 |
 | **WATCH** | D ≥ Medium，且不满足以上任一条件 |
 | **PASS** | D = Low，或 M 出现强负面信号，或 W = Low |
 
-目标稀缺性：BUILD NOW 占被追踪机会的 ≤ 5%。稀缺是特性，不是缺陷。
+目标稀缺性：BUILD NOW 占已发布（`status = TRACKED` 且通过 §1.7 发布资格）机会的 ≤ 5%。稀缺是特性，不是缺陷。未通过发布资格的行留在 `CANDIDATE`，不计入这个比例，也不进入默认信息流。
 
 ### 5.8 机会生命周期（市场状态）
 `FORMING` → `EARLY_WINDOW` → `CONTESTED` → `MATURE` → `DEAD`
@@ -234,7 +249,8 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 
 ### F3 Opportunity Feed
 **需求**
-- 默认每日最多 10 条，按 Onboarding 个性化；Tab：BUILD NOW / EARLY BET / WATCH 变化 / WINDOW CLOSING。
+- 只列出 `status = TRACKED` 且通过 §1.7 发布资格的机会。默认每日最多 10 条，按 Onboarding 个性化；默认 Tab 为 BUILD NOW。Tab：BUILD NOW / EARLY BET / WATCH 变化 / WINDOW CLOSING。
+- 另有「申请追踪」：提交一个查询后创建 `CANDIDATE`，页面说明观察已开始、裁决尚未发布。该操作不返回 BUILD NOW，也不消耗报告配额。
 - 过滤：market、language、build type、monetization 路线、执行规模（S / M / L）。
 - 排序仅 4 种：Verdict 优先（默认）、Velocity、首次观测时间、SERP weakness。
 - 卡片字段：主实体 / query、Verdict、D-M-W 分档、Evidence Confidence、首次观测、velocity、一句可追溯的理由（至少引用 1 个 `evidence_id`）、Top build idea。
@@ -242,7 +258,7 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 **验收**：每张卡片的理由都可点开查看对应证据；总分不作为主要视觉元素。
 
 ### F4 Opportunity Detail
-**首屏（无需滚动）**：Verdict、D-M-W、Confidence、一句 Why Now、主操作（GO / PASS / Watch / 导出机会报告）。
+**首屏（无需滚动）**：Verdict、D-M-W **分档**（不把基点渲染成百分制）、Confidence、研究市场、一句 Why Now、主操作（GO / PASS / Watch / 导出机会报告）。`CANDIDATE` 首屏改为观察状态，GO 与导出不可用。`EARLY_BET` 在操作旁标明「商业未验证」。
 
 **正文按决策顺序**：
 1. Why Now 与跨源动量
@@ -339,7 +355,7 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 - SEO / GEO 是产品架构的一部分，不是外围项目。
 
 ### 7.2 页面范围（首发）
-- Landing：必须使用真实产品界面与真实账本统计，不用抽象插画
+- Landing：展示真实的已发布机会卡（分档，不展示伪造准确率）。账本尚未同时包含命中与失误时，不写预测准确率，改链到方法论和战绩页的覆盖说明。主按钮进入信息流或注册，不把即时扫词当作首屏产品。
 - Pricing、Methodology、Data Sources、Docs / API 入口、Login / Signup
 - **Track Record**：预测账本的公开视图，包含命中与失误，展示 T+30/60/90 天结果
 - **延迟机会页**：仅发布满足资格规则的机会（例如 Verdict 已过 T+45 天，且 W 已降至 ≤ Medium 或进入 CONTESTED）
@@ -365,9 +381,9 @@ Programmatic 规模化仅在 Gate 2 通过后启动。页面数量与纯流量�
 ## 8. 商业模式与单位经济
 
 - **套餐结构**（具体配额与价格在计费与权限规格中定义，定价由预售访谈决定）：
-  - Free：Track Record、延迟机会、基础机会报告预览
-  - Pro：实时 Feed、Watchlist / Alerts、完整机会深度报告导出、Project 追踪
-  - Team：Phase 3
+  - Free：Track Record、延迟 45 天的机会摘要、每月 1 份报告预览（不可导出）
+  - Pro：实时 Feed（每日最多 10 条已发布决定）、完整 Detail、Watch / 邮件告警、每月 30 份报告导出、Project 追踪
+  - Team 与开放 API：不在首发售卖。权益字段可以预留，首发套餐快照里 `api_access = false`
 - Web、API 共用同一套配额。
 - **单位经济约束**：追踪池规模由成本模型与目标毛利率反推，而不是反过来。必须能回答：每个付费用户每月消耗多少数据成本？目标毛利率 ≥ 70%（待定价确定后校准）。
 
@@ -439,12 +455,12 @@ Programmatic 规模化仅在 Gate 2 通过后启动。页面数量与纯流量�
 
 ## 12. 待决策事项
 
-1. **ICP 与研究市场**：是否确认"华语出海 Builder + en-US 市场"？若目标是其他市场，F1 数据源、F12、§7 需要整体调整。
+1. **ICP 与研究市场**：已确认。主要用户为华语出海 Builder，首发研究市场为 en-US / US。新增研究市场要单独过 Gate，不能靠界面上的国家下拉暗示已经覆盖。
 2. **团队规模与预算**：直接决定阶段周期与追踪池规模。
 3. **数据源立场**：SERP 数据走授权 API 还是抓取？愿意承担多大的 ToS 风险？
 4. **定价假设**：以 Phase 0 预售访谈为准，还是先设定假设？
 5. **公开延迟规则**：T+45 天与 "W ≤ Medium" 是否合适？Free 层是否需要每周少量准实时样本？
-6. **公开失误**：Track Record 是否接受公开失误？（建议必须公开，这是可信度的来源。）
+6. **公开失误**：已确认必须公开。没有失误样本的战绩页不得配准确率。
 
 ---
 

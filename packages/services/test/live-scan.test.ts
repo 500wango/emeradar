@@ -12,10 +12,12 @@ describe('LiveScanService Tests', () => {
 
     assert.ok(result.opportunityId.startsWith('opp_'));
     assert.ok(result.slug.length > 0);
-    assert.ok(result.dBasisPoints >= 4000);
-    assert.ok(result.mBasisPoints >= 4000);
-    assert.ok(result.wBasisPoints >= 1000);
-    assert.ok(['BUILD_NOW', 'EARLY_BET', 'WATCH', 'WINDOW_CLOSING'].includes(result.verdict));
+    assert.strictEqual(result.dBasisPoints, 0);
+    assert.strictEqual(result.mBasisPoints, 0);
+    assert.strictEqual(result.wBasisPoints, 0);
+    assert.strictEqual(result.dBand, 'INSUFFICIENT');
+    assert.strictEqual(result.confidence, 'LOW');
+    assert.strictEqual(result.verdict, 'WATCH');
     assert.strictEqual(result.isNew, true);
 
     // Second call with same keyword should return existing record (isNew: false)

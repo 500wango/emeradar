@@ -50,11 +50,15 @@ describe('Opportunity Report Unit Tests', () => {
     assert.strictEqual(report.metadata.verdict, 'BUILD_NOW');
     assert.strictEqual(report.section1.decisionRecommendation.includes('GO'), true);
     assert.strictEqual(report.section2.primaryQuery, 'shopify sales tax calculator');
-    assert.ok(report.section3.top10Results.length > 0);
-    assert.ok(report.section4.paidCompetitors.length > 0);
+    assert.strictEqual(report.section2.searchIntent, 'TRANSACTIONAL');
+    assert.strictEqual(report.section2.siteStrategy, 'INDEPENDENT_SITE');
+    assert.strictEqual(report.section3.top10Results.length, 0);
+    assert.strictEqual(report.section4.paidCompetitors.length, 0);
+    assert.strictEqual(report.section2.autocompleteSignals.length, 0);
     assert.strictEqual(report.section5.archetype, 'LIGHTWEIGHT_TOOL');
     assert.strictEqual(report.section5.targetTimeframeDays, 14);
-    assert.ok(report.section6.activeRules.length > 0);
+    assert.strictEqual(report.section5.executionBrief.initialPages.length, 3);
+    assert.strictEqual(report.section6.activeRules.length, 0);
   });
 
   it('renders report to GitHub Flavored Markdown with tables and alerts', () => {
@@ -81,5 +85,18 @@ describe('Opportunity Report Unit Tests', () => {
     assert.ok(html.includes('@media print'));
     assert.ok(html.includes('Shopify Sales Tax Calculator'));
     assert.ok(html.includes('84.0'));
+  });
+
+  it('classifies SERP homepage and inner-page URLs by pathname', () => {
+    const report = generateOpportunityReport({
+      ...sampleInput,
+      top10Serp: [
+        { rank: 1, url: 'https://example.com', domain: 'example.com', title: 'Home', resultType: 'ORGANIC', isWeak: false },
+        { rank: 2, url: 'https://example.com/tool', domain: 'example.com', title: 'Tool', resultType: 'ORGANIC', isWeak: true },
+      ],
+    });
+
+    assert.strictEqual(report.section3.homepageRatio, 0.5);
+    assert.strictEqual(report.section3.innerPageRatio, 0.5);
   });
 });

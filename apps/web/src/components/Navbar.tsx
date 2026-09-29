@@ -126,15 +126,25 @@ export function Navbar() {
                 Radar Alerts
               </Link>
               <Link
-                href="/billing"
+                href="/methodology"
+                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  pathname === '/methodology'
+                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                }`}
+              >
+                Methodology
+              </Link>
+              <Link
+                href="/pricing"
                 className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname === '/billing'
+                  pathname === '/pricing' || pathname === '/billing'
                     ? 'text-blue-600 bg-blue-50/70 font-semibold'
                     : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
                 }`}
               >
                 <CreditCard className="w-4 h-4 text-slate-400" />
-                Plans & Quotas
+                Pricing
               </Link>
             </nav>
           </div>
