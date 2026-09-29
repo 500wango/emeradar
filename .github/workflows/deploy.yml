@@ -27,8 +27,8 @@ jobs:
             git checkout master
             git reset --hard origin/master
             docker compose -f docker-compose.prod.yml --profile jobs --profile migrate config --quiet
-            docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
+            COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
             docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 postgres
             docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
-            docker compose -f docker-compose.prod.yml up -d --no-build web
+            docker compose -f docker-compose.prod.yml up -d --no-build web caddy
             curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused --max-time 10 http://127.0.0.1:3000/login >/dev/null

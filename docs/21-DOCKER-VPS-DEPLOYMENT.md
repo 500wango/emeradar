@@ -6,8 +6,9 @@
 
 - 新 VPS 已安装 Git、Docker Engine、Docker Compose 插件（支持 `up --wait`）。
 - 部署目录为 `/opt/emeradar`，SSH 部署用户能执行 Docker 并拉取仓库。
-- 正式访问需要域名和 HTTPS 反向代理，转发到本机 3000 端口；生产登录使用 Secure cookie。反向代理/证书根据新 VPS 环境另行配置，不包含在当前 Compose 中。
-- PostgreSQL 不映射宿主机端口。限制公网端口，只允许反向代理或受控调试访问 3000。镜像构建的资源占用不受运行时容器内存限额约束。
+- 域名为 `emeradar.com`，需要将 `@` 和 `www` 的 A/AAAA 记录指向新 VPS。Compose 内置 Caddy 自动申请和续期 HTTPS 证书，生产登录使用 Secure cookie。
+- 公网只开放 80/443；PostgreSQL 不映射宿主机端口，web 只绑定 `127.0.0.1:3000`。镜像构建的资源占用不受运行时容器内存限额约束。
+- 当前 VPS 为 1 核 / 1.6GB RAM / 38GB 磁盘；Compose 已将 PostgreSQL/web/worker/Caddy 的运行时配额收紧，部署构建串行执行以降低 OOM 风险。worker 仍是一次性任务，不与 web 同时常驻。
 
 ## 首次配置
 
@@ -26,14 +27,14 @@ openssl rand -hex 32
 nano .env
 ```
 
-三次输出分别填入对应变量；不要分享或提交这些输出：
+三次输出分别填入对应变量；不要分享或提交这些输出。DNS 先将 `emeradar.com` 和 `www.emeradar.com` 的 A/AAAA 记录指向新 VPS，证书申请前必须能从公网访问 80/443：
 
 ```dotenv
 POSTGRES_PASSWORD=<第一次生成的值>
 EMERADAR_DB_PASSWORD=<第二次生成的值>
 NEXTAUTH_SECRET=<第三次生成的值>
-NEXTAUTH_URL=https://你的域名
-NEXT_PUBLIC_SITE_URL=https://你的域名
+NEXTAUTH_URL=https://emeradar.com
+NEXT_PUBLIC_SITE_URL=https://emeradar.com
 ```
 
 应用数据库密码使用十六进制，保证可直接用于连接 URL。Compose 自动生成应用 `DATABASE_URL`：主机名 `postgres`、数据库 `emeradar`、账号 `emeradar_app`。`.env` 的本地开发 `DATABASE_URL` 不会覆盖它，不再需要 `POSTGRES_NETWORK`。
@@ -49,15 +50,15 @@ docker compose -f docker-compose.prod.yml --profile jobs --profile migrate confi
 docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
 docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 postgres
 docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
-docker compose -f docker-compose.prod.yml up -d --no-build web
+docker compose -f docker-compose.prod.yml up -d --no-build web caddy
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=100 web
-curl --fail --retry 12 --retry-delay 5 --retry-connrefused http://127.0.0.1:3000/login
+curl --fail --retry 12 --retry-delay 5 --retry-connrefused https://emeradar.com/login
 ```
 
 空数据卷首次启动时，`docker/init-db.sql` 创建独立数据库和非超级用户账号。健康检查使用 TCP，避开初始化期间仅监听 Unix socket 的临时数据库进程；部署等待 PostgreSQL 就绪后才迁移。
 
-迁移验证连接及 DDL 权限；登录页检查只验证网页服务。配置 HTTPS 后还需注册/登录一次验证应用读写。
+迁移验证连接及 DDL 权限；域名请求验证 Caddy、HTTPS 和网页服务。随后还需注册/登录一次验证应用读写。若 DNS 尚未生效，可临时请求 `http://127.0.0.1:3000/login` 验证 web。
 
 ## 持久化与备份
 
@@ -66,6 +67,7 @@ curl --fail --retry 12 --retry-delay 5 --retry-connrefused http://127.0.0.1:3000
 - 不要执行 `docker compose down -v` 或删除数据卷。
 - 初始化 SQL 只对空目录执行；修改 `.env` 不会修改已有数据库密码，轮换需先修改数据库账号再同步环境配置。
 - 保持 PostgreSQL 主版本 16；升级主版本需要单独备份及迁移，不要直接替换镜像主版本。
+- 1.6GB 内存 VPS 不应同时运行 worker 和构建任务；cron 执行 worker 前应确保没有手工构建正在进行。
 - 初始化失败先查看日志，不要删除已有数据卷试错。
 
 在部署目录备份：
@@ -100,6 +102,6 @@ worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。�
 
 不要沿用旧 VPS 的目标信息。先完成仓库克隆、生产 `.env` 和 SSH / Docker 权限配置。
 
-仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 web → 重试登录页检查。worker 镜像同步更新，任务由 cron 触发。保留数据卷，不做全局镜像清理。
+仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 web/Caddy → 重试 HTTPS 登录页检查。worker 镜像同步更新，任务由 cron 触发。保留数据卷，不做全局镜像清理。
 
 工作流会重置受 Git 管理的文件；Compose/Dockerfile 修改要提交，私有配置只放服务器 `.env`。查看 Actions 结果确认部署，push 成功不等于上线。

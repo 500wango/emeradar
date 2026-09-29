@@ -1,8 +1,8 @@
 x-app-environment: &app-environment
   NODE_ENV: production
   DATABASE_URL: postgresql://emeradar_app:${EMERADAR_DB_PASSWORD:?Set a hex EMERADAR_DB_PASSWORD in .env}@postgres:5432/emeradar
-  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
-  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-https://emeradar.com}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
   NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://emeradar.com}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -33,7 +33,7 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
-    mem_limit: 1024m
+    mem_limit: 512m
     shm_size: 128mb
 
   web:
@@ -45,10 +45,32 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     restart: unless-stopped
-    mem_limit: 1024m
+    mem_limit: 512m
     cpus: 1.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
 
   worker:
     profiles: [jobs]
@@ -59,8 +81,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    mem_limit: 2048m
-    cpus: 1.5
+    mem_limit: 768m
+    cpus: 0.75
 
   migrate:
     profiles: [migrate]
@@ -72,6 +94,10 @@ services:
       postgres:
         condition: service_healthy
     entrypoint: ["pnpm", "db:migrate"]
+    mem_limit: 768m
+    cpus: 0.75
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

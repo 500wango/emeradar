@@ -1,0 +1,4 @@
+emeradar.com, www.emeradar.com {
+  encode gzip
+  reverse_proxy web:3000
+}
