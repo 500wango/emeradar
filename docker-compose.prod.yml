@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.web
     env_file:
       - .env
+    environment:
+      NODE_ENV: production
     ports:
       - "3000:3000"
     extra_hosts:
@@ -20,6 +22,8 @@ services:
       dockerfile: Dockerfile.worker
     env_file:
       - .env
+    environment:
+      NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"
     mem_limit: 2048m
@@ -32,6 +36,8 @@ services:
       dockerfile: Dockerfile.worker
     env_file:
       - .env
+    environment:
+      NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: ["pnpm", "db:migrate"]
