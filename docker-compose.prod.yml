@@ -1,17 +1,51 @@
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://emeradar_app:${EMERADAR_DB_PASSWORD:?Set a hex EMERADAR_DB_PASSWORD in .env}@postgres:5432/emeradar
+  NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+  NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://emeradar.com}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  SERP_API_KEY: ${SERP_API_KEY:-}
+  BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+  BROWSERLESS_API_KEY: ${BROWSERLESS_API_KEY:-}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-}
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      EMERADAR_DB_PASSWORD: ${EMERADAR_DB_PASSWORD:?Set a hex EMERADAR_DB_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/01-emeradar.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    mem_limit: 1024m
+    shm_size: 128mb
+
   web:
     build:
       context: .
       dockerfile: Dockerfile.web
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "3000:3000"
-    networks:
-      - default
-      - database
     restart: unless-stopped
     mem_limit: 1024m
     cpus: 1.0
@@ -21,13 +55,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-    networks:
-      - default
-      - database
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
     mem_limit: 2048m
     cpus: 1.5
 
@@ -36,17 +67,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    env_file:
-      - .env
-    environment:
-      NODE_ENV: production
-    networks:
-      - default
-      - database
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
     entrypoint: ["pnpm", "db:migrate"]
 
-networks:
-  default: {}
-  database:
-    external: true
-    name: ${POSTGRES_NETWORK:?Set POSTGRES_NETWORK to the existing PostgreSQL Docker network}
+volumes:
+  postgres_data:

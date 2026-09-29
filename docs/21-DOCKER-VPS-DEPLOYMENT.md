@@ -1,78 +1,105 @@
-# Docker VPS 部署
+# 新 VPS：Docker 独立部署
 
-EmeRadar 在 VPS 上运行两个部署单元：`web` 是常驻的 Next.js 服务，`worker` 是按计划执行一次的采集与评分任务。PostgreSQL 复用 VPS 上已有的 Docker 实例，通过现有 Docker 网络连接；EmeRadar 使用独立数据库和账号。本配置不创建 PostgreSQL、不管理其数据卷，也不对外映射数据库端口。
+本方案取代旧 VPS 共享数据库方案。Compose 包含常驻的 web、PostgreSQL 16，以及一次性的 worker / migrate，使用自己的网络和数据库数据卷。
 
-## 现有 PostgreSQL 准备
+## 前置条件
 
-当前确认的容器与网络：`citeaura-postgres-1` → `citeaura_citeaura`；`arcmux-pg` → `arcmux_arcmux-net`。以下使用前者，后者无需修改。
+- 新 VPS 已安装 Git、Docker Engine、Docker Compose 插件（支持 `up --wait`）。
+- 部署目录为 `/opt/emeradar`，SSH 部署用户能执行 Docker 并拉取仓库。
+- 正式访问需要域名和 HTTPS 反向代理，转发到本机 3000 端口；生产登录使用 Secure cookie。反向代理/证书根据新 VPS 环境另行配置，不包含在当前 Compose 中。
+- PostgreSQL 不映射宿主机端口。限制公网端口，只允许反向代理或受控调试访问 3000。镜像构建的资源占用不受运行时容器内存限额约束。
 
-在 VPS 上进入数据库管理终端（读取容器配置的管理员用户名，不输出密码）：
-
-```bash
-docker exec -it citeaura-postgres-1 sh -c 'exec psql -U "${POSTGRES_USER:-postgres}" -d postgres'
-```
-
-使用现有配置的管理员身份；若初始化后改过管理员用户名，应手动替换 `-U` 参数。先用 `\du` 和 `\l` 检查是否已有同名账号/数据库。仅在不存在时执行：
-
-```sql
-CREATE ROLE emeradar_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
-\password emeradar_app
-CREATE DATABASE emeradar OWNER emeradar_app;
-REVOKE CONNECT, TEMPORARY ON DATABASE emeradar FROM PUBLIC;
-\q
-```
-
-`\password` 交互式设置独立密码，不把密码写入 SQL 命令历史。应用账号不是超级用户；其他应用若使用超级用户仍能管理这个数据库，独立账号不等于实例级隔离。
-
-## 首次部署
+## 首次配置
 
 ```bash
 git clone https://github.com/500wango/emeradar.git /opt/emeradar
 cd /opt/emeradar
-cp .env.example .env
-# 仅首次创建 .env；已有配置不要覆盖
+umask 077
+test -f .env || cp .env.example .env
+chmod 600 .env
+
+# 分别生成数据库管理员密码、应用数据库密码、独立认证密钥
+openssl rand -hex 32
+openssl rand -hex 32
+openssl rand -hex 32
+
+nano .env
 ```
 
-在服务器 `.env` 中设置下面两项，并配置独立认证密钥、正式域名及所需采集服务密钥。不要将 `.env` 提交到 Git：
+三次输出分别填入对应变量；不要分享或提交这些输出：
 
 ```dotenv
-POSTGRES_NETWORK=citeaura_citeaura
-DATABASE_URL=postgresql://emeradar_app:<URL编码后的密码>@citeaura-postgres-1:5432/emeradar
+POSTGRES_PASSWORD=<第一次生成的值>
+EMERADAR_DB_PASSWORD=<第二次生成的值>
+NEXTAUTH_SECRET=<第三次生成的值>
+NEXTAUTH_URL=https://你的域名
+NEXT_PUBLIC_SITE_URL=https://你的域名
 ```
 
-这里的 `5432` 是 PostgreSQL 容器监听端口，`localhost` 指应用容器自身。密码中的特殊字符需要 URL 编码。三个应用服务都加入 `database` 外部网络，同时保留默认网络用于外网访问。数据库网络必须已存在；不要用其他应用的 `docker compose down` 删除它。若将来重建或改名数据库网络，需要同步配置并重建 EmeRadar 容器。
+应用数据库密码使用十六进制，保证可直接用于连接 URL。Compose 自动生成应用 `DATABASE_URL`：主机名 `postgres`、数据库 `emeradar`、账号 `emeradar_app`。`.env` 的本地开发 `DATABASE_URL` 不会覆盖它，不再需要 `POSTGRES_NETWORK`。
 
-完成配置后：
+按需填写采集、LLM、通知服务密钥。管理员密码仅传给 PostgreSQL 容器，应用服务使用显式配置列表，不接收管理员密码。
+
+## 首次启动
+
+逐条执行，失败时先排查：
 
 ```bash
 docker compose -f docker-compose.prod.yml --profile jobs --profile migrate config --quiet
 docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
+docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 postgres
 docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
 docker compose -f docker-compose.prod.yml up -d --no-build web
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=100 web
+curl --fail --retry 12 --retry-delay 5 --retry-connrefused http://127.0.0.1:3000/login
 ```
 
-迁移成功验证数据库连接及 DDL 权限；`/login` 检查只验证网页服务，随后应注册/登录一次验证应用读写。若宿主机 3000 端口已被其他应用占用，需同时调整 Compose 端口映射、反向代理和工作流健康检查地址。
+空数据卷首次启动时，`docker/init-db.sql` 创建独立数据库和非超级用户账号。健康检查使用 TCP，避开初始化期间仅监听 Unix socket 的临时数据库进程；部署等待 PostgreSQL 就绪后才迁移。
+
+迁移验证连接及 DDL 权限；登录页检查只验证网页服务。配置 HTTPS 后还需注册/登录一次验证应用读写。
+
+## 持久化与备份
+
+数据保存在 `postgres_data` 命名卷，默认项目名下为 `emeradar_postgres_data`。更新镜像、重启或重建容器不会重新初始化已有卷。保持项目名/部署目录一致。
+
+- 不要执行 `docker compose down -v` 或删除数据卷。
+- 初始化 SQL 只对空目录执行；修改 `.env` 不会修改已有数据库密码，轮换需先修改数据库账号再同步环境配置。
+- 保持 PostgreSQL 主版本 16；升级主版本需要单独备份及迁移，不要直接替换镜像主版本。
+- 初始化失败先查看日志，不要删除已有数据卷试错。
+
+在部署目录备份：
+
+```bash
+umask 077
+mkdir -p /opt/emeradar-backups
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U postgres -d emeradar -Fc \
+  > "/opt/emeradar-backups/emeradar-$(date +%F-%H%M%S).dump"
+```
+
+备份包含业务数据，应另存到受控的异地存储；同机备份不能应对 VPS 丢失。
 
 ## 每日 worker
 
-worker 是一次性命令，不应配置为常驻重启服务。使用宿主机 cron：
+worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。时间按宿主机时区执行；日志接入宿主机日志轮转：
 
 ```cron
 30 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker >> /var/log/emeradar-worker.log 2>&1
 ```
 
-## GitHub Actions secrets
+## GitHub 自动部署
 
-在仓库 Settings -> Secrets and variables -> Actions 中配置：
+在 Settings → Secrets and variables → Actions 中配置**新 VPS**的信息：
 
-- `VPS_HOST`
-- `VPS_USER`
-- `VPS_SSH_KEY`
-- `VPS_PORT`（可选，默认 22）
-- `VPS_DEPLOY_PATH`（例如 `/opt/emeradar`）
+- `VPS_HOST`：新 VPS IP 或 SSH 主机名。
+- `VPS_USER`：SSH 部署用户。
+- `VPS_SSH_KEY`：已获新 VPS 授权的 SSH 私钥。
+- `VPS_PORT`：可选，默认 22。
+- `VPS_DEPLOY_PATH`：`/opt/emeradar`。
 
-仅推送 `master` 会触发自动部署。工作流通过 SSH 拉取最新代码，先构建 web/worker/migrate，再执行数据库迁移并更新 web，最后重试请求 `/login` 检查启动情况。worker 镜像随部署更新，任务仍由 VPS cron 独立触发。部署串行执行，不清理其他应用的 Docker 镜像。
+不要沿用旧 VPS 的目标信息。先完成仓库克隆、生产 `.env` 和 SSH / Docker 权限配置。
 
-首次启用自动部署前应完成部署目录、数据库和 `.env` 准备，并确认 SSH 用户有 Docker 权限、VPS 可以拉取 Git 仓库。工作流会重置受 Git 管理的文件；Compose/Dockerfile 修改必须提交到仓库，服务器私有配置只放 `.env`。
+仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 web → 重试登录页检查。worker 镜像同步更新，任务由 cron 触发。保留数据卷，不做全局镜像清理。
+
+工作流会重置受 Git 管理的文件；Compose/Dockerfile 修改要提交，私有配置只放服务器 `.env`。查看 Actions 结果确认部署，push 成功不等于上线。
