@@ -5,7 +5,7 @@ import { AppError } from '@emeradar/core';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, isDemoLogin } = body;
+    const { email, password } = body;
 
     if (!email || typeof email !== 'string') {
       return NextResponse.json(
@@ -22,7 +22,6 @@ export async function POST(request: NextRequest) {
     const { user, sessionToken } = await AuthService.login({
       email,
       password,
-      isDemoLogin: Boolean(isDemoLogin),
     });
 
     const response = NextResponse.json({

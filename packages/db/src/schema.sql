@@ -551,3 +551,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip INET,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Remove the retired public demo personas and their dependent test data.
+DELETE FROM users
+WHERE id IN ('usr_demo_free', 'usr_demo_pro', 'usr_demo_admin')
+   OR email IN ('free@emeradar.com', 'pro@emeradar.com', 'admin@emeradar.com');

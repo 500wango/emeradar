@@ -7,7 +7,7 @@ interface AuthContextValue {
   user: UserProfile | null;
   preferences: UserPreferencesData | null;
   isLoading: boolean;
-  login: (email: string, password?: string, isDemoLogin?: boolean) => Promise<UserProfile>;
+  login: (email: string, password?: string) => Promise<UserProfile>;
   register: (data: {
     email: string;
     password: string;
@@ -52,11 +52,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchSession();
   }, [fetchSession]);
 
-  const login = async (email: string, password?: string, isDemoLogin?: boolean): Promise<UserProfile> => {
+  const login = async (email: string, password?: string): Promise<UserProfile> => {
     const res = await fetch('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, isDemoLogin }),
+      body: JSON.stringify({ email, password }),
     });
 
     const data = await res.json();

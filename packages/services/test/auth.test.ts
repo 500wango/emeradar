@@ -69,18 +69,8 @@ describe('AuthService Integration Tests', () => {
     );
   });
 
-  it('should support one-click demo login for seeded users', async () => {
-    const res = await AuthService.login({
-      email: 'pro@emeradar.com',
-      isDemoLogin: true,
-    });
-
-    assert.equal(res.user.email, 'pro@emeradar.com');
-    assert.equal(res.user.tier, 'PRO');
-  });
-
   it('should create, list, and revoke developer API keys', async () => {
-    const login = await AuthService.login({ email: testEmail, isDemoLogin: true });
+    const login = await AuthService.login({ email: testEmail, password: 'StrongPassword123!' });
     const userId = login.user.id;
 
     // Create API key
@@ -104,7 +94,7 @@ describe('AuthService Integration Tests', () => {
   });
 
   it('should update user preferences', async () => {
-    const login = await AuthService.login({ email: testEmail, isDemoLogin: true });
+    const login = await AuthService.login({ email: testEmail, password: 'StrongPassword123!' });
     const userId = login.user.id;
 
     const updated = await AuthService.updatePreferences(userId, {

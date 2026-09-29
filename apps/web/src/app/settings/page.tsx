@@ -10,7 +10,6 @@ import {
   KeyRound,
   CreditCard,
   ShieldCheck,
-  Sparkles,
   CheckCircle2,
   Copy,
   Trash2,
@@ -43,7 +42,7 @@ const TARGET_MARKETS = [
 ];
 
 function SettingsContent() {
-  const { user, preferences, isLoading, updatePreferences, logout, login } = useAuth();
+  const { user, preferences, isLoading, updatePreferences, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'api-keys' | 'billing'>('profile');
 
   // Preferences form state
@@ -196,36 +195,6 @@ function SettingsContent() {
           </Link>
         </div>
 
-        {/* 1-Click Demo quick buttons */}
-        <div className="mt-12 p-6 rounded-2xl bg-white border border-slate-200 text-left max-w-lg mx-auto shadow-sm">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-            Or enter immediately with 1-Click Demo:
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button
-              onClick={() => login('pro@emeradar.com', undefined, true)}
-              className="p-3 text-left rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition"
-            >
-              <div className="text-xs font-bold text-emerald-800">Sarah Builder</div>
-              <div className="text-[10px] text-emerald-600">PRO Tier</div>
-            </button>
-            <button
-              onClick={() => login('admin@emeradar.com', undefined, true)}
-              className="p-3 text-left rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 transition"
-            >
-              <div className="text-xs font-bold text-blue-800">Michael Admin</div>
-              <div className="text-[10px] text-blue-600">TEAM Tier</div>
-            </button>
-            <button
-              onClick={() => login('free@emeradar.com', undefined, true)}
-              className="p-3 text-left rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition"
-            >
-              <div className="text-xs font-bold text-slate-800">Alex Free</div>
-              <div className="text-[10px] text-slate-500">FREE Tier</div>
-            </button>
-          </div>
-        </div>
       </div>
     );
   }
@@ -398,62 +367,6 @@ function SettingsContent() {
               </div>
             </div>
 
-            {/* Quick Demo Switcher */}
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-              <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-blue-600" />
-                Quick Demo Switcher
-              </h3>
-              <p className="text-xs text-slate-500 mb-4">
-                Switch between seeded test personas to experience different permission levels and entitlements.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  onClick={() => login('pro@emeradar.com', undefined, true)}
-                  className={`p-3 rounded-xl border text-left transition ${
-                    user.email === 'pro@emeradar.com'
-                      ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/20'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-emerald-800">Sarah Builder</div>
-                  <div className="text-[11px] text-emerald-600">PRO Tier (Builder)</div>
-                  {user.email === 'pro@emeradar.com' && (
-                    <span className="inline-block mt-2 text-[10px] font-bold text-emerald-700">✓ Active Persona</span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => login('admin@emeradar.com', undefined, true)}
-                  className={`p-3 rounded-xl border text-left transition ${
-                    user.email === 'admin@emeradar.com'
-                      ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/20'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-blue-800">Michael Admin</div>
-                  <div className="text-[11px] text-blue-600">TEAM Tier (Admin)</div>
-                  {user.email === 'admin@emeradar.com' && (
-                    <span className="inline-block mt-2 text-[10px] font-bold text-blue-700">✓ Active Persona</span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => login('free@emeradar.com', undefined, true)}
-                  className={`p-3 rounded-xl border text-left transition ${
-                    user.email === 'free@emeradar.com'
-                      ? 'border-slate-500 bg-slate-100 ring-2 ring-slate-500/20'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-slate-800">Alex Free</div>
-                  <div className="text-[11px] text-slate-500">FREE Tier (Starter)</div>
-                  {user.email === 'free@emeradar.com' && (
-                    <span className="inline-block mt-2 text-[10px] font-bold text-slate-700">✓ Active Persona</span>
-                  )}
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Sidebar Info */}

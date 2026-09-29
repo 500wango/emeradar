@@ -1,19 +1,44 @@
-import { describe, it, after } from 'node:test';
+import { describe, it, after, before } from 'node:test';
 import assert from 'node:assert';
 import {
   EntitlementService,
   OpportunityService,
   TrackRecordService,
 } from '../src';
-import { closePool } from '@emeradar/db';
+import { closePool, query } from '@emeradar/db';
+
+const entitlementFixtures = [
+  { id: 'usr_test_ent_free', tier: 'FREE', plan: 'FREE' },
+  { id: 'usr_test_ent_pro', tier: 'PRO', plan: 'PRO' },
+] as const;
 
 describe('Services Layer Integration Tests', () => {
+  before(async () => {
+    for (const fixture of entitlementFixtures) {
+      await query(
+        `INSERT INTO users (id, email, display_name, role, tier)
+         VALUES ($1, $2, $3, 'USER', $4)
+         ON CONFLICT (id) DO UPDATE SET tier = EXCLUDED.tier`,
+        [fixture.id, `${fixture.id}@emeradar.test`, fixture.id, fixture.tier]
+      );
+      await query(
+        `INSERT INTO subscriptions (id, user_id, plan_code, status, current_period_end)
+         VALUES ($1, $2, $3, 'ACTIVE', NOW() + INTERVAL '30 days')
+         ON CONFLICT (id) DO UPDATE SET plan_code = EXCLUDED.plan_code, status = 'ACTIVE'`,
+        [`sub_${fixture.id}`, fixture.id, fixture.plan]
+      );
+    }
+  });
+
   after(async () => {
+    for (const fixture of entitlementFixtures) {
+      await query('DELETE FROM users WHERE id = $1', [fixture.id]);
+    }
     await closePool();
   });
 
   it('retrieves user entitlements accurately', async () => {
-    const freeEnt = await EntitlementService.getUserEntitlements('usr_demo_free');
+    const freeEnt = await EntitlementService.getUserEntitlements('usr_test_ent_free');
     assert.strictEqual(freeEnt.tier, 'FREE');
     assert.strictEqual(freeEnt.exportReportsMonthlyLimit, 1);
     assert.strictEqual(freeEnt.apiAccess, false);
@@ -21,7 +46,7 @@ describe('Services Layer Integration Tests', () => {
     assert.strictEqual(freeEnt.opportunityDetailFull, false);
     assert.strictEqual(freeEnt.deepReportExport, false);
 
-    const proEnt = await EntitlementService.getUserEntitlements('usr_demo_pro');
+    const proEnt = await EntitlementService.getUserEntitlements('usr_test_ent_pro');
     assert.strictEqual(proEnt.tier, 'PRO');
     assert.strictEqual(proEnt.exportReportsMonthlyLimit, 30);
     assert.strictEqual(proEnt.apiAccess, true);

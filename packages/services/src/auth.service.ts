@@ -108,13 +108,10 @@ export class AuthService {
     return { user, sessionToken };
   }
 
-  /**
-   * Logs in a user by verifying password or supporting one-click demo login
-   */
+  /** Logs in an active user after verifying credentials. */
   static async login(input: {
     email: string;
     password?: string;
-    isDemoLogin?: boolean;
   }): Promise<{ user: UserProfile; sessionToken: string }> {
     const email = input.email.trim().toLowerCase();
 
@@ -134,35 +131,29 @@ export class AuthService {
 
     const row = userRes.rows[0];
 
-    // Demo login is development-only and restricted to seeded demo accounts.
-    const demoAllowed = process.env.NODE_ENV !== 'production' && input.isDemoLogin === true;
-    if (!demoAllowed) {
-      const accRes = await query<{ refresh_token: string }>(
-        `SELECT refresh_token FROM accounts 
-         WHERE user_id = $1 AND provider = 'credentials'`,
-        [row.id]
+    const accRes = await query<{ refresh_token: string }>(
+      `SELECT refresh_token FROM accounts
+       WHERE user_id = $1 AND provider = 'credentials'`,
+      [row.id]
+    );
+
+    if (accRes.rows.length === 0 || !accRes.rows[0].refresh_token) {
+      throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Incorrect credentials.', 401);
+    }
+    const expectedHash = accRes.rows[0].refresh_token;
+    const inputHash = this.hashPassword(input.password || '');
+    const expectedBuf = Buffer.from(expectedHash, 'hex');
+    const inputBuf = Buffer.from(inputHash, 'hex');
+
+    if (
+      expectedBuf.length !== inputBuf.length ||
+      !timingSafeEqual(expectedBuf, inputBuf)
+    ) {
+      throw new EmeradarError(
+        ErrorCode.UNAUTHENTICATED,
+        'Incorrect password. Please verify and try again.',
+        401
       );
-
-      if (accRes.rows.length === 0 || !accRes.rows[0].refresh_token) {
-        throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Incorrect credentials.', 401);
-      }
-      if (accRes.rows.length > 0 && accRes.rows[0].refresh_token) {
-        const expectedHash = accRes.rows[0].refresh_token;
-        const inputHash = this.hashPassword(input.password || '');
-        const expectedBuf = Buffer.from(expectedHash, 'hex');
-        const inputBuf = Buffer.from(inputHash, 'hex');
-
-        if (
-          expectedBuf.length !== inputBuf.length ||
-          !timingSafeEqual(expectedBuf, inputBuf)
-        ) {
-          throw new EmeradarError(
-            ErrorCode.UNAUTHENTICATED,
-            'Incorrect password. Please verify and try again.',
-            401
-          );
-        }
-      }
     }
 
     // Create session

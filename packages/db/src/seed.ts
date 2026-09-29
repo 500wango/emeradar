@@ -1,6 +1,10 @@
 import { pool, closePool } from './client';
 
 export async function runSeed(): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('db:seed is disabled in production; use db:migrate for schema changes.');
+  }
+
   const client = await pool.connect();
   try {
     console.log('[seed] Cleaning old records and starting fresh seed...');
@@ -52,26 +56,7 @@ export async function runSeed(): Promise<void> {
       ('TEAM', 'Scale Team', 149.00, '{"view_cards_monthly": -1, "export_reports_monthly": 100, "max_projects": 50, "max_alerts": 100, "feed_delay_days": 0, "api_access": true}');
     `);
 
-    // 2. Seed Users
-    console.log('[seed] Inserting Users...');
-    await client.query(`
-      INSERT INTO users (id, email, display_name, role, tier) VALUES
-      ('usr_demo_free', 'free@emeradar.com', 'Alex Free', 'USER', 'FREE'),
-      ('usr_demo_pro', 'pro@emeradar.com', 'Sarah Builder', 'USER', 'PRO'),
-      ('usr_demo_admin', 'admin@emeradar.com', 'Michael Admin', 'ADMIN', 'TEAM');
-
-      INSERT INTO user_preferences (user_id, ui_locale, preferred_build_types, preferred_markets, preferred_time_budget, onboarding_completed) VALUES
-      ('usr_demo_free', 'en-US', '{"LIGHTWEIGHT_TOOL"}', '{"US"}', 'WEEKEND', true),
-      ('usr_demo_pro', 'en-US', '{"LIGHTWEIGHT_TOOL","BOILERPLATE_SCAFFOLD"}', '{"US","UK"}', 'TWO_WEEKS', true),
-      ('usr_demo_admin', 'zh-CN', '{"LIGHTWEIGHT_TOOL","MICRO_SAAS"}', '{"US"}', 'ONE_MONTH', true);
-
-      INSERT INTO subscriptions (id, user_id, plan_code, status, current_period_start, current_period_end, entitlements_snapshot) VALUES
-      ('sub_free', 'usr_demo_free', 'FREE', 'ACTIVE', NOW(), NOW() + INTERVAL '30 days', '{"export_reports_monthly": 1}'),
-      ('sub_pro', 'usr_demo_pro', 'PRO', 'ACTIVE', NOW(), NOW() + INTERVAL '30 days', '{"export_reports_monthly": 30}'),
-      ('sub_admin', 'usr_demo_admin', 'TEAM', 'ACTIVE', NOW(), NOW() + INTERVAL '30 days', '{"export_reports_monthly": 100}');
-    `);
-
-    // 3. Seed Sources
+    // 2. Seed Sources
     console.log('[seed] Inserting Sources...');
     await client.query(`
       INSERT INTO sources (id, type, name, tos_risk_level) VALUES
@@ -88,7 +73,7 @@ export async function runSeed(): Promise<void> {
     `);
 
     await client.query('COMMIT');
-    console.log('[seed] Accounts and sources seeded. Opportunity rows come from live observation, not from invented examples.');
+    console.log('[seed] Catalog seeded. User accounts are created through registration, not seeded demo identities.');
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[seed] Seed failed:', err);
