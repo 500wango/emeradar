@@ -9,8 +9,9 @@ services:
       NODE_ENV: production
     ports:
       - "3000:3000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - database
     restart: unless-stopped
     mem_limit: 1024m
     cpus: 1.0
@@ -24,8 +25,9 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - database
     mem_limit: 2048m
     cpus: 1.5
 
@@ -38,6 +40,13 @@ services:
       - .env
     environment:
       NODE_ENV: production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - database
     entrypoint: ["pnpm", "db:migrate"]
+
+networks:
+  default: {}
+  database:
+    external: true
+    name: ${POSTGRES_NETWORK:?Set POSTGRES_NETWORK to the existing PostgreSQL Docker network}

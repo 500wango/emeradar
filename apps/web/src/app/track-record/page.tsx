@@ -9,6 +9,8 @@ import {
 import { TrackRecordService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
 
+export const dynamic = 'force-dynamic';
+
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();
   const { stats, episodes, checkpoints } = data;
