@@ -299,9 +299,9 @@ export const zh: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro 专业版',
-    planProMonthlyPrice: '设计伙伴定价',
-    planProYearlyPrice: '设计伙伴定价',
-    planProBilledYearly: '限量早鸟席位 · 价格面议',
+    planProMonthlyPrice: '¥279',
+    planProYearlyPrice: '¥199',
+    planProBilledYearly: '按年计费（¥2,388/年）',
     planProDesc: '抢占市场先机，获取实时决策流、实地抓取的结账证据与深度研究报告。',
     proFeatures: [
       '⚡ 实时决策动态流（0 延迟，每日最多 10 条已发布决定）',

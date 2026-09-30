@@ -9,7 +9,6 @@ import {
   FolderKanban,
   Bell,
   CreditCard,
-  Sparkles,
   Settings,
   LogOut,
   ChevronDown,
@@ -160,14 +159,7 @@ export function Navbar() {
               <div className="h-8 w-24 bg-slate-100 animate-pulse rounded-full" />
             ) : user ? (
               <>
-                {/* Tier Badge Link */}
-                <Link
-                  href="/billing"
-                  className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${currentTierConfig.classes}`}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{currentTierConfig.label}</span>
-                </Link>
+                {/* Tier badge removed from navbar — visible in profile dropdown only */}
 
                 {/* Profile Pill & Dropdown */}
                 <div className="relative" ref={dropdownRef}>

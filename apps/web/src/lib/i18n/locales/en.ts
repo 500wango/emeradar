@@ -299,9 +299,9 @@ export const en: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro',
-    planProMonthlyPrice: 'Design Partner',
-    planProYearlyPrice: 'Design Partner',
-    planProBilledYearly: 'Limited early-bird seats · Pricing TBD',
+    planProMonthlyPrice: '$39',
+    planProYearlyPrice: '$29',
+    planProBilledYearly: 'billed annually ($348/yr)',
     planProDesc: 'Capture high-conviction markets before incumbents. Full evidence ledger & exportable deep-dive reports.',
     proFeatures: [
       '⚡ Realtime decision feed (Zero delay — up to 10 verified opportunities / day)',

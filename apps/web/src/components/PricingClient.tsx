@@ -343,13 +343,12 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
 
             <div className="mt-5 pb-6 border-b border-slate-100">
               <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl font-black text-slate-900">
+                <span className="text-2xl sm:text-3xl font-black text-slate-900">
                   {billingCycle === 'yearly' ? p.planTeamYearlyPrice : p.planTeamMonthlyPrice}
                 </span>
-                <span className="text-xs text-slate-500 font-medium">{isZh ? '/ 月' : '/ mo'}</span>
               </div>
               <p className="text-[11px] text-indigo-600 font-medium mt-1">
-                {billingCycle === 'yearly' ? p.planTeamBilledYearly : (isZh ? '按月自动续订' : 'Billed monthly')}
+                {p.planTeamBilledYearly}
               </p>
             </div>
 
