@@ -27,18 +27,14 @@ import {
 const BUILD_ARCHETYPES = [
   { id: 'LIGHTWEIGHT_TOOL', label: 'Lightweight Tool (Single-purpose web app)', labelZh: '轻量工具 (单任务Web应用)' },
   { id: 'MICRO_SAAS', label: 'Micro-SaaS (Workflow & Subscription)', labelZh: '微型SaaS (工作流与订阅制)' },
-  { id: 'WORKFLOW_ENGINE', label: 'Workflow Engine & Automation', labelZh: '工作流引擎与自动化' },
-  { id: 'AI_AGENT', label: 'AI Agent & LLM Wrapper', labelZh: 'AI智能体与大模型套壳' },
-  { id: 'DATA_SERVICE', label: 'Data-as-a-Service / Curated Directory', labelZh: '数据即服务 / 策展导航目录' },
-  { id: 'API_FIRST', label: 'API-First Micro-Service', labelZh: 'API优先微服务' },
+  { id: 'PSEO_SITE', label: 'pSEO Directory / Content Engine', labelZh: 'pSEO 搜索流量站 / 内容引擎' },
+  { id: 'DIRECTORY', label: 'Curated Directory / Marketplace', labelZh: '精选垂直目录 / 细分交易市场' },
+  { id: 'CONTENT_SITE', label: 'Authority Content Site', labelZh: '垂直权威内容站' },
+  { id: 'TOOL', label: 'Standalone Utility Tool', labelZh: '独立功能型工具' },
 ];
 
 const TARGET_MARKETS = [
-  { id: 'US', label: 'United States (US)', labelZh: '美国 (US)' },
-  { id: 'GLOBAL', label: 'Global English', labelZh: '全球英语市场' },
-  { id: 'EU', label: 'European Union (EU)', labelZh: '欧盟市场 (EU)' },
-  { id: 'APAC', label: 'Asia-Pacific', labelZh: '亚太地区 (APAC)' },
-  { id: 'CN', label: 'Greater China', labelZh: '大中华区 (CN)' },
+  { id: 'US', label: 'United States (US · en-US)', labelZh: '美国英语搜索市场 (US · en-US)' },
 ];
 
 function SettingsContent() {

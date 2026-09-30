@@ -148,11 +148,10 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                 <option value="ALL">{t('feed.allArchetypes')}</option>
                 <option value="LIGHTWEIGHT_TOOL">{t('common.archetypes.LIGHTWEIGHT_TOOL')}</option>
                 <option value="MICRO_SAAS">{t('common.archetypes.MICRO_SAAS')}</option>
-                <option value="WORKFLOW_ENGINE">{t('common.archetypes.WORKFLOW_ENGINE')}</option>
-                <option value="AI_AGENT">{t('common.archetypes.AI_AGENT')}</option>
-                <option value="DATA_SERVICE">{t('common.archetypes.DATA_SERVICE')}</option>
                 <option value="PSEO_SITE">{t('common.archetypes.PSEO_SITE')}</option>
                 <option value="DIRECTORY">{t('common.archetypes.DIRECTORY')}</option>
+                <option value="CONTENT_SITE">{t('common.archetypes.CONTENT_SITE')}</option>
+                <option value="TOOL">{t('common.archetypes.TOOL')}</option>
               </select>
             </div>
 
@@ -164,9 +163,9 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                 className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none"
               >
                 <option value="ALL">{t('feed.allClasses')}</option>
-                <option value="S">{t('common.executionClasses.SOLO_BUILDER')}</option>
-                <option value="M">{t('common.executionClasses.SMALL_TEAM')}</option>
-                <option value="L">{t('common.executionClasses.CAPITAL_INTENSIVE')}</option>
+                <option value="S">{t('common.executionClasses.S')}</option>
+                <option value="M">{t('common.executionClasses.M')}</option>
+                <option value="L">{t('common.executionClasses.L')}</option>
               </select>
             </div>
           </div>

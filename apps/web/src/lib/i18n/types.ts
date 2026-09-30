@@ -61,19 +61,12 @@ export interface TranslationDictionary {
     archetypes: {
       LIGHTWEIGHT_TOOL: string;
       MICRO_SAAS: string;
-      WORKFLOW_ENGINE: string;
-      AI_AGENT: string;
-      DATA_SERVICE: string;
-      API_FIRST: string;
       PSEO_SITE: string;
       DIRECTORY: string;
       CONTENT_SITE: string;
       TOOL: string;
     };
     executionClasses: {
-      SOLO_BUILDER: string;
-      SMALL_TEAM: string;
-      CAPITAL_INTENSIVE: string;
       S: string;
       M: string;
       L: string;
