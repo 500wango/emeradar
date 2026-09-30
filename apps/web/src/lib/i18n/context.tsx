@@ -29,6 +29,7 @@ interface I18nContextValue {
   localeLabels: Record<Locale, string>;
   localeShortLabels: Record<Locale, string>;
   dict: TranslationDictionary;
+  dictionary: TranslationDictionary;
 }
 
 const I18nContext = createContext<I18nContextValue | undefined>(undefined);
@@ -141,6 +142,7 @@ export function I18nProvider({
       localeLabels: LOCALE_LABELS,
       localeShortLabels: LOCALE_SHORT_LABELS,
       dict: dictionaries[locale] || dictionaries[DEFAULT_LOCALE],
+      dictionary: dictionaries[locale] || dictionaries[DEFAULT_LOCALE],
     }),
     [locale, setLocale, t]
   );

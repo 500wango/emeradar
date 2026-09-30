@@ -245,6 +245,9 @@ export interface TranslationDictionary {
     badge: string;
     title: string;
     desc: string;
+    monthly: string;
+    yearly: string;
+    save20: string;
     currentPlan: string;
     workspaceTier: string;
     monthlyReports: string;
@@ -259,15 +262,89 @@ export interface TranslationDictionary {
     contactTeam: string;
     currentActive: string;
     gscSyncIncluded: string;
-    designPartners: string;
-    pricingInInterviews: string;
-    joinDesignPartners: string;
+    popularBadge: string;
+    getStartedFree: string;
+    upgradeNow: string;
+    startTrial: string;
+    contactSales: string;
     includedBaseline: string;
-    notInRelease: string;
-    notInReleaseDesc: string;
-    notInReleaseItems: string[];
+
+    // Plans
+    planFreeTitle: string;
+    planFreePrice: string;
+    planFreeDesc: string;
     freeFeatures: string[];
+
+    planProTitle: string;
+    planProMonthlyPrice: string;
+    planProYearlyPrice: string;
+    planProBilledYearly: string;
+    planProDesc: string;
     proFeatures: string[];
+
+    planTeamTitle: string;
+    planTeamMonthlyPrice: string;
+    planTeamYearlyPrice: string;
+    planTeamBilledYearly: string;
+    planTeamDesc: string;
+    teamFeatures: string[];
+
+    // Marketing value anchor / why us
+    whyTitle: string;
+    whySubtitle: string;
+    stat1Number: string;
+    stat1Label: string;
+    stat1Desc: string;
+    stat2Number: string;
+    stat2Label: string;
+    stat2Desc: string;
+    stat3Number: string;
+    stat3Label: string;
+    stat3Desc: string;
+
+    // Comparison matrix
+    matrixTitle: string;
+    matrixSubtitle: string;
+    colFeature: string;
+    colFree: string;
+    colPro: string;
+    colTeam: string;
+    matrixRows: Array<{
+      feature: string;
+      free: string;
+      pro: string;
+      team: string;
+    }>;
+
+    // Guarantee & Trust
+    guaranteeTitle: string;
+    guaranteeDesc: string;
+    badgeCancel: string;
+    badgeRefund: string;
+    badgeCrypto: string;
+
+    // FAQ
+    faqTitle: string;
+    faqSubtitle: string;
+    faqs: Array<{ q: string; a: string }>;
+
+    // Bottom CTA
+    bottomCtaTitle: string;
+    bottomCtaDesc: string;
+    bottomCtaBtn: string;
+    bottomCtaTrackRecord: string;
+
+    // Legacy fields preserved for compatibility
+    designPartners?: string;
+    pricingInInterviews?: string;
+    joinDesignPartners?: string;
+    notInRelease?: string;
+    notInReleaseDesc?: string;
+    notInReleaseItems?: string[];
+    planProPrice?: string;
+    planTeamPrice?: string;
+
+    // Invoices
     invoicesTitle: string;
     noInvoices: string;
     colInvoiceDate: string;
@@ -275,15 +352,6 @@ export interface TranslationDictionary {
     colStatus: string;
     colReceipt: string;
     viewPdf: string;
-    planFreeTitle: string;
-    planFreePrice: string;
-    planFreeDesc: string;
-    planProTitle: string;
-    planProPrice: string;
-    planProDesc: string;
-    planTeamTitle: string;
-    planTeamPrice: string;
-    planTeamDesc: string;
   };
   auth: {
     loginTitle: string;
