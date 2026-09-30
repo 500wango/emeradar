@@ -51,7 +51,109 @@ export interface FeedResponse {
   zeroStateAlternativeCount?: number;
 }
 
+export interface DiscoveryFeedItem {
+  id: string;
+  title: string;
+  sourceUrl: string;
+  provider: string;
+  sourcePublishedAt?: string;
+  firstCollectedAt: string;
+  excerpt?: string;
+  intents: Array<{ kind: string; queryHypothesis: string; status: string }>;
+  validation?: {
+    autocompleteStatus: string;
+    serpStatus: string;
+    supplyGapStatus: string;
+    supplyGapNote?: string;
+    specialistResultCount?: number;
+  };
+}
+
+export interface ExperimentFeedItem {
+  id: string;
+  discoveryItemId: string;
+  discoveryIntentId: string;
+  title: string;
+  coreJob: string;
+  recommendedPageShape: string;
+  minimumFeature: string;
+  successSignal: string;
+  abandonCondition: string;
+  status: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  queryHypothesis: string;
+}
+
 export class OpportunityService {
+  static async listExperimentCards(limit = 12): Promise<ExperimentFeedItem[]> {
+    const result = await query<any>(
+      `SELECT e.id, e.discovery_item_id, e.discovery_intent_id, e.title, e.core_job,
+              e.recommended_page_shape, e.minimum_feature, e.success_signal,
+              e.abandon_condition, e.status, d.title AS source_title, d.source_url,
+              i.query_hypothesis
+       FROM experiment_cards e
+       JOIN discovery_items d ON d.id = e.discovery_item_id
+       JOIN discovery_intents i ON i.id = e.discovery_intent_id
+       WHERE e.status = 'PROPOSED'
+       ORDER BY e.created_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      discoveryItemId: row.discovery_item_id,
+      discoveryIntentId: row.discovery_intent_id,
+      title: row.title,
+      coreJob: row.core_job,
+      recommendedPageShape: row.recommended_page_shape,
+      minimumFeature: row.minimum_feature,
+      successSignal: row.success_signal,
+      abandonCondition: row.abandon_condition,
+      status: row.status,
+      sourceTitle: row.source_title,
+      sourceUrl: row.source_url,
+      queryHypothesis: row.query_hypothesis,
+    }));
+  }
+
+  static async listDiscoveryItems(limit = 12): Promise<DiscoveryFeedItem[]> {
+    const result = await query<any>(
+      `SELECT d.id, d.title, d.source_url, d.provider, d.source_published_at, d.first_collected_at,
+              d.excerpt,
+              (SELECT v.autocomplete_status FROM discovery_validations v JOIN discovery_intents vi ON vi.id = v.discovery_intent_id WHERE vi.discovery_item_id = d.id ORDER BY v.observed_date DESC LIMIT 1) AS autocomplete_status,
+              (SELECT v.serp_status FROM discovery_validations v JOIN discovery_intents vi ON vi.id = v.discovery_intent_id WHERE vi.discovery_item_id = d.id ORDER BY v.observed_date DESC LIMIT 1) AS serp_status,
+              (SELECT v.supply_gap_status FROM discovery_validations v JOIN discovery_intents vi ON vi.id = v.discovery_intent_id WHERE vi.discovery_item_id = d.id ORDER BY v.observed_date DESC LIMIT 1) AS supply_gap_status,
+              (SELECT v.supply_gap_note FROM discovery_validations v JOIN discovery_intents vi ON vi.id = v.discovery_intent_id WHERE vi.discovery_item_id = d.id ORDER BY v.observed_date DESC LIMIT 1) AS supply_gap_note,
+              (SELECT v.specialist_result_count FROM discovery_validations v JOIN discovery_intents vi ON vi.id = v.discovery_intent_id WHERE vi.discovery_item_id = d.id ORDER BY v.observed_date DESC LIMIT 1) AS specialist_result_count,
+              COALESCE(json_agg(json_build_object(
+                'kind', i.intent_kind, 'queryHypothesis', i.query_hypothesis, 'status', i.status
+              ) ORDER BY i.created_at) FILTER (WHERE i.id IS NOT NULL), '[]'::json) AS intents
+       FROM discovery_items d
+       LEFT JOIN discovery_intents i ON i.discovery_item_id = d.id
+       GROUP BY d.id
+       ORDER BY COALESCE(d.source_published_at, d.first_collected_at) DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      sourceUrl: row.source_url,
+      provider: row.provider,
+      sourcePublishedAt: row.source_published_at ?? undefined,
+      firstCollectedAt: row.first_collected_at,
+      excerpt: row.excerpt ?? undefined,
+      intents: row.intents ?? [],
+      validation: row.serp_status || row.autocomplete_status ? {
+        autocompleteStatus: row.autocomplete_status,
+        serpStatus: row.serp_status,
+        supplyGapStatus: row.supply_gap_status,
+        supplyGapNote: row.supply_gap_note ?? undefined,
+        specialistResultCount: row.specialist_result_count ?? undefined,
+      } : undefined,
+    }));
+  }
   /**
    * Query feed cards with filtering, sorting, and pagination
    */

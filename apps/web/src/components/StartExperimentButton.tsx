@@ -1,0 +1,44 @@
+'use client';
+
+import { useState } from 'react';
+import { FlaskConical } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+
+export function StartExperimentButton({ experimentCardId, title }: { experimentCardId: string; title: string }) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function start() {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/v1/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ experimentCardId, title }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Could not start the experiment.');
+      router.push(`/projects/${data.id}`);
+    } catch (err: any) {
+      setError(err.message || 'Could not start the experiment.');
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={start}
+        disabled={pending}
+        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+      >
+        <FlaskConical className="h-3.5 w-3.5" />
+        {pending ? 'Starting…' : 'Start experiment'}
+      </button>
+      {error && <p className="mt-2 text-[11px] text-rose-700">{error}</p>}
+    </div>
+  );
+}

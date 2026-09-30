@@ -260,7 +260,82 @@ CREATE TABLE IF NOT EXISTS evidence (
   observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS source_item_id TEXT;
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS source_published_at TIMESTAMPTZ;
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS request_hash CHAR(64);
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS content_hash CHAR(64);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_discovery_item
+  ON evidence (source_id, source_item_id) WHERE source_item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_evidence_opp ON evidence(opportunity_id);
+
+-- Public discovery facts are intentionally independent from opportunity scoring.
+CREATE TABLE IF NOT EXISTS discovery_items (
+  id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL REFERENCES sources(id),
+  source_item_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  excerpt TEXT,
+  source_published_at TIMESTAMPTZ,
+  first_collected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  content_hash CHAR(64) NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (source_id, source_item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_items_published ON discovery_items(source_published_at DESC);
+
+CREATE TABLE IF NOT EXISTS discovery_intents (
+  id TEXT PRIMARY KEY,
+  discovery_item_id TEXT NOT NULL REFERENCES discovery_items(id) ON DELETE CASCADE,
+  intent_kind TEXT NOT NULL CHECK (intent_kind IN ('USE','DOWNLOAD','ALTERNATIVE','API','COMPARE','TUTORIAL')),
+  query_hypothesis TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'HYPOTHESIS' CHECK (status IN ('HYPOTHESIS','OBSERVED','REJECTED')),
+  evidence JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (discovery_item_id, intent_kind, query_hypothesis)
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_intents_item ON discovery_intents(discovery_item_id);
+
+CREATE TABLE IF NOT EXISTS discovery_validations (
+  id TEXT PRIMARY KEY,
+  discovery_intent_id TEXT NOT NULL REFERENCES discovery_intents(id) ON DELETE CASCADE,
+  observed_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  autocomplete_status TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK (autocomplete_status IN ('OBSERVED','EMPTY','FAILED','UNKNOWN')),
+  autocomplete_suggestions TEXT[] NOT NULL DEFAULT '{}',
+  serp_status TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK (serp_status IN ('OBSERVED','EMPTY','FAILED','UNKNOWN')),
+  serp_result_count INTEGER,
+  serp_weak_result_ratio NUMERIC(5,4),
+  specialist_result_count INTEGER,
+  authoritative_result_count INTEGER,
+  supply_gap_status TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK (supply_gap_status IN ('UNKNOWN','NO_DEDICATED_TOOL_OBSERVED','MIXED_SUPPLY','DEDICATED_SUPPLY')),
+  supply_gap_note TEXT,
+  evidence JSONB NOT NULL DEFAULT '{}',
+  UNIQUE (discovery_intent_id, observed_date)
+);
+ALTER TABLE discovery_validations ADD COLUMN IF NOT EXISTS specialist_result_count INTEGER;
+ALTER TABLE discovery_validations ADD COLUMN IF NOT EXISTS authoritative_result_count INTEGER;
+ALTER TABLE discovery_validations ADD COLUMN IF NOT EXISTS supply_gap_status TEXT NOT NULL DEFAULT 'UNKNOWN';
+ALTER TABLE discovery_validations ADD COLUMN IF NOT EXISTS supply_gap_note TEXT;
+
+CREATE TABLE IF NOT EXISTS experiment_cards (
+  id TEXT PRIMARY KEY,
+  discovery_item_id TEXT REFERENCES discovery_items(id) ON DELETE CASCADE,
+  discovery_intent_id TEXT REFERENCES discovery_intents(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  core_job TEXT NOT NULL,
+  recommended_page_shape TEXT NOT NULL,
+  minimum_feature TEXT NOT NULL,
+  success_signal TEXT NOT NULL,
+  abandon_condition TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PROPOSED' CHECK (status IN ('PROPOSED','ACTIVE','COMPLETED','ABANDONED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_experiment_cards_status ON experiment_cards(status, created_at DESC);
 
 -- 8. 预测账本 (Append-Only Verdicts & Ledger Checkpoints)
 CREATE TABLE IF NOT EXISTS verdicts (
@@ -401,8 +476,10 @@ CREATE TABLE IF NOT EXISTS kill_criteria (
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,                         -- prj_
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  opportunity_id TEXT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
-  decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+  opportunity_id TEXT REFERENCES opportunities(id) ON DELETE CASCADE,
+  decision_id TEXT REFERENCES decisions(id) ON DELETE CASCADE,
+  project_kind TEXT NOT NULL DEFAULT 'FORMAL' CHECK (project_kind IN ('FORMAL','EXPERIMENT')),
+  experiment_card_id TEXT REFERENCES experiment_cards(id) ON DELETE SET NULL,
   report_id TEXT REFERENCES opportunity_reports(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   domain TEXT,
@@ -413,15 +490,34 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE projects ALTER COLUMN opportunity_id DROP NOT NULL;
+ALTER TABLE projects ALTER COLUMN decision_id DROP NOT NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_kind TEXT NOT NULL DEFAULT 'FORMAL';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS experiment_card_id TEXT REFERENCES experiment_cards(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_experiment_card ON projects(experiment_card_id) WHERE experiment_card_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_user_experiment_card
+  ON projects(user_id, experiment_card_id) WHERE experiment_card_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS gsc_connections (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  property_url TEXT NOT NULL,
+  property_url TEXT,
   token_encrypted TEXT NOT NULL,
   last_synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE gsc_connections ALTER COLUMN property_url DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gsc_connections_project ON gsc_connections(project_id);
+
+CREATE TABLE IF NOT EXISTS gsc_oauth_states (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  state_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gsc_oauth_states_expiry ON gsc_oauth_states(expires_at);
 
 CREATE TABLE IF NOT EXISTS gsc_metrics_weekly (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -444,6 +540,19 @@ CREATE TABLE IF NOT EXISTS gsc_metrics_weekly_detail (
   source TEXT NOT NULL DEFAULT 'GSC' CHECK (source IN ('GSC','SELF_REPORTED')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (project_id, week_start_date, page_url, query)
+);
+
+CREATE TABLE IF NOT EXISTS gsc_metrics_daily (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  observation_date DATE NOT NULL,
+  page_url TEXT NOT NULL DEFAULT '',
+  query TEXT NOT NULL DEFAULT '',
+  impressions INTEGER NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  average_position NUMERIC(5,2) NOT NULL DEFAULT 0.0,
+  source TEXT NOT NULL DEFAULT 'GSC' CHECK (source IN ('GSC','SELF_REPORTED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, observation_date, page_url, query)
 );
 
 -- 12. 计费、套餐与配额 (Billing & Entitlements)
@@ -551,8 +660,3 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip INET,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- Remove the retired public demo personas and their dependent test data.
-DELETE FROM users
-WHERE id IN ('usr_demo_free', 'usr_demo_pro', 'usr_demo_admin')
-   OR email IN ('free@emeradar.com', 'pro@emeradar.com', 'admin@emeradar.com');

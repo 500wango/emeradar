@@ -5,6 +5,11 @@
   "scripts": {
     "build": "tsc",
     "run-daily": "tsx src/cli.ts run-daily",
+    "discover": "tsx src/cli.ts discover",
+    "generate-intents": "tsx src/cli.ts generate-intents",
+    "validate-intents": "tsx src/cli.ts validate-intents",
+    "generate-experiments": "tsx src/cli.ts generate-experiments",
+    "sync-gsc": "tsx src/cli.ts sync-gsc",
     "verify-ledger": "tsx src/cli.ts verify-ledger"
   },
   "dependencies": {

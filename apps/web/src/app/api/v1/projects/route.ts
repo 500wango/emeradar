@@ -28,14 +28,22 @@ export async function POST(request: NextRequest) {
     const userId = auth.user.id;
     const body = await request.json();
 
-    if (!body.opportunityId || !body.title) {
+    if ((!body.opportunityId && !body.experimentCardId) || !body.title) {
       return NextResponse.json(
-        { type: 'about:blank', title: 'Validation Error', status: 400, detail: 'opportunityId and title are required' },
+        { type: 'about:blank', title: 'Validation Error', status: 400, detail: 'opportunityId or experimentCardId, and title are required' },
         { status: 400 }
       );
     }
 
-    const project = await ProjectService.createProject(userId, {
+    const project = body.experimentCardId
+      ? await ProjectService.createExperimentProject(userId, {
+          experimentCardId: body.experimentCardId,
+          title: body.title,
+          domain: body.domain,
+          buildType: body.buildType,
+          targetKeywords: body.targetKeywords,
+        })
+      : await ProjectService.createProject(userId, {
       opportunityId: body.opportunityId,
       decisionId: body.decisionId,
       reportId: body.reportId,

@@ -120,7 +120,7 @@ export async function observeOpportunity(
   const autocompleteCoverage = Math.min(1, autocompleteRecentDays / 7);
   const autocompleteGrowth = trend?.prior_avg && trend.prior_avg > 0
     ? (trend.recent_avg - trend.prior_avg) / trend.prior_avg
-    : 0;
+    : null;
 
   const serpOutcome = await collectors.serp.collect(ctx, {
     queryId: primary.id,
@@ -340,7 +340,6 @@ export async function observeOpportunity(
       expansionSlope30d: autocompleteCoverage >= 0.5 ? expansionSlope30d : 0,
       attentionSourcesActive14d,
       attentionGrowth14d,
-      ...(autocompleteCoverage >= 0.5 ? { trendsSlope90d: autocompleteGrowth } : {}),
       historyDays,
     },
     window: {
@@ -435,7 +434,7 @@ export async function observeOpportunity(
         autocomplete_recent_days: autocompleteRecentDays,
         autocomplete_prior_days: autocompletePriorDays,
         autocomplete_coverage: autocompleteCoverage,
-        autocomplete_growth: autocompleteGrowth,
+        autocomplete_expansion_growth: autocompleteGrowth,
         independent_source_count: independentSourceCount,
         search_intent: searchIntent,
         recommended_product_shape: recommendedProductShape,

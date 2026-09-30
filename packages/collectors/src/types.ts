@@ -39,6 +39,34 @@ export interface EvidenceDraft {
   observedAt: Date;
 }
 
+export interface DiscoveryItem {
+  sourceItemId: string;
+  provider: string;
+  sourceUrl: string;
+  title: string;
+  excerpt?: string;
+  publishedAt?: Date;
+  collectedAt: Date;
+  contentHash: string;
+  requestHash: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiscoveryResult {
+  status: 'OK';
+  items: DiscoveryItem[];
+  raw: RawPayloadDraft;
+  cost: CostRecord;
+}
+
+export interface DiscoveryFailure {
+  status: 'FAILED';
+  retryable: boolean;
+  errorCode: string;
+  message: string;
+  cost?: CostRecord;
+}
+
 export interface RawPayloadDraft {
   content: string;
   contentHash: string;

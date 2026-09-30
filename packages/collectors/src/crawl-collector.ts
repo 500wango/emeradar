@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { CommercialStage } from '@emeradar/core';
 import {
   Collector,
@@ -38,6 +39,44 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
   // In-memory domain rate limiter tracker (timestamp of last crawl)
   private domainLastCrawled = new Map<string, number>();
+
+  private async assertPublicUrl(rawUrl: string): Promise<URL> {
+    let parsed: URL;
+    try { parsed = new URL(rawUrl); } catch { throw new Error('Target URL must be a valid HTTP(S) URL'); }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.port) {
+      throw new Error('Target URL must be a public HTTP(S) URL without credentials or a custom port');
+    }
+    const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host === '::1') {
+      throw new Error('Target URL must resolve to a public host');
+    }
+    const addresses = await lookup(host, { all: true, verbatim: true });
+    if (!addresses.length || addresses.some(({ address }) => this.isPrivateAddress(address))) {
+      throw new Error('Target URL must resolve to a public address');
+    }
+    return parsed;
+  }
+
+  private isPrivateAddress(address: string): boolean {
+    const value = address.toLowerCase();
+    if (value === '::1' || value === '0.0.0.0' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb')) return true;
+    if (value.includes(':')) return value.startsWith('::ffff:') ? this.isPrivateAddress(value.slice(7)) : false;
+    const parts = value.split('.').map(Number);
+    return parts.length === 4 && (parts[0] === 10 || parts[0] === 127 || parts[0] === 0 || (parts[0] === 169 && parts[1] === 254) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] === 192 && parts[1] === 168) || parts[0] >= 224);
+  }
+
+  private async fetchPublicHtml(url: string, maxRedirects = 3): Promise<string> {
+    const parsed = await this.assertPublicUrl(url);
+    const res = await fetch(parsed, { redirect: 'manual', headers: { 'User-Agent': 'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)', Accept: 'text/html,application/xhtml+xml' }, signal: AbortSignal.timeout(4000) });
+    if (res.status >= 300 && res.status < 400) {
+      if (maxRedirects === 0) throw new Error('Too many redirects');
+      const location = res.headers.get('location');
+      if (!location) throw new Error('Redirect missing location');
+      return this.fetchPublicHtml(new URL(location, parsed).toString(), maxRedirects - 1);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.text();
+  }
 
   async plan(
     ctx: RunContext,
@@ -189,12 +228,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
   private async checkRobotsTxt(domain: string, targetUrl: string): Promise<boolean> {
     try {
       const robotsUrl = `https://${domain}/robots.txt`;
-      const res = await fetch(robotsUrl, {
-        headers: {
-          'User-Agent': 'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)',
-        },
-        signal: AbortSignal.timeout(2000),
-      });
+      const res = await fetch(await this.assertPublicUrl(robotsUrl), { redirect: 'manual', headers: { 'User-Agent': 'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)' }, signal: AbortSignal.timeout(2000) });
 
       if (!res.ok) return true; // Default allow if 404 or unavailable
 
@@ -232,19 +266,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
     }
 
     try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent':
-            'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)',
-          Accept: 'text/html,application/xhtml+xml',
-        },
-        signal: AbortSignal.timeout(4000),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      return await res.text();
+      return await this.fetchPublicHtml(url);
     } catch (err) {
       throw err;
     }

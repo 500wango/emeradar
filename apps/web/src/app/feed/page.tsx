@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
 import { FeedClient } from '@/components/FeedClient';
 import { TrackRequest } from '@/components/TrackRequest';
+import { StartExperimentButton } from '@/components/StartExperimentButton';
 
 export default async function FeedPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -17,6 +18,8 @@ export default async function FeedPage() {
   const observations = realtime
     ? await OpportunityService.listLiveObservations({ limit: 20 })
     : [];
+  const discoveries = realtime ? await OpportunityService.listDiscoveryItems(12) : [];
+  const experiments = realtime ? await OpportunityService.listExperimentCards(8) : [];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -39,6 +42,87 @@ export default async function FeedPage() {
       </div>
 
       <FeedClient initialItems={feed.items} total={feed.total} />
+
+      {realtime && (
+        <section className="mt-14">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">New source discoveries</h2>
+              <p className="mt-1 text-sm text-slate-500">Public source signals awaiting entity and search validation.</p>
+            </div>
+            <span className="text-xs text-slate-400">{discoveries.length} recent signals</span>
+          </div>
+          {discoveries.length === 0 ? (
+            <p className="mt-5 text-sm text-slate-600">No source discoveries collected yet.</p>
+          ) : (
+            <div className="mt-5 grid md:grid-cols-2 gap-4">
+              {discoveries.map((item) => (
+                <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                    <span>{item.provider}</span>
+                    <time dateTime={item.sourcePublishedAt || item.firstCollectedAt}>
+                      {new Date(item.sourcePublishedAt || item.firstCollectedAt).toLocaleDateString('en-US')}
+                    </time>
+                  </div>
+                  <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 block font-semibold text-slate-900 hover:text-blue-700">
+                    {item.title}
+                  </a>
+                  {item.excerpt && <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3">{item.excerpt}</p>}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.intents.length === 0 ? <span className="text-[11px] text-slate-400">Intent hypotheses pending</span> : item.intents.map((intent) => (
+                      <span key={`${item.id}-${intent.queryHypothesis}`} className="rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{intent.queryHypothesis}</span>
+                    ))}
+                  </div>
+                  {item.validation && (
+                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 font-semibold">
+                        <span>Autocomplete: {item.validation.autocompleteStatus}</span>
+                        <span>SERP: {item.validation.serpStatus}</span>
+                        <span>Supply: {item.validation.supplyGapStatus.replaceAll('_', ' ')}</span>
+                      </div>
+                      {item.validation.supplyGapNote && <p className="mt-1 leading-relaxed">{item.validation.supplyGapNote}</p>}
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {realtime && experiments.length > 0 && (
+        <section className="mt-14">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Early experiment cards</h2>
+              <p className="mt-1 text-sm text-slate-500">Small tests derived from observed intent. These are not published predictions.</p>
+            </div>
+            <span className="text-xs text-slate-400">{experiments.length} proposed</span>
+          </div>
+          <div className="mt-5 grid md:grid-cols-2 gap-4">
+            {experiments.map((experiment) => (
+              <article key={experiment.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
+                <div className="flex items-center justify-between gap-3 text-[11px] text-amber-800">
+                  <span className="font-semibold uppercase tracking-wide">Experiment · proposed</span>
+                  <span>{experiment.queryHypothesis}</span>
+                </div>
+                <h3 className="mt-2 font-semibold text-slate-900">{experiment.title}</h3>
+                <dl className="mt-4 grid gap-3 text-xs text-slate-700">
+                  <div><dt className="font-semibold text-slate-500">Core job</dt><dd>{experiment.coreJob}</dd></div>
+                  <div><dt className="font-semibold text-slate-500">Page shape</dt><dd>{experiment.recommendedPageShape}</dd></div>
+                  <div><dt className="font-semibold text-slate-500">Minimum feature</dt><dd>{experiment.minimumFeature}</dd></div>
+                  <div><dt className="font-semibold text-slate-500">Success signal</dt><dd>{experiment.successSignal}</dd></div>
+                  <div><dt className="font-semibold text-slate-500">Abandon when</dt><dd>{experiment.abandonCondition}</dd></div>
+                </dl>
+                <a href={experiment.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block text-[11px] text-blue-700 hover:underline">
+                  Source: {experiment.sourceTitle}
+                </a>
+                <StartExperimentButton experimentCardId={experiment.id} title={experiment.title} />
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-14">
         <h2 className="text-xl font-bold text-slate-900">Emerging market candidates</h2>

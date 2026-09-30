@@ -87,7 +87,12 @@ docker compose -f docker-compose.prod.yml exec -T postgres \
 worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。时间按宿主机时区执行；日志接入宿主机日志轮转：
 
 ```cron
-30 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker >> /var/log/emeradar-worker.log 2>&1
+30 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker run-daily >> /var/log/emeradar-worker.log 2>&1
+45 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker discover >> /var/log/emeradar-worker.log 2>&1
+0 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker generate-intents >> /var/log/emeradar-worker.log 2>&1
+15 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker validate-intents >> /var/log/emeradar-worker.log 2>&1
+30 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker generate-experiments >> /var/log/emeradar-worker.log 2>&1
+0 5 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker sync-gsc >> /var/log/emeradar-worker.log 2>&1
 ```
 
 ## GitHub 自动部署

@@ -70,6 +70,9 @@ export default async function ProjectsPage() {
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${p.project_kind === 'EXPERIMENT' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
+                      {p.project_kind === 'EXPERIMENT' ? 'EXPERIMENT' : 'FORMAL'}
+                    </span>
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                         p.status === 'LAUNCHED'
@@ -104,15 +107,16 @@ export default async function ProjectsPage() {
                     </div>
                   )}
 
-                  <div className="mt-2 text-xs text-slate-500">
-                    Linked Opportunity:{' '}
-                    <Link
-                      href={`/opportunities/${p.opportunity_slug}`}
-                      className="font-medium text-slate-800 hover:text-blue-600 underline"
-                    >
-                      {p.opportunity_title}
-                    </Link>
-                  </div>
+                  {p.opportunity_slug ? (
+                    <div className="mt-2 text-xs text-slate-500">
+                      Linked Opportunity:{' '}
+                      <Link href={`/opportunities/${p.opportunity_slug}`} className="font-medium text-slate-800 hover:text-blue-600 underline">
+                        {p.opportunity_title}
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-blue-700">Early experiment. Results are not part of the published prediction record.</div>
+                  )}
                 </div>
 
                 {/* GSC Traction Highlights */}
