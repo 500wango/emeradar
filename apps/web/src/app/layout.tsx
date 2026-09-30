@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   title: 'Emeradar | Search Opportunity Intelligence & Commercial Radar for Builders',
   description:
     'Discover validated search demand, addressable SERP weakness, and verifiable commercial signals. Turn organic search momentum into profitable micro-SaaS products.',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default async function RootLayout({
