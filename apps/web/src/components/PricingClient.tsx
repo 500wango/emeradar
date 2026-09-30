@@ -218,7 +218,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
             <div className="mt-5 pb-6 border-b border-slate-100">
               <div className="flex items-baseline gap-1">
                 <span className="text-4xl font-black text-slate-900">{p.planFreePrice}</span>
-                <span className="text-xs text-slate-400 font-medium">/ forever</span>
+                <span className="text-xs text-slate-400 font-medium">{isZh ? '永久免费' : '/ forever'}</span>
               </div>
             </div>
 
@@ -282,7 +282,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 <span className="text-4xl sm:text-5xl font-black text-blue-700">
                   {billingCycle === 'yearly' ? p.planProYearlyPrice : p.planProMonthlyPrice}
                 </span>
-                <span className="text-xs text-slate-500 font-medium">/ mo</span>
+                <span className="text-xs text-slate-500 font-medium">{isZh ? '/ 月' : '/ mo'}</span>
               </div>
               <p className="text-[11px] text-blue-600/90 font-medium mt-1">
                 {billingCycle === 'yearly' ? p.planProBilledYearly : (isZh ? '按月自动续订' : 'Billed monthly')}
@@ -316,7 +316,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
               </Link>
             )}
             <p className="text-center text-[10px] text-slate-400 mt-2">
-              {isZh ? '14 天无忧满意退款 · 随时一键取消' : '14-Day Money-Back Guarantee · Cancel anytime'}
+              {isZh ? '随时一键取消 · 无任何绑约' : 'Cancel anytime · No lock-in contracts'}
             </p>
           </div>
         </div>
@@ -346,7 +346,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 <span className="text-4xl font-black text-slate-900">
                   {billingCycle === 'yearly' ? p.planTeamYearlyPrice : p.planTeamMonthlyPrice}
                 </span>
-                <span className="text-xs text-slate-500 font-medium">/ mo</span>
+                <span className="text-xs text-slate-500 font-medium">{isZh ? '/ 月' : '/ mo'}</span>
               </div>
               <p className="text-[11px] text-indigo-600 font-medium mt-1">
                 {billingCycle === 'yearly' ? p.planTeamBilledYearly : (isZh ? '按月自动续订' : 'Billed monthly')}
@@ -388,7 +388,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         <div className="max-w-3xl mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 mb-4">
             <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>ROI & Performance</span>
+            <span>{isZh ? '投入产出与实证效果' : 'ROI & Performance'}</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
             {p.whyTitle}
@@ -513,7 +513,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 mb-3">
             <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
-            <span>Questions & Answers</span>
+            <span>{isZh ? '常见问题' : 'Questions & Answers'}</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
             {p.faqTitle}

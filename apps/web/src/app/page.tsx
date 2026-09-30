@@ -36,19 +36,19 @@ export default async function HomePage() {
       icon: Search,
       title: t('home.pillarDemandTitle'),
       body: t('home.pillarDemandDesc'),
-      tag: 'D 轴 · 需求成型',
+      tag: isZh ? 'D 轴 · 需求成型' : 'D-Axis · Demand Formation',
     },
     {
       icon: ShieldCheck,
       title: t('home.pillarCommercialTitle'),
       body: t('home.pillarCommercialDesc'),
-      tag: 'M 轴 · 商业验证',
+      tag: isZh ? 'M 轴 · 商业验证' : 'M-Axis · Commercial Proof',
     },
     {
       icon: Zap,
       title: t('home.pillarWindowTitle'),
       body: t('home.pillarWindowDesc'),
-      tag: 'W 轴 · 进入窗口',
+      tag: isZh ? 'W 轴 · 进入窗口' : 'W-Axis · Entry Window',
     },
   ];
 
@@ -206,7 +206,7 @@ export default async function HomePage() {
           <div className="text-center max-w-2xl mx-auto mb-14">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 mb-3">
               <Layers className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Workflow & Decision Architecture</span>
+              <span>{isZh ? '工作流与决策架构' : 'Workflow & Decision Architecture'}</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
               {t('home.decisionLoopTitle')}
@@ -338,14 +338,14 @@ export default async function HomePage() {
               <div className="grid md:grid-cols-3 gap-6 items-start">
                 <div className="md:col-span-2">
                   <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 leading-snug">
-                    Invoice Generator for Freelancers
+                    {isZh ? '自由职业者发票生成器' : 'Invoice Generator for Freelancers'}
                   </h3>
                   <p className="text-xs text-blue-600 font-mono mt-1">
-                    query: `freelance invoice pdf generator` · Category: Micro-SaaS
+                    {isZh ? '查询词：`freelance invoice pdf generator` · 类别：微型 SaaS' : 'query: `freelance invoice pdf generator` · Category: Micro-SaaS'}
                   </p>
 
                   <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700 leading-relaxed">
-                    <strong className="text-slate-900 font-semibold block mb-1">Why Now:</strong>
+                    <strong className="text-slate-900 font-semibold block mb-1">{isZh ? '为什么是现在：' : 'Why Now:'}</strong>
                     {t('home.sampleCardWhyNow')}
                   </div>
 
@@ -369,20 +369,20 @@ export default async function HomePage() {
                     </h4>
                     <div className="space-y-2.5 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-200/60">
-                        <span className="text-slate-600">Demand (D):</span>
-                        <span className="font-bold text-emerald-700">HIGH</span>
+                        <span className="text-slate-600">{isZh ? '需求 (D):' : 'Demand (D):'}</span>
+                        <span className="font-bold text-emerald-700">{isZh ? '高' : 'HIGH'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/60">
-                        <span className="text-slate-600">Commercial (M):</span>
-                        <span className="font-bold text-emerald-700">HIGH (Observed)</span>
+                        <span className="text-slate-600">{isZh ? '商业验证 (M):' : 'Commercial (M):'}</span>
+                        <span className="font-bold text-emerald-700">{isZh ? '高 (实地观测)' : 'HIGH (Observed)'}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/60">
-                        <span className="text-slate-600">Window (W):</span>
-                        <span className="font-bold text-blue-700">MEDIUM (SERP Weak)</span>
+                        <span className="text-slate-600">{isZh ? '竞争窗口 (W):' : 'Window (W):'}</span>
+                        <span className="font-bold text-blue-700">{isZh ? '中 (SERP 薄弱)' : 'MEDIUM (SERP Weak)'}</span>
                       </div>
                       <div className="flex justify-between py-1">
-                        <span className="text-slate-600">Confidence:</span>
-                        <span className="font-bold text-slate-800">HIGH (3+ Sources)</span>
+                        <span className="text-slate-600">{isZh ? '置信度:' : 'Confidence:'}</span>
+                        <span className="font-bold text-slate-800">{isZh ? '高 (3+ 数据源)' : 'HIGH (3+ Sources)'}</span>
                       </div>
                     </div>
                   </div>
@@ -415,7 +415,7 @@ export default async function HomePage() {
           <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-8 sm:p-12 shadow-xl relative overflow-hidden">
             <div className="max-w-2xl">
               <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 mb-4">
-                Transparent Plans & Sizing
+                <span>{isZh ? '透明增长方案' : 'Transparent Plans & Sizing'}</span>
               </span>
               <h2 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight">
                 {t('home.pricingBannerTitle')}

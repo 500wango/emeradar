@@ -163,6 +163,27 @@ export interface TranslationDictionary {
     principle2Desc: string;
     principle3Title: string;
     principle3Desc: string;
+    // Pillar axis tags
+    pillarDemandTag?: string;
+    pillarCommercialTag?: string;
+    pillarWindowTag?: string;
+    // Decision loop section badge
+    decisionLoopBadge?: string;
+    // Sample card labels
+    sampleCardTitle?: string;
+    sampleCardQueryLabel?: string;
+    sampleCardWhyNowLabel?: string;
+    sampleCardArchetypeLabel?: string;
+    sampleCardDemandLabel?: string;
+    sampleCardCommercialLabel?: string;
+    sampleCardWindowLabel?: string;
+    sampleCardConfidenceLabel?: string;
+    sampleCardTriAxisTitle?: string;
+    // Pricing banner badge
+    pricingBannerBadge?: string;
+    // Section headers
+    threeAxisTitle?: string;
+    threeAxisSubtitle?: string;
   };
   feed: {
     badge: string;
@@ -353,10 +374,14 @@ export interface TranslationDictionary {
     badgeCancel: string;
     badgeRefund: string;
     badgeCrypto: string;
+    perForever?: string;
+    perMonth?: string;
 
     // FAQ
     faqTitle: string;
     faqSubtitle: string;
+    faqBadge?: string;
+    roiBadge?: string;
     faqs: Array<{ q: string; a: string }>;
 
     // Bottom CTA
