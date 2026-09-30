@@ -5,7 +5,7 @@ import { AppError } from '@emeradar/core';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, displayName, tier } = body;
+    const { email, password, displayName } = body;
 
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       return NextResponse.json(
@@ -35,7 +35,6 @@ export async function POST(request: NextRequest) {
       email,
       password,
       displayName: displayName?.trim() || undefined,
-      tier: tier === 'TEAM' || tier === 'FREE' ? tier : 'PRO',
     });
 
     const response = NextResponse.json({

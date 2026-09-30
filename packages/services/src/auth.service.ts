@@ -48,7 +48,6 @@ export class AuthService {
     email: string;
     password: string;
     displayName?: string;
-    tier?: 'FREE' | 'PRO' | 'TEAM';
   }): Promise<{ user: UserProfile; sessionToken: string }> {
     const email = input.email.trim().toLowerCase();
 
@@ -68,7 +67,6 @@ export class AuthService {
 
     const userId = `usr_${Date.now().toString(36)}_${randomBytes(4).toString('hex')}`;
     const passwordHash = this.hashPassword(input.password);
-    const tier = input.tier || 'FREE';
     const displayName = input.displayName || email.split('@')[0];
 
     const sessionToken = `sess_${randomBytes(24).toString('hex')}`;
@@ -78,8 +76,8 @@ export class AuthService {
       // 1. Insert user
       await client.query(
         `INSERT INTO users (id, email, display_name, role, tier, status)
-         VALUES ($1, $2, $3, 'USER', $4, 'ACTIVE')`,
-        [userId, email, displayName, tier]
+         VALUES ($1, $2, $3, 'USER', 'FREE', 'ACTIVE')`,
+        [userId, email, displayName]
       );
 
       // 2. Insert credentials account

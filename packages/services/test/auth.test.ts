@@ -10,13 +10,12 @@ describe('AuthService Integration Tests', () => {
       email: testEmail,
       password: 'StrongPassword123!',
       displayName: 'Test Builder',
-      tier: 'PRO',
     });
 
     assert.ok(res.user.id.startsWith('usr_'));
     assert.equal(res.user.email, testEmail);
     assert.equal(res.user.displayName, 'Test Builder');
-    assert.equal(res.user.tier, 'PRO');
+    assert.equal(res.user.tier, 'FREE');
     assert.ok(res.sessionToken.startsWith('sess_'));
 
     // Verify session retrieval

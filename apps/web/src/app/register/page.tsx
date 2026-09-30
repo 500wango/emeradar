@@ -22,7 +22,6 @@ function RegisterFormContent() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [tier, setTier] = useState<'FREE' | 'PRO' | 'TEAM'>('PRO');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +43,6 @@ function RegisterFormContent() {
         email,
         password,
         displayName: displayName || undefined,
-        tier,
       });
       router.push('/settings');
     } catch (err: any) {
@@ -138,62 +136,6 @@ function RegisterFormContent() {
                   minLength={6}
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
                 />
-              </div>
-            </div>
-
-            {/* Tier Selection */}
-            <div className="pt-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-2">
-                Select Your Plan
-              </label>
-              <div className="grid grid-cols-3 gap-2.5">
-                {/* FREE */}
-                <button
-                  type="button"
-                  onClick={() => setTier('FREE')}
-                  className={`p-3 text-left rounded-xl border transition-all ${
-                    tier === 'FREE'
-                      ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-500/20'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-slate-900">Free</div>
-                  <div className="text-xs text-slate-500 mt-0.5">$0/mo</div>
-                  <div className="text-[10px] text-slate-400 mt-2">Top 5 weekly signals</div>
-                </button>
-
-                {/* PRO */}
-                <button
-                  type="button"
-                  onClick={() => setTier('PRO')}
-                  className={`p-3 text-left rounded-xl border relative transition-all ${
-                    tier === 'PRO'
-                      ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-full bg-emerald-600 text-[9px] font-bold text-white uppercase tracking-wider">
-                    Popular
-                  </span>
-                  <div className="text-xs font-bold text-emerald-900">Builder Pro</div>
-                  <div className="text-xs text-emerald-600 font-semibold mt-0.5">$49/mo</div>
-                  <div className="text-[10px] text-slate-500 mt-2">Full ledger & deep reports</div>
-                </button>
-
-                {/* TEAM */}
-                <button
-                  type="button"
-                  onClick={() => setTier('TEAM')}
-                  className={`p-3 text-left rounded-xl border transition-all ${
-                    tier === 'TEAM'
-                      ? 'border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-500/20'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-slate-900">Team Scale</div>
-                  <div className="text-xs text-slate-500 mt-0.5">$199/mo</div>
-                  <div className="text-[10px] text-slate-400 mt-2">API keys & live webhooks</div>
-                </button>
               </div>
             </div>
 

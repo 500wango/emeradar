@@ -12,7 +12,6 @@ interface AuthContextValue {
     email: string;
     password: string;
     displayName?: string;
-    tier?: 'FREE' | 'PRO' | 'TEAM';
   }) => Promise<UserProfile>;
   logout: () => Promise<void>;
   updatePreferences: (prefs: Partial<UserPreferencesData>) => Promise<UserPreferencesData>;
@@ -73,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string;
     password: string;
     displayName?: string;
-    tier?: 'FREE' | 'PRO' | 'TEAM';
   }): Promise<UserProfile> => {
     const res = await fetch('/api/v1/auth/register', {
       method: 'POST',
