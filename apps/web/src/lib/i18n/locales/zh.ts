@@ -287,7 +287,7 @@ export const zh: TranslationDictionary = {
 
     // Plans
     planFreeTitle: 'Free Starter 入门版',
-    planFreePrice: '¥0',
+    planFreePrice: '$0',
     planFreeDesc: '零成本查验公开战绩与延迟决策摘要，验证密码学账本的历史成效。',
     freeFeatures: [
       '45 天延迟公开机会摘要（45-day delay，保护实时窗口）',
@@ -299,9 +299,9 @@ export const zh: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro 专业版',
-    planProMonthlyPrice: '¥279',
-    planProYearlyPrice: '¥199',
-    planProBilledYearly: '按年计费（¥2,388/年）',
+    planProMonthlyPrice: '$39',
+    planProYearlyPrice: '$29',
+    planProBilledYearly: '按年计费（$348/年）',
     planProDesc: '抢占市场先机，获取实时决策流、实地抓取的结账证据与深度研究报告。',
     proFeatures: [
       '⚡ 实时决策动态流（0 延迟，每日最多 10 条已发布决定）',
