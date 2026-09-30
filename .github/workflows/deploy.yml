@@ -17,7 +17,8 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          # Prefer the documented name; keep the existing typo as a migration fallback.
+          key: ${{ secrets.VPS_SSH_KEY || secrets.VPS_SSH_KE }}
           port: ${{ secrets.VPS_PORT || 22 }}
           command_timeout: 30m
           script: |
