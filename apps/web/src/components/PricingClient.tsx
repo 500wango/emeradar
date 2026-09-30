@@ -82,6 +82,14 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
             </span>
           </button>
         </div>
+
+        {p.marketFocusNotice && (
+          <div className="mt-6 flex items-center justify-center">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50/90 border border-amber-200/90 rounded-2xl text-xs text-amber-900 font-medium max-w-2xl text-center shadow-xs">
+              <span>{p.marketFocusNotice}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Current Quota Gauges (Only shown when user is authenticated with quotas) */}
@@ -252,8 +260,15 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           </div>
 
           <div>
-            <div className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 mb-3 uppercase tracking-wider">
-              {p.planProTitle}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 uppercase tracking-wider">
+                {p.planProTitle}
+              </span>
+              {p.proEarlyBirdBadge && (
+                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
+                  {p.proEarlyBirdBadge}
+                </span>
+              )}
             </div>
             <h3 className="font-extrabold text-2xl text-slate-900">
               {p.planProTitle}
@@ -309,8 +324,15 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         {/* Tier 3: Team Scale */}
         <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
           <div>
-            <div className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 mb-3 uppercase tracking-wider">
-              {p.planTeamTitle}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 uppercase tracking-wider">
+                {p.planTeamTitle}
+              </span>
+              {p.teamWaitlistBadge && (
+                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  {p.teamWaitlistBadge}
+                </span>
+              )}
             </div>
             <h3 className="font-extrabold text-2xl text-slate-900">
               {p.planTeamTitle}

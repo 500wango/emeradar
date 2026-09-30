@@ -135,6 +135,34 @@ export interface TranslationDictionary {
     openFeed: string;
     gatedMessage: string;
     signInToView: string;
+    decisionLoopTitle: string;
+    decisionLoopSubtitle: string;
+    step1Title: string;
+    step1Desc: string;
+    step2Title: string;
+    step2Desc: string;
+    step3Title: string;
+    step3Desc: string;
+    step4Title: string;
+    step4Desc: string;
+    sampleCardBadge: string;
+    sampleCardMarket: string;
+    sampleCardWhyNow: string;
+    sampleCardTopIdea: string;
+    sampleCardEvidence: string;
+    pricingBannerTitle: string;
+    pricingBannerDesc: string;
+    explorePricingBtn: string;
+    freeDelayHighlight: string;
+    proRealtimeHighlight: string;
+    principlesTitle: string;
+    principlesSubtitle: string;
+    principle1Title: string;
+    principle1Desc: string;
+    principle2Title: string;
+    principle2Desc: string;
+    principle3Title: string;
+    principle3Desc: string;
   };
   feed: {
     badge: string;
@@ -268,6 +296,9 @@ export interface TranslationDictionary {
     startTrial: string;
     contactSales: string;
     includedBaseline: string;
+    marketFocusNotice?: string;
+    teamWaitlistBadge?: string;
+    proEarlyBirdBadge?: string;
 
     // Plans
     planFreeTitle: string;

@@ -32,7 +32,7 @@ export function Footer() {
             <Link href="/feed" className="hover:text-blue-600 transition-colors">
               {t('footer.liveFeed')}
             </Link>
-            <Link href="/billing" className="hover:text-blue-600 transition-colors">
+            <Link href="/pricing" className="hover:text-blue-600 transition-colors">
               {t('footer.pricing')}
             </Link>
             <LanguageSwitcher variant="toggle" />
