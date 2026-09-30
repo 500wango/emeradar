@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Logo } from '@/components/Logo';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import {
   ShieldCheck,
   ArrowRight,
@@ -20,6 +21,7 @@ function LoginFormContent() {
   const nextUrl = searchParams.get('next') || '/feed';
 
   const { login } = useAuth();
+  const { t, isZh } = useI18n();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,7 +31,7 @@ function LoginFormContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      setError('Please enter your email address');
+      setError(isZh ? '请输入您的邮箱地址' : 'Please enter your email address');
       return;
     }
 
@@ -39,7 +41,7 @@ function LoginFormContent() {
       await login(email, password);
       router.push(nextUrl);
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in. Please verify your email and password.');
+      setError(err.message || (isZh ? '登录失败，请核对您的邮箱和密码。' : 'Failed to sign in. Please verify your email and password.'));
     } finally {
       setLoading(false);
     }
@@ -52,10 +54,10 @@ function LoginFormContent() {
           <Logo variant="header" className="h-10 w-auto mx-auto" idPrefix="login" />
         </Link>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          Welcome back
+          {t('auth.loginTitle')}
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Find markets before they get crowded. Sign in to your workspace.
+          {t('auth.loginDesc')}
         </p>
       </div>
 
@@ -65,7 +67,7 @@ function LoginFormContent() {
             <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold block">Authentication Failed</span>
+                <span className="font-semibold block">{t('auth.loginFailed')}</span>
                 <span>{error}</span>
               </div>
             </div>
@@ -77,7 +79,7 @@ function LoginFormContent() {
             </div>
             <div className="relative flex justify-center text-xs uppercase">
               <span className="bg-white px-3 text-slate-400 font-medium tracking-wider">
-                Or sign in with email
+                {t('auth.orEmail')}
               </span>
             </div>
           </div>
@@ -86,7 +88,7 @@ function LoginFormContent() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Email Address
+                {t('auth.emailLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -96,7 +98,7 @@ function LoginFormContent() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@emeradar.com"
+                  placeholder={t('auth.emailPlaceholder')}
                   required
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
                 />
@@ -106,7 +108,7 @@ function LoginFormContent() {
             <div>
               <div className="mb-1.5">
                 <label className="block text-xs font-semibold text-slate-700">
-                  Password
+                  {t('auth.passwordLabel')}
                 </label>
               </div>
               <div className="relative rounded-xl shadow-sm">
@@ -117,7 +119,7 @@ function LoginFormContent() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder={t('auth.passwordPlaceholder')}
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
                 />
               </div>
@@ -131,11 +133,11 @@ function LoginFormContent() {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Signing in...</span>
+                  <span>{t('auth.signingIn')}</span>
                 </>
               ) : (
                 <>
-                  <span>Sign In to Dashboard</span>
+                  <span>{t('auth.signInBtn')}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -144,12 +146,12 @@ function LoginFormContent() {
 
           {/* Footer inside card */}
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>New to EmeRadar?</span>
+            <span>{t('auth.newToPlatform')}</span>
             <Link
               href="/register"
               className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
             >
-              Create an account →
+              {t('auth.createAccountLink')}
             </Link>
           </div>
         </div>
@@ -157,7 +159,7 @@ function LoginFormContent() {
         {/* Security badge */}
         <div className="mt-6 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Encrypted sessions · RFC 9457 error contracts · PBKDF2 salt</span>
+          <span>{t('auth.securityFootnote')}</span>
         </div>
       </div>
     </div>

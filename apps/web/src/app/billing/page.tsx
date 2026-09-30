@@ -5,6 +5,7 @@ import {
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { AuthService, EntitlementService } from '@emeradar/services';
+import { getServerI18n } from '@/lib/i18n/server';
 
 export default async function BillingPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -12,6 +13,7 @@ export default async function BillingPage() {
   if (!session) redirect('/login');
   const userId = session.user.id;
   const ent = await EntitlementService.getUserEntitlements(userId);
+  const { t, dictionary } = await getServerI18n();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -19,14 +21,13 @@ export default async function BillingPage() {
       <div className="text-center max-w-3xl mx-auto mb-12">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200 mb-4">
           <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-          <span>Transparent Builder Pricing</span>
+          <span>{t('pricing.badge')}</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Free and Pro
+          {t('pricing.title')}
         </h1>
         <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Pro is the realtime decision feed, the full evidence, report export, alerts, and projects.
-          Price is set with design partners. This page does not invent a rate.
+          {t('pricing.desc')}
         </p>
       </div>
 
@@ -35,10 +36,10 @@ export default async function BillingPage() {
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
           <div>
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Current Plan
+              {t('pricing.currentPlan')}
             </span>
             <div className="text-xl font-bold text-slate-900 mt-0.5">
-              Workspace tier: {ent.tier}
+              {t('pricing.workspaceTier', { tier: ent.tier })}
             </div>
           </div>
         </div>
@@ -46,12 +47,12 @@ export default async function BillingPage() {
         <div className="grid md:grid-cols-3 gap-6">
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-xs font-semibold text-slate-500">
-              Monthly Research Reports
+              {t('pricing.monthlyReports')}
             </span>
             <div className="text-2xl font-bold text-slate-900 mt-1">
               {ent.exportReportsUsed}{' '}
               <span className="text-xs text-slate-400 font-normal">
-                / {ent.exportReportsMonthlyLimit} exports used
+                / {t('pricing.used', { used: ent.exportReportsUsed, limit: ent.exportReportsMonthlyLimit })}
               </span>
             </div>
             <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
@@ -66,18 +67,18 @@ export default async function BillingPage() {
               ></div>
             </div>
             <span className="text-[11px] text-slate-500 mt-2 block">
-              {ent.remainingReports} exports remaining this billing cycle
+              {t('pricing.remaining', { remaining: ent.remainingReports })}
             </span>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-xs font-semibold text-slate-500">
-              Tracked Builder Projects
+              {t('pricing.trackedProjects')}
             </span>
             <div className="text-2xl font-bold text-slate-900 mt-1">
               {ent.currentProjectsCount}{' '}
               <span className="text-xs text-slate-400 font-normal">
-                / {ent.maxProjects} projects active
+                / {t('pricing.active', { active: ent.currentProjectsCount, limit: ent.maxProjects })}
               </span>
             </div>
             <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
@@ -92,18 +93,18 @@ export default async function BillingPage() {
               ></div>
             </div>
             <span className="text-[11px] text-slate-500 mt-2 block">
-              GSC automated synchronization included
+              {t('pricing.gscSyncIncluded')}
             </span>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-xs font-semibold text-slate-500">
-              Active Radar Alert Rules
+              {t('pricing.alertRules')}
             </span>
             <div className="text-2xl font-bold text-slate-900 mt-1">
               {ent.currentAlertsCount}{' '}
               <span className="text-xs text-slate-400 font-normal">
-                / {ent.maxAlerts} alerts configured
+                / {t('pricing.alertsConfigured', { count: ent.currentAlertsCount, limit: ent.maxAlerts })}
               </span>
             </div>
             <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
@@ -118,7 +119,7 @@ export default async function BillingPage() {
               ></div>
             </div>
             <span className="text-[11px] text-slate-500 mt-2 block">
-              Immediate webhook & in-app delivery
+              {t('pricing.webhookDelivery')}
             </span>
           </div>
         </div>
@@ -130,26 +131,16 @@ export default async function BillingPage() {
         <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="font-bold text-lg text-slate-900">Free</h3>
-            <p className="text-xs text-slate-500 mt-1">Track record and delayed decisions</p>
+            <p className="text-xs text-slate-500 mt-1">{t('pricing.planFreeDesc')}</p>
             <div className="text-3xl font-extrabold text-slate-900 mt-4">$0</div>
 
             <ul className="mt-6 space-y-3 text-xs text-slate-600">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Public track record, hits and misses
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Opportunities delayed 45 days
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                1 report preview / month, no export
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                1 project
-              </li>
+              {dictionary.pricing.freeFeatures.map((item, idx) => (
+                <li key={idx} className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -157,40 +148,30 @@ export default async function BillingPage() {
             disabled
             className="w-full mt-8 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-400 cursor-not-allowed"
           >
-            Included Baseline
+            {t('pricing.includedBaseline')}
           </button>
         </div>
 
         {/* Builder Pro (Active) */}
         <div className="bg-white rounded-2xl border-2 border-blue-600 p-8 shadow-lg relative flex flex-col justify-between">
           <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm">
-            Design partners
+            {t('pricing.designPartners')}
           </div>
 
           <div>
             <h3 className="font-bold text-lg text-slate-900">Pro</h3>
-            <p className="text-xs text-slate-500 mt-1">The paid decision loop</p>
+            <p className="text-xs text-slate-500 mt-1">{t('pricing.planProDesc')}</p>
             <div className="text-3xl font-extrabold text-slate-900 mt-4">
-              Pricing in interviews
+              {t('pricing.pricingInInterviews')}
             </div>
 
             <ul className="mt-6 space-y-3 text-xs text-slate-700">
-              <li className="flex items-center gap-2 font-medium">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                Realtime feed, up to 10 published decisions a day
-              </li>
-              <li className="flex items-center gap-2 font-medium">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                Full detail and 30 report exports / month
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                Watch, email alerts, up to 50 projects
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                GO binds the project to that verdict
-              </li>
+              {dictionary.pricing.proFeatures.map((item, idx) => (
+                <li key={idx} className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -198,19 +179,19 @@ export default async function BillingPage() {
             href="/register"
             className="w-full mt-8 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors text-center"
           >
-            Join the design partners
+            {t('pricing.joinDesignPartners')}
           </a>
         </div>
 
         {/* Scale Team */}
         <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-lg text-slate-900">Not in this release</h3>
-            <p className="text-xs text-slate-500 mt-1">Team seats and a public API wait until the decision loop is paid for.</p>
+            <h3 className="font-bold text-lg text-slate-900">{t('pricing.notInRelease')}</h3>
+            <p className="text-xs text-slate-500 mt-1">{t('pricing.notInReleaseDesc')}</p>
             <ul className="mt-6 space-y-3 text-xs text-slate-500">
-              <li>Team plans</li>
-              <li>Open API as a product</li>
-              <li>Multiple research markets</li>
+              {dictionary.pricing.notInReleaseItems.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
             </ul>
           </div>
         </div>

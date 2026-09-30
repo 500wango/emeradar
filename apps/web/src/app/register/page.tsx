@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/Logo';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import {
   ShieldCheck,
   AlertCircle,
@@ -18,6 +19,7 @@ import {
 function RegisterFormContent() {
   const router = useRouter();
   const { register } = useAuth();
+  const { t, isZh } = useI18n();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -28,11 +30,11 @@ function RegisterFormContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError('Please fill in your email and password');
+      setError(isZh ? '请填写您的邮箱和密码' : 'Please fill in your email and password');
       return;
     }
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError(isZh ? '密码长度至少需 6 位字符' : 'Password must be at least 6 characters');
       return;
     }
 
@@ -46,7 +48,7 @@ function RegisterFormContent() {
       });
       router.push('/settings');
     } catch (err: any) {
-      setError(err.message || 'Registration failed. Please try a different email.');
+      setError(err.message || (isZh ? '注册遇到问题，请尝试其他邮箱。' : 'Registration failed. Please try a different email.'));
     } finally {
       setLoading(false);
     }
@@ -59,10 +61,10 @@ function RegisterFormContent() {
           <Logo variant="header" className="h-10 w-auto mx-auto" idPrefix="reg" />
         </Link>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          Create your builder account
+          {t('auth.registerTitle')}
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Find markets before they get crowded. Get instant access to validated opportunities.
+          {t('auth.registerDesc')}
         </p>
       </div>
 
@@ -72,7 +74,7 @@ function RegisterFormContent() {
             <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold block">Registration Error</span>
+                <span className="font-semibold block">{t('auth.registerFailed')}</span>
                 <span>{error}</span>
               </div>
             </div>
@@ -82,7 +84,7 @@ function RegisterFormContent() {
             {/* Display Name */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Full Name / Builder Alias
+                {t('auth.nameLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -92,7 +94,7 @@ function RegisterFormContent() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Sarah Lin"
+                  placeholder={t('auth.namePlaceholder')}
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
                 />
               </div>
@@ -101,7 +103,7 @@ function RegisterFormContent() {
             {/* Email */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Work or Personal Email
+                {t('auth.emailLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -111,7 +113,7 @@ function RegisterFormContent() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="builder@example.com"
+                  placeholder={t('auth.emailPlaceholder')}
                   required
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
                 />
@@ -121,7 +123,7 @@ function RegisterFormContent() {
             {/* Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Password
+                {t('auth.passwordLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -131,7 +133,7 @@ function RegisterFormContent() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimum 6 characters"
+                  placeholder={isZh ? '至少包含 6 位字符' : 'Minimum 6 characters'}
                   required
                   minLength={6}
                   className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
@@ -148,11 +150,11 @@ function RegisterFormContent() {
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Creating Account...</span>
+                  <span>{t('auth.signingUp')}</span>
                 </>
               ) : (
                 <>
-                  <span>Complete Registration</span>
+                  <span>{t('auth.signUpBtn')}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -161,12 +163,12 @@ function RegisterFormContent() {
 
           {/* Footer */}
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Already have an account?</span>
+            <span>{t('auth.alreadyHaveAccount')}</span>
             <Link
               href="/login"
               className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
             >
-              Sign in →
+              {t('auth.signInLink')}
             </Link>
           </div>
         </div>
@@ -174,7 +176,7 @@ function RegisterFormContent() {
         {/* Info */}
         <div className="mt-6 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Includes 14-day risk-free trial · No credit card required upfront</span>
+          <span>{t('auth.securityFootnote')}</span>
         </div>
       </div>
     </div>

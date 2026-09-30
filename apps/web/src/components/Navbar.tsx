@@ -16,10 +16,13 @@ import {
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 export function Navbar() {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
+  const { t } = useI18n();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -50,15 +53,15 @@ export function Navbar() {
 
   const tierBadgeConfig = {
     TEAM: {
-      label: 'Team Scale',
+      label: t('nav.teamScale'),
       classes: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
     },
     PRO: {
-      label: 'Builder Pro',
+      label: t('nav.builderPro'),
       classes: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
     },
     FREE: {
-      label: 'Free Starter',
+      label: t('nav.freeStarter'),
       classes: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200',
     },
   };
@@ -90,7 +93,7 @@ export function Navbar() {
                 }`}
               >
                 <Radar className="w-4 h-4 text-blue-500" />
-                Opportunities
+                {t('nav.opportunities')}
               </Link>
               <Link
                 href="/track-record"
@@ -101,7 +104,7 @@ export function Navbar() {
                 }`}
               >
                 <FileCheck2 className="w-4 h-4 text-emerald-500" />
-                Track Record
+                {t('nav.trackRecord')}
               </Link>
               <Link
                 href="/projects"
@@ -112,7 +115,7 @@ export function Navbar() {
                 }`}
               >
                 <FolderKanban className="w-4 h-4 text-indigo-500" />
-                Projects
+                {t('nav.projects')}
               </Link>
               <Link
                 href="/alerts"
@@ -123,7 +126,7 @@ export function Navbar() {
                 }`}
               >
                 <Bell className="w-4 h-4 text-amber-500" />
-                Radar Alerts
+                {t('nav.alerts')}
               </Link>
               <Link
                 href="/methodology"
@@ -133,7 +136,7 @@ export function Navbar() {
                     : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
                 }`}
               >
-                Methodology
+                {t('nav.methodology')}
               </Link>
               <Link
                 href="/pricing"
@@ -144,13 +147,15 @@ export function Navbar() {
                 }`}
               >
                 <CreditCard className="w-4 h-4 text-slate-400" />
-                Pricing
+                {t('nav.pricing')}
               </Link>
             </nav>
           </div>
 
-          {/* User & Auth Actions */}
+          {/* User & Auth Actions & Language Switcher */}
           <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+
             {isLoading ? (
               <div className="h-8 w-24 bg-slate-100 animate-pulse rounded-full" />
             ) : user ? (
@@ -207,28 +212,28 @@ export function Navbar() {
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
                         >
                           <Settings className="w-4 h-4 text-slate-400" />
-                          <span>Account & Settings</span>
+                          <span>{t('nav.accountSettings')}</span>
                         </Link>
                         <Link
                           href="/projects"
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
                         >
                           <FolderKanban className="w-4 h-4 text-slate-400" />
-                          <span>My Projects</span>
+                          <span>{t('nav.myProjects')}</span>
                         </Link>
                         <Link
                           href="/alerts"
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
                         >
                           <Bell className="w-4 h-4 text-slate-400" />
-                          <span>Radar Alerts</span>
+                          <span>{t('nav.alerts')}</span>
                         </Link>
                         <Link
                           href="/billing"
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
                         >
                           <CreditCard className="w-4 h-4 text-slate-400" />
-                          <span>Plans & Invoices</span>
+                          <span>{t('nav.billing')}</span>
                         </Link>
                       </div>
 
@@ -239,7 +244,7 @@ export function Navbar() {
                           className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition"
                         >
                           <LogOut className="w-4 h-4 text-rose-500" />
-                          <span>Sign Out</span>
+                          <span>{t('nav.logout')}</span>
                         </button>
                       </div>
                     </div>
@@ -252,13 +257,13 @@ export function Navbar() {
                   href="/login"
                   className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition"
                 >
-                  Log In
+                  {t('nav.login')}
                 </Link>
                 <Link
                   href="/register"
                   className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition"
                 >
-                  Sign Up
+                  {t('nav.signup')}
                 </Link>
               </div>
             )}

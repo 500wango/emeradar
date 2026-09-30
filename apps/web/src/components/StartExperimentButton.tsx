@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { FlaskConical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useI18n } from '@/lib/i18n';
 
 export function StartExperimentButton({ experimentCardId, title }: { experimentCardId: string; title: string }) {
   const router = useRouter();
+  const { isZh } = useI18n();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,10 +21,10 @@ export function StartExperimentButton({ experimentCardId, title }: { experimentC
         body: JSON.stringify({ experimentCardId, title }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Could not start the experiment.');
+      if (!response.ok) throw new Error(data.detail || (isZh ? '未能启动实验。' : 'Could not start the experiment.'));
       router.push(`/projects/${data.id}`);
     } catch (err: any) {
-      setError(err.message || 'Could not start the experiment.');
+      setError(err.message || (isZh ? '未能启动实验。' : 'Could not start the experiment.'));
       setPending(false);
     }
   }
@@ -36,7 +38,7 @@ export function StartExperimentButton({ experimentCardId, title }: { experimentC
         className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
       >
         <FlaskConical className="h-3.5 w-3.5" />
-        {pending ? 'Starting…' : 'Start experiment'}
+        {pending ? (isZh ? '启动中…' : 'Starting…') : (isZh ? '启动实验' : 'Start experiment')}
       </button>
       {error && <p className="mt-2 text-[11px] text-rose-700">{error}</p>}
     </div>

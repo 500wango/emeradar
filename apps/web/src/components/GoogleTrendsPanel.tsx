@@ -1,5 +1,8 @@
+'use client';
+
 import React from 'react';
 import { ExternalLink, Search, Layers, Compass } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 
 interface GoogleTrendsPanelProps {
   query: string;
@@ -12,6 +15,7 @@ export function GoogleTrendsPanel({
   marketCountry = 'US',
   clusterQueries = [],
 }: GoogleTrendsPanelProps) {
+  const { isZh } = useI18n();
   const geo = marketCountry || 'US';
   const trendsExploreUrl = `https://trends.google.com/trends/explore?q=${encodeURIComponent(
     query
@@ -26,11 +30,13 @@ export function GoogleTrendsPanel({
               <Compass className="w-4 h-4" />
             </span>
             <h2 className="text-base font-bold text-slate-900">
-              Trends link and stored queries
+              {isZh ? 'Google 趋势链接与已存查询簇' : 'Trends link and stored queries'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            No Trends time series is stored. The link opens Google Trends for {geo}, past 12 months. The list below is the query cluster on file, including the primary query. It is not a live suggest capture unless an evidence row says so.
+            {isZh
+              ? `本系统不存储趋势时间序列。该链接将打开 Google Trends (${geo}) 最近12个月数据。下方列表为已归档的查询词簇（含核心查询）。`
+              : `No Trends time series is stored. The link opens Google Trends for ${geo}, past 12 months. The list below is the query cluster on file, including the primary query.`}
           </p>
         </div>
 
@@ -40,7 +46,7 @@ export function GoogleTrendsPanel({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm shrink-0"
         >
-          <span>Open Google Trends ({geo})</span>
+          <span>{isZh ? `打开 Google 趋势 (${geo})` : `Open Google Trends (${geo})`}</span>
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
       </div>
@@ -49,10 +55,10 @@ export function GoogleTrendsPanel({
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
             <Search className="w-3.5 h-3.5 text-blue-600" />
-            <span>Queries on file</span>
+            <span>{isZh ? '已归档相关查询' : 'Queries on file'}</span>
           </div>
           <span className="text-[11px] font-mono text-slate-400">
-            {clusterQueries.length} stored
+            {isZh ? `已存储 ${clusterQueries.length} 个` : `${clusterQueries.length} stored`}
           </span>
         </div>
 
@@ -74,7 +80,7 @@ export function GoogleTrendsPanel({
           </div>
         ) : (
           <div className="p-4 rounded-xl bg-slate-50 text-center text-xs text-slate-400">
-            No related queries stored yet.
+            {isZh ? '暂无归档的相关查询。' : 'No related queries stored yet.'}
           </div>
         )}
       </div>
@@ -82,7 +88,9 @@ export function GoogleTrendsPanel({
       <div className="mt-4 p-3 rounded-xl bg-amber-50/70 border border-amber-200/60 text-xs text-amber-800 flex items-start gap-2 leading-relaxed">
         <Layers className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         <div>
-          Demand is scored from repeated observations, not from this link. A missing series is left missing.
+          {isZh
+            ? '需求分值来源于连续周期的观测数据，而非仅根据外部链接。缺失的数据序列保持留空。'
+            : 'Demand is scored from repeated observations, not from this link. A missing series is left missing.'}
         </div>
       </div>
     </div>

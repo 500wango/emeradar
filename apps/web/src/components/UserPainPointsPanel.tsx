@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import {
   HelpCircle,
@@ -8,6 +10,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import { BuildArchetype } from '@emeradar/core';
+import { useI18n } from '@/lib/i18n';
 
 interface SerpResultItem {
   rank: number;
@@ -35,6 +38,8 @@ export function UserPainPointsPanel({
   topIdea,
   serpResults = [],
 }: UserPainPointsPanelProps) {
+  const { isZh } = useI18n();
+
   // Extract real community questions (StackOverflow, HackerNews)
   const communityDiscussions = serpResults.filter((r) => {
     const domain = r.domain.toLowerCase();
@@ -59,16 +64,18 @@ export function UserPainPointsPanel({
               <MessageSquare className="w-4 h-4" />
             </span>
             <h2 className="text-base font-bold text-slate-900">
-              Source-labeled mentions
+              {isZh ? '来源标注提及' : 'Source-labeled mentions'}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            For &quot;{primaryQuery}&quot;. A row is listed under Stack Overflow, Hacker News, or GitHub only when its domain says so. Other stored rows stay in the result sample.
+            {isZh
+              ? `针对「${primaryQuery}」。仅当域名匹配时，条目才归入 Stack Overflow、Hacker News 或 GitHub。`
+              : `For "${primaryQuery}". A row is listed under Stack Overflow, Hacker News, or GitHub only when its domain says so.`}
           </p>
         </div>
 
         <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700 shrink-0">
-          目标形态: {recommendedArchetype.replace('_', ' ')} (Class {executionClass})
+          {isZh ? '目标形态: ' : 'Target shape: '} {recommendedArchetype.replace(/_/g, ' ')} (Class {executionClass})
         </span>
       </div>
 
@@ -77,9 +84,9 @@ export function UserPainPointsPanel({
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
             <HelpCircle className="w-4 h-4 text-amber-600" />
-            <span>Stack Overflow and Hacker News URLs</span>
+            <span>{isZh ? 'Stack Overflow 与 Hacker News 问答' : 'Stack Overflow and Hacker News URLs'}</span>
             <span className="text-[10px] font-mono text-slate-400">
-              ({communityDiscussions.length} 条已捕获)
+              ({communityDiscussions.length} {isZh ? '条已捕获' : 'captured'})
             </span>
           </div>
 
@@ -114,7 +121,7 @@ export function UserPainPointsPanel({
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-400">
-              No stackoverflow.com or news.ycombinator.com URLs are stored.
+              {isZh ? '暂无归档的 stackoverflow.com 或 news.ycombinator.com 链接。' : 'No stackoverflow.com or news.ycombinator.com URLs are stored.'}
             </div>
           )}
         </div>
@@ -123,9 +130,9 @@ export function UserPainPointsPanel({
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
             <Github className="w-4 h-4 text-slate-800" />
-            <span>github.com URLs</span>
+            <span>{isZh ? 'GitHub 开源项目链接' : 'github.com URLs'}</span>
             <span className="text-[10px] font-mono text-slate-400">
-              ({openSourceTools.length} 个已捕获)
+              ({openSourceTools.length} {isZh ? '个已捕获' : 'captured'})
             </span>
           </div>
 
@@ -160,7 +167,7 @@ export function UserPainPointsPanel({
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-400">
-              No github.com URLs are stored.
+              {isZh ? '暂无归档的 github.com 链接。' : 'No github.com URLs are stored.'}
             </div>
           )}
         </div>
@@ -170,9 +177,9 @@ export function UserPainPointsPanel({
           <div>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
               <BookOpen className="w-4 h-4 text-blue-600" />
-              <span>Editorial and listicle rows (domain shown)</span>
+              <span>{isZh ? '行业媒体与评测推荐文章' : 'Editorial and listicle rows (domain shown)'}</span>
               <span className="text-[10px] font-mono text-slate-400">
-                ({mediaArticles.length} 篇已捕获)
+                ({mediaArticles.length} {isZh ? '篇已捕获' : 'captured'})
               </span>
             </div>
 
@@ -212,14 +219,16 @@ export function UserPainPointsPanel({
           <div className="flex items-center gap-2 mb-1.5">
             <Sparkles className="w-4 h-4 text-emerald-600" />
             <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
-              Stored recommendation
+              {isZh ? '系统归档构建建议' : 'Stored recommendation'}
             </h3>
           </div>
           <p className="text-xs text-emerald-900 leading-relaxed font-medium">
             {topIdea}
           </p>
           <p className="text-[11px] text-emerald-800 mt-2">
-            Shape on file: {recommendedArchetype.replace(/_/g, ' ')} · Class {executionClass}. This sentence is the stored recommendation, not a summary of the rows above.
+            {isZh
+              ? `归档形态: ${recommendedArchetype.replace(/_/g, ' ')} · 规模等级 Class ${executionClass}。本条为系统存储建议，非上列条目的机械总结。`
+              : `Shape on file: ${recommendedArchetype.replace(/_/g, ' ')} · Class ${executionClass}. This sentence is the stored recommendation, not a summary of the rows above.`}
           </p>
         </div>
       </div>

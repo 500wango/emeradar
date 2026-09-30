@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AuthService, ProjectService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
+import { getServerI18n } from '@/lib/i18n/server';
 
 export default async function ProjectsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -17,6 +18,7 @@ export default async function ProjectsPage() {
   if (!session) redirect('/login');
   const userId = session.user.id;
   const projects = await ProjectService.listUserProjects(userId);
+  const { t } = await getServerI18n();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -26,14 +28,14 @@ export default async function ProjectsPage() {
           <div className="flex items-center gap-2">
             <FolderKanban className="w-5 h-5 text-indigo-600" />
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">
-              Builder Traction Hub
+              {t('projects.badge')}
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">
-            My Tracked Projects
+            {t('projects.title')}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Monitor real-world SEO traction, GSC impressions, and conversion outcomes against opportunity predictions.
+            {t('projects.desc')}
           </p>
         </div>
 
@@ -42,22 +44,22 @@ export default async function ProjectsPage() {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all shrink-0"
         >
           <Plus className="w-4 h-4" />
-          <span>Launch from Opportunity</span>
+          <span>{t('projects.launchFromOpp')}</span>
         </Link>
       </div>
 
       {projects.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-lg mx-auto">
           <FolderKanban className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-          <h3 className="text-base font-bold text-slate-900">No active projects yet</h3>
+          <h3 className="text-base font-bold text-slate-900">{t('projects.noProjectsTitle')}</h3>
           <p className="text-xs text-slate-500 mt-2">
-            Pick a BUILD NOW opportunity from the Radar feed to initiate your first tracked micro-SaaS project.
+            {t('projects.noProjectsDesc')}
           </p>
           <Link
             href="/feed"
             className="mt-6 inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold"
           >
-            Browse Opportunities
+            {t('projects.browseOpportunities')}
           </Link>
         </div>
       ) : (
@@ -71,7 +73,7 @@ export default async function ProjectsPage() {
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${p.project_kind === 'EXPERIMENT' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
-                      {p.project_kind === 'EXPERIMENT' ? 'EXPERIMENT' : 'FORMAL'}
+                      {p.project_kind === 'EXPERIMENT' ? t('projects.kindExperiment') : t('projects.kindFormal')}
                     </span>
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -87,7 +89,7 @@ export default async function ProjectsPage() {
                     </span>
                     <span className="text-xs text-slate-400">&bull;</span>
                     <span className="text-xs text-slate-500">
-                      Launched: {p.launch_date ? formatDate(p.launch_date) : 'In Dev'}
+                      {p.launch_date ? t('projects.launchedDate', { date: formatDate(p.launch_date) }) : t('projects.inDev')}
                     </span>
                   </div>
 
@@ -109,13 +111,13 @@ export default async function ProjectsPage() {
 
                   {p.opportunity_slug ? (
                     <div className="mt-2 text-xs text-slate-500">
-                      Linked Opportunity:{' '}
+                      {t('projects.linkedOpp')}{' '}
                       <Link href={`/opportunities/${p.opportunity_slug}`} className="font-medium text-slate-800 hover:text-blue-600 underline">
                         {p.opportunity_title}
                       </Link>
                     </div>
                   ) : (
-                    <div className="mt-2 text-xs text-blue-700">Early experiment. Results are not part of the published prediction record.</div>
+                    <div className="mt-2 text-xs text-blue-700">{t('projects.earlyExpNote')}</div>
                   )}
                 </div>
 
@@ -124,7 +126,7 @@ export default async function ProjectsPage() {
                   <div className="text-center px-3 border-r border-slate-200">
                     <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                       <Eye className="w-3 h-3 text-blue-500" />
-                      <span>GSC Impressions</span>
+                      <span>{t('projects.gscImpressions')}</span>
                     </div>
                     <div className="text-xl font-bold text-slate-900 mt-1">
                       {p.total_impressions.toLocaleString()}
@@ -134,7 +136,7 @@ export default async function ProjectsPage() {
                   <div className="text-center px-3">
                     <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                       <MousePointerClick className="w-3 h-3 text-emerald-500" />
-                      <span>Organic Clicks</span>
+                      <span>{t('projects.organicClicks')}</span>
                     </div>
                     <div className="text-xl font-bold text-emerald-600 mt-1">
                       {p.total_clicks.toLocaleString()}
@@ -144,9 +146,9 @@ export default async function ProjectsPage() {
               </div>
 
               {/* Target Keywords */}
-                  <div className="mt-5 flex flex-wrap items-center gap-2">
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-500 font-semibold mr-1">
-                  Target Search Keywords:
+                  {t('projects.targetKeywords')}
                 </span>
                 {p.target_keywords?.map((kw: string, i: number) => (
                   <span
@@ -156,8 +158,8 @@ export default async function ProjectsPage() {
                     {kw}
                   </span>
                 ))}
-                  </div>
-                </div>
+              </div>
+            </div>
           ))}
         </div>
       )}

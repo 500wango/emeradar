@@ -13,6 +13,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { FeedCardItem } from '@emeradar/services';
+import { useI18n } from '@/lib/i18n';
 
 interface FeedClientProps {
   initialItems: FeedCardItem[];
@@ -20,6 +21,7 @@ interface FeedClientProps {
 }
 
 export function FeedClient({ initialItems, total }: FeedClientProps) {
+  const { t, isZh } = useI18n();
   const [selectedVerdict, setSelectedVerdict] = useState<string>('BUILD_NOW');
   const [selectedArchetype, setSelectedArchetype] = useState<string>('ALL');
   const [selectedClass, setSelectedClass] = useState<string>('ALL');
@@ -53,6 +55,42 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
     setSearchQuery('');
   };
 
+  const getVerdictLabel = (verdict: string) => {
+    switch (verdict) {
+      case 'BUILD_NOW':
+        return t('common.verdicts.BUILD_NOW');
+      case 'EARLY_BET':
+        return t('common.verdicts.EARLY_BET');
+      case 'WATCH':
+        return t('common.verdicts.WATCH');
+      case 'WINDOW_CLOSING':
+        return t('common.verdicts.WINDOW_CLOSING');
+      default:
+        return verdict;
+    }
+  };
+
+  const getArchetypeLabel = (arch: string) => {
+    const key = `common.archetypes.${arch}`;
+    const translated = t(key);
+    return translated !== key ? translated : arch;
+  };
+
+  const getBandLabel = (band: string) => {
+    switch (band) {
+      case 'HIGH':
+        return t('common.bands.HIGH');
+      case 'MEDIUM':
+        return t('common.bands.MEDIUM');
+      case 'LOW':
+        return t('common.bands.LOW');
+      case 'INSUFFICIENT':
+        return t('common.bands.INSUFFICIENT');
+      default:
+        return band;
+    }
+  };
+
   return (
     <div>
       {/* Search & Tabs Header */}
@@ -61,11 +99,11 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
           {/* Verdict Tabs */}
           <div className="flex flex-wrap items-center gap-1.5">
             {[
-              { id: 'ALL', label: 'All Opportunities' },
-              { id: 'BUILD_NOW', label: 'BUILD NOW', color: 'emerald' },
-              { id: 'EARLY_BET', label: 'EARLY BET', color: 'blue' },
-              { id: 'WATCH', label: 'WATCH', color: 'slate' },
-              { id: 'WINDOW_CLOSING', label: 'WINDOW CLOSING', color: 'amber' },
+              { id: 'ALL', label: t('feed.tabAll') },
+              { id: 'BUILD_NOW', label: t('feed.tabBuildNow'), color: 'emerald' },
+              { id: 'EARLY_BET', label: t('feed.tabEarlyBet'), color: 'blue' },
+              { id: 'WATCH', label: t('feed.tabWatch'), color: 'slate' },
+              { id: 'WINDOW_CLOSING', label: t('feed.tabWindowClosing'), color: 'amber' },
             ].map((tab) => {
               const active = selectedVerdict === tab.id;
               return (
@@ -89,7 +127,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Filter published decisions"
+              placeholder={t('feed.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
@@ -101,45 +139,51 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
         <div className="flex flex-wrap items-center justify-between gap-4 pt-3 text-xs text-slate-600">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-500">Archetype:</span>
+              <span className="font-semibold text-slate-500">{t('feed.archetypeFilter')}:</span>
               <select
                 value={selectedArchetype}
                 onChange={(e) => setSelectedArchetype(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none"
               >
-                <option value="ALL">All Archetypes</option>
-                <option value="LIGHTWEIGHT_TOOL">Lightweight Tool</option>
-                <option value="BOILERPLATE_SCAFFOLD">Boilerplate Scaffold</option>
-                <option value="MICRO_SAAS">Micro SaaS</option>
-                <option value="PSEO_SITE">pSEO Programmatic Site</option>
-                <option value="DIRECTORY">Directory / List</option>
+                <option value="ALL">{t('feed.allArchetypes')}</option>
+                <option value="LIGHTWEIGHT_TOOL">{t('common.archetypes.LIGHTWEIGHT_TOOL')}</option>
+                <option value="MICRO_SAAS">{t('common.archetypes.MICRO_SAAS')}</option>
+                <option value="WORKFLOW_ENGINE">{t('common.archetypes.WORKFLOW_ENGINE')}</option>
+                <option value="AI_AGENT">{t('common.archetypes.AI_AGENT')}</option>
+                <option value="DATA_SERVICE">{t('common.archetypes.DATA_SERVICE')}</option>
+                <option value="PSEO_SITE">{t('common.archetypes.PSEO_SITE')}</option>
+                <option value="DIRECTORY">{t('common.archetypes.DIRECTORY')}</option>
               </select>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-500">Scope:</span>
+              <span className="font-semibold text-slate-500">{t('feed.classFilter')}:</span>
               <select
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none"
               >
-                <option value="ALL">All Classes</option>
-                <option value="S">Class S (&lt;14 Days)</option>
-                <option value="M">Class M (2 - 4 Weeks)</option>
-                <option value="L">Class L (&gt;1 Month)</option>
+                <option value="ALL">{t('feed.allClasses')}</option>
+                <option value="S">{t('common.executionClasses.SOLO_BUILDER')}</option>
+                <option value="M">{t('common.executionClasses.SMALL_TEAM')}</option>
+                <option value="L">{t('common.executionClasses.CAPITAL_INTENSIVE')}</option>
               </select>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-slate-400">Showing {filtered.length} of {total} radar items</span>
+            <span className="text-slate-400">
+              {isZh
+                ? `显示 ${filtered.length} / ${total} 项决策`
+                : `Showing ${filtered.length} of ${total} radar items`}
+            </span>
             {(selectedVerdict !== 'BUILD_NOW' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
               <button
                 onClick={resetFilters}
                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
               >
                 <RotateCcw className="w-3 h-3" />
-                Reset
+                {t('common.reset')}
               </button>
             )}
           </div>
@@ -152,15 +196,19 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
           <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-6 h-6" />
           </div>
-          <h3 className="text-lg font-bold text-slate-900">Nothing in this tab passed the gate</h3>
+          <h3 className="text-lg font-bold text-slate-900">
+            {isZh ? '此标签下尚无通过准入门槛的机会' : 'Nothing in this tab passed the gate'}
+          </h3>
           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            BUILD NOW is supposed to stay scarce. Candidates and low-confidence observations are not used to fill the gap.
+            {isZh
+              ? 'BUILD NOW 决策严格保持精选稀缺，绝不使用低置信度候选来填补空白。'
+              : 'BUILD NOW is supposed to stay scarce. Candidates and low-confidence observations are not used to fill the gap.'}
           </p>
           <button
             onClick={() => setSelectedVerdict('ALL')}
             className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
           >
-            Show published decisions ({total})
+            {isZh ? `查看全部已发布决策 (${total})` : `Show published decisions (${total})`}
           </button>
         </div>
       ) : (
@@ -191,7 +239,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                             : 'bg-slate-100 text-slate-700'
                         }`}
                       >
-                        {opp.verdict}
+                        {getVerdictLabel(opp.verdict)}
                       </span>
                       <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                         {opp.lifecycle}
@@ -200,10 +248,10 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
 
                     <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
                       <span className="px-2 py-0.5 rounded bg-slate-100">
-                        Class {opp.executionClass}
+                        {t('common.action')}: {opp.executionClass}
                       </span>
                       <span>&bull;</span>
-                      <span>{opp.recommendedArchetype}</span>
+                      <span className="truncate max-w-[140px]">{getArchetypeLabel(opp.recommendedArchetype)}</span>
                     </div>
                   </div>
 
@@ -216,7 +264,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                   </Link>
 
                   <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-                    <span>Target Query:</span>
+                    <span>{isZh ? '目标查询词:' : 'Target Query:'}</span>
                     <code className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded font-mono">
                       {opp.primaryQuery}
                     </code>
@@ -226,19 +274,21 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                   </div>
                   {isEarlyBet && (
                     <p className="mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
-                      Commercial case unverified
+                      {isZh ? '商业化论证未经验证' : 'Commercial case unverified'}
                     </p>
                   )}
 
                   {/* Top Idea Concept */}
                   <div className="my-4 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
-                    <span className="font-semibold text-slate-900 block mb-0.5">💡 Product Concept:</span>
+                    <span className="font-semibold text-slate-900 block mb-0.5">
+                      💡 {isZh ? '产品概念:' : 'Product Concept:'}
+                    </span>
                     {opp.topIdea}
                   </div>
 
                   {/* Why Now Callout */}
                   <div className="text-xs text-slate-600 mb-5 leading-relaxed">
-                    <strong className="text-slate-800">Why Now?</strong> {opp.whyNowSummary}
+                    <strong className="text-slate-800">{isZh ? '为何现在切入?' : 'Why Now?'}</strong> {opp.whyNowSummary}
                   </div>
 
                   {/* D-M-W Metric Gauges */}
@@ -246,23 +296,23 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <TrendingUp className="w-3 h-3 text-blue-500" />
-                        <span>Demand</span>
+                        <span>{t('feed.demand')}</span>
                       </div>
-                      <div className="text-sm font-bold text-blue-700 mt-1">{opp.dBand}</div>
+                      <div className="text-sm font-bold text-blue-700 mt-1">{getBandLabel(opp.dBand)}</div>
                     </div>
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <Sparkles className="w-3 h-3 text-emerald-500" />
-                        <span>Commercial</span>
+                        <span>{t('feed.commercial')}</span>
                       </div>
-                      <div className="text-sm font-bold text-emerald-700 mt-1">{opp.mBand}</div>
+                      <div className="text-sm font-bold text-emerald-700 mt-1">{getBandLabel(opp.mBand)}</div>
                     </div>
                     <div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-semibold text-slate-500 uppercase">
                         <Zap className="w-3 h-3 text-amber-500" />
-                        <span>Window</span>
+                        <span>{t('feed.window')}</span>
                       </div>
-                      <div className="text-sm font-bold text-amber-700 mt-1">{opp.wBand}</div>
+                      <div className="text-sm font-bold text-amber-700 mt-1">{getBandLabel(opp.wBand)}</div>
                     </div>
                   </div>
                 </div>
@@ -275,17 +325,19 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                       className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors"
                     >
                       <FileText className="w-3.5 h-3.5" />
-                      <span>View Report</span>
+                      <span>{t('feed.viewFullReport')}</span>
                     </Link>
                   ) : (
-                    <span className="text-xs text-slate-400">Report follows a build verdict</span>
+                    <span className="text-xs text-slate-400">
+                      {isZh ? '报告仅对可构建裁决开放' : 'Report follows a build verdict'}
+                    </span>
                   )}
 
                   <Link
                     href={`/opportunities/${opp.slug}`}
                     className="inline-flex items-center gap-1.5 text-xs font-semibold text-white px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 shadow-sm transition-colors"
                   >
-                    <span>Inspect Decision Workspace</span>
+                    <span>{isZh ? '进入决策工作台' : 'Inspect Decision Workspace'}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>

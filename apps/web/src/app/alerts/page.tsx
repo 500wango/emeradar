@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { AlertService, AuthService } from '@emeradar/services';
 import { formatDateTime } from '@/lib/format';
+import { getServerI18n } from '@/lib/i18n/server';
 
 export default async function AlertsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -17,6 +18,7 @@ export default async function AlertsPage() {
   const userId = session.user.id;
   const rules = await AlertService.listAlertRules(userId);
   const notifications = await AlertService.listNotifications(userId);
+  const { t } = await getServerI18n();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -26,14 +28,14 @@ export default async function AlertsPage() {
           <div className="flex items-center gap-2">
             <Bell className="w-5 h-5 text-amber-500" />
             <span className="text-xs font-bold uppercase tracking-wider text-amber-600">
-              Opportunity Watchlist
+              {t('alerts.badge')}
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">
-            Radar Alert Rules & Notifications
+            {t('alerts.title')}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Automated alerts trigger when an opportunity changes verdict, when new incumbents enter Top 10, or when Kill criteria trigger.
+            {t('alerts.desc')}
           </p>
         </div>
       </div>
@@ -44,10 +46,10 @@ export default async function AlertsPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-bold text-slate-900">
-                Active Radar Watchlist Rules
+                {t('alerts.activeRulesTitle')}
               </h2>
               <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full font-medium">
-                {rules.length} / 20 Active Rules
+                {t('alerts.activeRulesCount', { active: rules.length, max: 20 })}
               </span>
             </div>
 
@@ -55,7 +57,7 @@ export default async function AlertsPage() {
               <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
                 <ShieldAlert className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <p className="text-xs text-slate-600">
-                  No active alert rules. Navigate to any opportunity workspace to add it to your radar watchlist.
+                  {t('alerts.noRulesDesc')}
                 </p>
               </div>
             ) : (
@@ -75,12 +77,12 @@ export default async function AlertsPage() {
                           {rule.rule_type}
                         </span>
                         <span>&bull;</span>
-                        <span>Frequency: {rule.frequency}</span>
+                        <span>{t('alerts.frequency')}: {rule.frequency}</span>
                       </div>
                     </div>
 
                     <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      Active
+                      {t('common.active')}
                     </span>
                   </div>
                 ))}
@@ -94,11 +96,11 @@ export default async function AlertsPage() {
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
-              <span>Recent Radar Events</span>
+              <span>{t('alerts.recentEventsTitle')}</span>
             </h2>
 
             {notifications.length === 0 ? (
-              <p className="text-xs text-slate-500 italic">No unread notifications.</p>
+              <p className="text-xs text-slate-500 italic">{t('alerts.noNotifications')}</p>
             ) : (
               <div className="space-y-3">
                 {notifications.map((n) => (

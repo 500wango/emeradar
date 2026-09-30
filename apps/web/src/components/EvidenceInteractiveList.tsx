@@ -3,6 +3,7 @@
 import React from 'react';
 import { useEvidenceDrawer } from '../lib/evidence-store';
 import { formatDate } from '../lib/format';
+import { useI18n } from '@/lib/i18n';
 
 interface EvidenceItem {
   id: string;
@@ -18,6 +19,7 @@ interface EvidenceItem {
 
 export function EvidenceInteractiveList({ evidence }: { evidence: EvidenceItem[] }) {
   const { openDrawer } = useEvidenceDrawer();
+  const { isZh } = useI18n();
 
   const handleOpen = (ev: EvidenceItem) => {
     openDrawer({
@@ -51,7 +53,7 @@ export function EvidenceInteractiveList({ evidence }: { evidence: EvidenceItem[]
   if (!evidence || evidence.length === 0) {
     return (
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 text-center">
-        暂无关联证据条目
+        {isZh ? '暂无关联证据条目' : 'No linked evidence entries recorded.'}
       </div>
     );
   }
@@ -90,7 +92,7 @@ export function EvidenceInteractiveList({ evidence }: { evidence: EvidenceItem[]
           <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
             <span className="text-slate-400 font-mono">ID: {ev.id.slice(0, 8)}...</span>
             <span className="text-blue-600 font-semibold group-hover:underline flex items-center gap-1">
-              <span>查看原始证据抽屉</span>
+              <span>{isZh ? '查看原始证据抽屉' : 'Inspect raw evidence drawer'}</span>
               <span>&rarr;</span>
             </span>
           </div>

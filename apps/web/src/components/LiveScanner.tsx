@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Loader2, AlertCircle, Search } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
@@ -10,6 +11,7 @@ interface LiveScanModalProps {
 
 export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
   const router = useRouter();
+  const { isZh } = useI18n();
   const [query, setQuery] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,7 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
   const handleScan = async (targetQuery?: string) => {
     const q = (targetQuery || query).trim();
     if (!q || q.length < 2) {
-      setError('Please enter a keyword of at least 2 characters');
+      setError(isZh ? '请输入至少包含 2 个字符的搜索关键词' : 'Please enter a keyword of at least 2 characters');
       return;
     }
 
@@ -35,13 +37,13 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || data.title || 'Live scan failed');
+        throw new Error(data.detail || data.title || (isZh ? '扫描失败' : 'Live scan failed'));
       }
 
       setScanResult(data.opportunity);
       if (onScanSuccess) onScanSuccess(data.opportunity.slug);
     } catch (err: any) {
-      setError(err.message || 'An error occurred during scanning.');
+      setError(err.message || (isZh ? '扫描过程中发生错误。' : 'An error occurred during scanning.'));
     } finally {
       setIsScanning(false);
     }
@@ -68,7 +70,7 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={isScanning}
-          placeholder="Observe a query. One observation is not a verdict."
+          placeholder={isZh ? '输入关键词开始观测。初次观测绝非裁决。' : 'Observe a query. One observation is not a verdict.'}
           className="w-full py-3.5 sm:py-4 px-2 text-sm sm:text-base text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none disabled:opacity-50"
         />
         <div className="pr-2 sm:pr-3 shrink-0">
@@ -78,7 +80,7 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
             className="px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-1.5"
           >
             {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            <span>{isScanning ? 'Observing' : 'Observe'}</span>
+            <span>{isScanning ? (isZh ? '正在观测' : 'Observing') : (isZh ? '开启观测' : 'Observe')}</span>
           </button>
         </div>
       </form>
@@ -99,17 +101,17 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
                   {String(scanResult.verdict).replaceAll('_', ' ')}
                 </span>
                 <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                  {scanResult.isNew ? 'Stored from this observation' : 'Already on file'}
+                  {scanResult.isNew ? (isZh ? '本次观测新入库' : 'Stored from this observation') : (isZh ? '数据库已有记录' : 'Already on file')}
                 </span>
               </div>
               <h3 className="text-lg font-bold text-slate-900 mt-2">{scanResult.title}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Primary query: {scanResult.primaryQuery}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{isZh ? '核心查询词: ' : 'Primary query: '}{scanResult.primaryQuery}</p>
             </div>
             <button
               onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
               className="px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 transition flex items-center gap-1.5 self-start sm:self-auto"
             >
-              <span>Open record</span>
+              <span>{isZh ? '进入详情记录' : 'Open record'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

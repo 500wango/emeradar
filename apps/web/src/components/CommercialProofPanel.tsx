@@ -1,5 +1,8 @@
+'use client';
+
 import React from 'react';
 import { CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 
 interface CommercialProofPanelProps {
   stage?: string;
@@ -12,21 +15,25 @@ export function CommercialProofPanel({
   gateways = [],
   plansCount = 0,
 }: CommercialProofPanelProps) {
+  const { isZh } = useI18n();
   const observedCommercial = plansCount > 0 || gateways.length > 0;
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
         <div>
           <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-indigo-600" />
-            <span>商业佐证双面板 (Commercial Proof Double-Panel)</span>
+            <span>{isZh ? '商业佐证双面板' : 'Commercial Proof Double-Panel'}</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            PRD F7 事实护栏：严格区分可信证据边界，防止虚假繁荣误判
+            {isZh
+              ? 'PRD F7 事实护栏：严格区分可信证据边界，防止虚假繁荣误判'
+              : 'PRD F7 Fact Guardrail: Strict distinction of credible evidence boundaries to prevent false positives'}
           </p>
         </div>
         <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-          阶段：{stage}
+          {isZh ? `阶段：${stage}` : `Stage: ${stage}`}
         </span>
       </div>
 
@@ -35,7 +42,7 @@ export function CommercialProofPanel({
         <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
           <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs uppercase tracking-wider mb-2.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>此信号能证明什么 (What This Proves)</span>
+            <span>{isZh ? '此信号能证明什么' : 'What This Proves'}</span>
           </div>
           <ul className="space-y-2 text-xs text-emerald-950">
             {observedCommercial ? (
@@ -44,7 +51,9 @@ export function CommercialProofPanel({
                   <li className="flex items-start gap-2">
                     <span className="text-emerald-500 font-bold">•</span>
                     <span>
-                      Observed pricing on file: {plansCount} plan{plansCount === 1 ? '' : 's'}. This is a price anchor, not revenue.
+                      {isZh
+                        ? `监测到已归档定价方案：${plansCount} 个套餐。此为价格锚点，并非实际营收。`
+                        : `Observed pricing on file: ${plansCount} plan${plansCount === 1 ? '' : 's'}. This is a price anchor, not revenue.`}
                     </span>
                   </li>
                 )}
@@ -52,7 +61,9 @@ export function CommercialProofPanel({
                   <li className="flex items-start gap-2">
                     <span className="text-emerald-500 font-bold">•</span>
                     <span>
-                      Checkout infrastructure observed: {gateways.join(', ')}. A payment button proves the provider is present.
+                      {isZh
+                        ? `监测到结账支付设施：${gateways.join(', ')}。支付按钮证明供应商存在。`
+                        : `Checkout infrastructure observed: ${gateways.join(', ')}. A payment button proves the provider is present.`}
                     </span>
                   </li>
                 )}
@@ -61,7 +72,9 @@ export function CommercialProofPanel({
               <li className="flex items-start gap-2">
                 <span className="text-emerald-500 font-bold">•</span>
                 <span>
-                  No observed pricing or checkout is stored for this opportunity. Stage on file: {stage}.
+                  {isZh
+                    ? `此机会暂未监测到已存录的定价或结账流。归档阶段：${stage}。`
+                    : `No observed pricing or checkout is stored for this opportunity. Stage on file: ${stage}.`}
                 </span>
               </li>
             )}
@@ -72,25 +85,37 @@ export function CommercialProofPanel({
         <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80">
           <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase tracking-wider mb-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>此信号不能证明什么 (What This Does NOT Prove)</span>
+            <span>{isZh ? '此信号不能证明什么' : 'What This Does NOT Prove'}</span>
           </div>
           <ul className="space-y-2 text-xs text-amber-950">
             <li className="flex items-start gap-2">
               <span className="text-amber-500 font-bold">•</span>
               <span>
-                Observed prices and payment buttons do not prove revenue, profit, or retention.
+                {isZh
+                  ? '监测到的价格和支付按钮不能证明实际收入、利润率或留存率。'
+                  : 'Observed prices and payment buttons do not prove revenue, profit, or retention.'}
               </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-amber-500 font-bold">•</span>
               <span>
-                A commercial word in the query is inferred intent. It does not prove anyone is paying.
+                {isZh
+                  ? '查询词中包含商业意图词属于推断意图，绝不能证明有客户正在付费。'
+                  : 'A commercial word in the query is inferred intent. It does not prove anyone is paying.'}
               </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-amber-500 font-bold">•</span>
               <span>
-                <strong>不能替代自有用户验证：</strong>仍需遵循 14 天 MVP 纪律，在本地快速上线后获取首批自有用量与反馈。
+                {isZh ? (
+                  <>
+                    <strong>不能替代自有用户验证：</strong>仍需遵循 14 天 MVP 纪律，在本地快速上线后获取首批自有用量与反馈。
+                  </>
+                ) : (
+                  <>
+                    <strong>Cannot replace proprietary validation:</strong> Still adhere to the 14-day MVP discipline to validate with real traffic.
+                  </>
+                )}
               </span>
             </li>
           </ul>

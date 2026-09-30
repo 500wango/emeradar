@@ -21,6 +21,7 @@ import { CommercialProofPanel } from '@/components/CommercialProofPanel';
 import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
 import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
+import { getServerI18n } from '@/lib/i18n/server';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
@@ -43,6 +44,8 @@ export default async function OpportunityWorkspacePage({
     notFound();
   }
 
+  const { isZh } = await getServerI18n();
+
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
 
   const isBuildNow = opportunity.verdict === 'BUILD_NOW';
@@ -53,7 +56,25 @@ export default async function OpportunityWorkspacePage({
     opportunity.confidence !== 'LOW';
   const blockReason = canGo
     ? undefined
-    : 'GO stays off until this record is a published BUILD NOW or EARLY BET. A first observation is only tracking.';
+    : (isZh
+        ? '在成为正式发布的 BUILD NOW 或 EARLY BET 之前，GO 立项按钮保持锁定。初次观测仅为持续追踪。'
+        : 'GO stays off until this record is a published BUILD NOW or EARLY BET. A first observation is only tracking.');
+
+  const progressSteps = isZh
+    ? [
+        ['信号', true],
+        ['候选', true],
+        ['持续观察', opportunity.status === 'TRACKED'],
+        ['D / M / W 门控', opportunity.status === 'TRACKED'],
+        ['公开预测', opportunity.status === 'TRACKED' && Boolean(latestVerdict)],
+      ]
+    : [
+        ['Signal', true],
+        ['Candidate', true],
+        ['Observation', opportunity.status === 'TRACKED'],
+        ['D / M / W gate', opportunity.status === 'TRACKED'],
+        ['Public prediction', opportunity.status === 'TRACKED' && Boolean(latestVerdict)],
+      ];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -63,7 +84,7 @@ export default async function OpportunityWorkspacePage({
         className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 mb-6 transition-colors"
       >
         <ChevronLeft className="w-4 h-4" />
-        <span>Back to Opportunity Feed</span>
+        <span>{isZh ? '返回商业机会决策流' : 'Back to Opportunity Feed'}</span>
       </Link>
 
       {/* Hero Decision Bar */}
@@ -95,7 +116,7 @@ export default async function OpportunityWorkspacePage({
             </h1>
 
             <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-              <span>Primary Seed Query:</span>
+              <span>{isZh ? '核心种子查询词:' : 'Primary Seed Query:'}</span>
               <code className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded font-mono font-medium">
                 {opportunity.primary_query}
               </code>
@@ -117,58 +138,53 @@ export default async function OpportunityWorkspacePage({
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
               <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
-              <span>Demand Score (D)</span>
+              <span>{isZh ? '需求评分 (D)' : 'Demand Score (D)'}</span>
             </div>
             <div className="text-2xl font-bold text-blue-600 mt-1">{opportunity.d_band}</div>
-            <div className="text-[11px] text-slate-500 mt-1">Demand band</div>
+            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '需求等级' : 'Demand band'}</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Commercial (M)</span>
+              <span>{isZh ? '商业验证 (M)' : 'Commercial (M)'}</span>
             </div>
             <div className="text-2xl font-bold text-emerald-600 mt-1">{opportunity.m_band}</div>
-            <div className="text-[11px] text-slate-500 mt-1">Commercial band</div>
+            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '商业等级' : 'Commercial band'}</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
               <Zap className="w-3.5 h-3.5 text-amber-600" />
-              <span>Window (W)</span>
+              <span>{isZh ? '进入窗口 (W)' : 'Window (W)'}</span>
             </div>
             <div className="text-2xl font-bold text-amber-600 mt-1">{opportunity.w_band}</div>
-            <div className="text-[11px] text-slate-500 mt-1">Window band</div>
+            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '窗口等级' : 'Window band'}</div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
               <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Evidence Level</span>
+              <span>{isZh ? '证据置信度' : 'Evidence Level'}</span>
             </div>
             <div className="text-2xl font-bold text-indigo-600 mt-1">
               {opportunity.confidence}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              {opportunity.confidence === 'LOW' ? 'Not enough history' : 'Evidence confidence'}
+              {opportunity.confidence === 'LOW' ? (isZh ? '历史周期不足' : 'Not enough history') : (isZh ? '置信度充足' : 'Evidence confidence')}
             </div>
           </div>
         </div>
+
         <div className="mt-6 pt-5 border-t border-slate-100">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-sm font-bold text-slate-900">Decision progress</h2>
+            <h2 className="text-sm font-bold text-slate-900">{isZh ? '决策推进进度' : 'Decision progress'}</h2>
             <span className="text-[11px] text-slate-500">
-              {opportunity.status === 'TRACKED' ? 'Published record' : 'Still observing'}
+              {opportunity.status === 'TRACKED' ? (isZh ? '已发布公开记录' : 'Published record') : (isZh ? '仍在持续观察' : 'Still observing')}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] text-slate-600">
-            {[
-              ['Signal', true],
-              ['Candidate', true],
-              ['Observation', opportunity.status === 'TRACKED'],
-              ['D / M / W gate', opportunity.status === 'TRACKED'],
-              ['Public prediction', opportunity.status === 'TRACKED' && Boolean(latestVerdict)],
-            ].map(([label, done], index) => (
+            {progressSteps.map(([label, done], index) => (
               <div key={String(label)} className={`rounded-lg border px-3 py-2 ${done ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-slate-200 bg-slate-50'}`}>
                 <span className="font-mono font-bold">{index + 1}</span>{' '}{label}
               </div>
@@ -176,7 +192,9 @@ export default async function OpportunityWorkspacePage({
           </div>
           {opportunity.status !== 'TRACKED' && (
             <p className="mt-3 text-xs text-slate-500">
-              This is a system-discovered candidate. The first observation is not a verdict; GO and report export stay locked until the evidence gate passes.
+              {isZh
+                ? '此为系统发现的候选词。初次观测绝非裁决；在通过证据准入门槛前，GO 立项与报告导出均保持锁定。'
+                : 'This is a system-discovered candidate. The first observation is not a verdict; GO and report export stay locked until the evidence gate passes.'}
             </p>
           )}
         </div>
@@ -186,12 +204,15 @@ export default async function OpportunityWorkspacePage({
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Left Column (2 Cols): Core Analytical Deep Dive */}
         <div className="lg:col-span-2 space-y-8">
-          {/* Section 1: Google Trends Demand & Trajectory */}
           {isEarlyBet && (
             <p className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              Commercial case unverified. EARLY BET is not proof that anyone is paying.
+              {isZh
+                ? '商业化论证未经验证。EARLY BET 并不代表已有用户在为此付费。'
+                : 'Commercial case unverified. EARLY BET is not proof that anyone is paying.'}
             </p>
           )}
+
+          {/* Section 1: Google Trends Demand & Trajectory */}
           <GoogleTrendsPanel
             query={opportunity.primary_query}
             marketCountry={opportunity.market_country}
@@ -210,30 +231,32 @@ export default async function OpportunityWorkspacePage({
           {/* Section 3: Why Now & Top Concept */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
-              <span>Why Now? & Market Catalyst</span>
+              <span>{isZh ? '为何现在切入? 与市场催化剂' : 'Why Now? & Market Catalyst'}</span>
             </h2>
             <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-900 leading-relaxed">
               {opportunity.why_now_summary}
             </div>
 
             <div className="mt-4 p-4 rounded-xl bg-emerald-50/70 border border-emerald-100 text-xs text-emerald-900 leading-relaxed">
-              <strong>💡 Recommended Product Concept:</strong> {opportunity.top_idea}
+              <strong>💡 {isZh ? '推荐产品概念: ' : 'Recommended Product Concept: '}</strong> {opportunity.top_idea}
             </div>
           </div>
 
-          {/* Section 2: SERP Weakness Inspector */}
+          {/* Section 4: SERP Weakness Inspector */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-bold text-slate-900">
-                  Stored result sample
+                  {isZh ? '自然搜索样本结果' : 'Stored result sample'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Rows keep the source they were collected from. This table is a Google organic Top 10 only when the snapshot is a single-source SERP.
+                  {isZh
+                    ? '条目保留其采集来源。仅当快照为单一来源 SERP 时，此表格代表 Google 自然搜索前 10 名。'
+                    : 'Rows keep the source they were collected from. This table is a Google organic Top 10 only when the snapshot is a single-source SERP.'}
                 </p>
               </div>
               <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                {serpResults.filter((r: any) => r.is_weak).length} marked weak
+                {serpResults.filter((r: any) => r.is_weak).length} {isZh ? '个标记为薄弱' : 'marked weak'}
               </span>
             </div>
 
@@ -242,10 +265,10 @@ export default async function OpportunityWorkspacePage({
                 <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
                   <tr>
                     <th className="py-2.5 px-3">#</th>
-                    <th className="py-2.5 px-3">Domain</th>
-                    <th className="py-2.5 px-3">Result Title</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Weakness Reason</th>
+                    <th className="py-2.5 px-3">{isZh ? '域名' : 'Domain'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '搜索标题' : 'Result Title'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '类型' : 'Type'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '薄弱原因' : 'Weakness Reason'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -283,13 +306,13 @@ export default async function OpportunityWorkspacePage({
                         {r.is_weak ? (
                           <span className="inline-flex items-center gap-1 text-rose-700 font-medium text-xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                            {r.weakness_type || 'Thin Content'}
+                            {r.weakness_type || (isZh ? '内容薄弱' : 'Thin Content')}
                           </span>
                         ) : (
                           <span className="text-slate-600 font-medium text-xs">
                             {r.result_type === 'SPECIALIST' || r.result_type === 'OFFICIAL'
-                              ? 'Specialist or official'
-                              : 'Not marked weak'}
+                              ? (isZh ? '专业站或官方站' : 'Specialist or official')
+                              : (isZh ? '未标记薄弱' : 'Not marked weak')}
                           </span>
                         )}
                       </td>
@@ -300,13 +323,13 @@ export default async function OpportunityWorkspacePage({
             </div>
           </div>
 
-          {/* Section 3: Query Cluster Matrix */}
+          {/* Section 5: Query Cluster Matrix */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h2 className="text-base font-bold text-slate-900 mb-1">
-              Search Query Cluster Matrix
+              {isZh ? '搜索查询词聚合矩阵' : 'Search Query Cluster Matrix'}
             </h2>
             <p className="text-xs text-slate-500 mb-4">
-              Long-tail queries sharing intent in this cluster
+              {isZh ? '此查询簇中共享同一搜索意图的长尾词' : 'Long-tail queries sharing intent in this cluster'}
             </p>
 
             <div className="grid sm:grid-cols-2 gap-3">
@@ -324,26 +347,28 @@ export default async function OpportunityWorkspacePage({
             </div>
           </div>
 
-          {/* Section 4: Commercial Signal Proof Boundary (PRD F7) */}
+          {/* Section 6: Commercial Signal Proof Boundary */}
           <CommercialProofPanel
             stage={commercialProof?.stage || 'NONE'}
             gateways={commercialProof?.gateways || []}
             plansCount={commercialProof?.plansCount || 0}
           />
 
-          {/* Section 5: Corroborating Evidence Chain with Slide-Over Drawer */}
+          {/* Section 7: Corroborating Evidence Chain with Slide-Over Drawer */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-base font-bold text-slate-900">
-                  Corroborating Evidence Chain
+                  {isZh ? '互证性证据链' : 'Corroborating Evidence Chain'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Raw verifiable signals from SERP, social forums, and web pricing (click any item to inspect raw Merkle-anchored payload)
+                  {isZh
+                    ? '来自 SERP、社群论坛与网络定价的可验证原始信号（点击任意条目即可查看 Merkle 锚定载荷）'
+                    : 'Raw verifiable signals from SERP, social forums, and web pricing (click any item to inspect raw Merkle-anchored payload)'}
                 </p>
               </div>
               <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                {evidence.length} Items Recorded
+                {evidence.length} {isZh ? '条已记录' : 'Items Recorded'}
               </span>
             </div>
 
@@ -356,26 +381,26 @@ export default async function OpportunityWorkspacePage({
           {/* Execution Blueprint Recommendation */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">
-              Stored build shape
+              {isZh ? '已归档构建形态' : 'Stored build shape'}
             </h3>
 
             <div className="space-y-4 text-xs">
               <div>
-                <span className="text-slate-400 block mb-1">Recommended Archetype</span>
+                <span className="text-slate-400 block mb-1">{isZh ? '推荐构建类型' : 'Recommended Archetype'}</span>
                 <span className="font-bold text-base text-slate-900">
                   {opportunity.recommended_archetype}
                 </span>
               </div>
 
               <div>
-                <span className="text-slate-400 block mb-1">Development Time Budget</span>
+                <span className="text-slate-400 block mb-1">{isZh ? '开发时间预算' : 'Development Time Budget'}</span>
                 <span className="font-bold text-sm text-slate-900">
-                  Class {opportunity.execution_class} &bull; &lt; 14 Days Sprint
+                  Class {opportunity.execution_class} &bull; &lt; 14 {isZh ? '天冲刺' : 'Days Sprint'}
                 </span>
               </div>
 
               <div className="pt-3 border-t border-slate-100">
-                <span className="text-slate-400 block mb-2">Recommended Stack</span>
+                <span className="text-slate-400 block mb-2">{isZh ? '推荐技术栈' : 'Recommended Stack'}</span>
                 <ul className="space-y-1.5 text-slate-700">
                   <li className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -399,11 +424,13 @@ export default async function OpportunityWorkspacePage({
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold transition-colors text-xs"
                   >
                     <FileText className="w-4 h-4" />
-                    <span>Open the report</span>
+                    <span>{isZh ? '打开完整研究报告' : 'Open the report'}</span>
                   </Link>
                 ) : (
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    The six-section report is exported only after a published BUILD NOW or EARLY BET.
+                    {isZh
+                      ? '包含六大章节的研究报告仅在正式发布 BUILD NOW 或 EARLY BET 后开放导出。'
+                      : 'The six-section report is exported only after a published BUILD NOW or EARLY BET.'}
                   </p>
                 )}
               </div>
@@ -414,10 +441,10 @@ export default async function OpportunityWorkspacePage({
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <h3 className="text-sm font-bold uppercase tracking-wider text-rose-600 mb-1 flex items-center gap-1.5">
               <AlertTriangle className="w-4 h-4" />
-              <span>Automated Kill Criteria</span>
+              <span>{isZh ? '自动化叫停撤出条件' : 'Automated Kill Criteria'}</span>
             </h3>
             <p className="text-xs text-slate-500 mb-4">
-              Hard rules that invalidate this opportunity
+              {isZh ? '触发即判定机会失效的刚性规则' : 'Hard rules that invalidate this opportunity'}
             </p>
 
             <div className="space-y-3">
@@ -440,22 +467,24 @@ export default async function OpportunityWorkspacePage({
             <div className="flex items-center gap-2 mb-3">
               <Lock className="w-4 h-4 text-emerald-400" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Merkle Ledger Proof
+                {isZh ? 'Merkle 账本密码学存证' : 'Merkle Ledger Proof'}
               </h3>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              This verdict was sealed on {formatDate(latestVerdict?.obs_date)} into the public SHA-256 hash chain.
+              {isZh
+                ? `此裁决已于 ${formatDate(latestVerdict?.obs_date)} 封签录入公开 SHA-256 哈希链。`
+                : `This verdict was sealed on ${formatDate(latestVerdict?.obs_date)} into the public SHA-256 hash chain.`}
             </p>
 
             <div className="space-y-2 text-[11px] font-mono">
               <div>
-                <span className="text-slate-500 block">Row Hash:</span>
+                <span className="text-slate-500 block">{isZh ? '条目哈希 (Row Hash):' : 'Row Hash:'}</span>
                 <span className="text-slate-300 break-all select-all">
                   {latestVerdict?.row_hash || 'Calculating...'}
                 </span>
               </div>
               <div className="pt-2 border-t border-slate-800">
-                <span className="text-slate-500 block">Previous Hash:</span>
+                <span className="text-slate-500 block">{isZh ? '上一区块哈希 (Previous Hash):' : 'Previous Hash:'}</span>
                 <span className="text-slate-300 break-all select-all">
                   {latestVerdict?.prev_hash || 'Genesis'}
                 </span>
@@ -467,7 +496,7 @@ export default async function OpportunityWorkspacePage({
                 href="/track-record"
                 className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1"
               >
-                <span>Verify on Track Record Ledger</span>
+                <span>{isZh ? '在可验证战绩账本中核验' : 'Verify on Track Record Ledger'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>

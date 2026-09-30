@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { AuthService, OpportunityService, ReportService } from '@emeradar/services';
 import { ReportStudioClient } from '@/components/ReportStudioClient';
+import { getServerLocale } from '@/lib/i18n/server';
 
 interface ReportPageProps {
   params: Promise<{ slug: string }>;
@@ -23,10 +24,12 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
     notFound();
   }
 
+  const locale = await getServerLocale();
+
   const report = await ReportService.getOrGenerateReport(
     detail.opportunity.id,
     userId,
-    'en-US'
+    locale
   );
 
   return (

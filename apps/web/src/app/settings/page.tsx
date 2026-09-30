@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n, Locale } from '@/lib/i18n';
 import type { ApiKeyItem } from '@emeradar/services';
 import {
   User,
@@ -17,7 +18,6 @@ import {
   AlertCircle,
   Loader2,
   RefreshCw,
-  LogOut,
   Globe,
   Layers,
   Code2,
@@ -25,28 +25,29 @@ import {
 } from 'lucide-react';
 
 const BUILD_ARCHETYPES = [
-  { id: 'LIGHTWEIGHT_TOOL', label: 'Lightweight Tool (Single-purpose web app)' },
-  { id: 'MICRO_SAAS', label: 'Micro-SaaS (Workflow & Subscription)' },
-  { id: 'WORKFLOW_ENGINE', label: 'Workflow Engine & Automation' },
-  { id: 'AI_AGENT', label: 'AI Agent & LLM Wrapper' },
-  { id: 'DATA_SERVICE', label: 'Data-as-a-Service / Curated Directory' },
-  { id: 'API_FIRST', label: 'API-First Micro-Service' },
+  { id: 'LIGHTWEIGHT_TOOL', label: 'Lightweight Tool (Single-purpose web app)', labelZh: '轻量工具 (单任务Web应用)' },
+  { id: 'MICRO_SAAS', label: 'Micro-SaaS (Workflow & Subscription)', labelZh: '微型SaaS (工作流与订阅制)' },
+  { id: 'WORKFLOW_ENGINE', label: 'Workflow Engine & Automation', labelZh: '工作流引擎与自动化' },
+  { id: 'AI_AGENT', label: 'AI Agent & LLM Wrapper', labelZh: 'AI智能体与大模型套壳' },
+  { id: 'DATA_SERVICE', label: 'Data-as-a-Service / Curated Directory', labelZh: '数据即服务 / 策展导航目录' },
+  { id: 'API_FIRST', label: 'API-First Micro-Service', labelZh: 'API优先微服务' },
 ];
 
 const TARGET_MARKETS = [
-  { id: 'US', label: 'United States (US)' },
-  { id: 'GLOBAL', label: 'Global English' },
-  { id: 'EU', label: 'European Union (EU)' },
-  { id: 'APAC', label: 'Asia-Pacific' },
-  { id: 'CN', label: 'Greater China' },
+  { id: 'US', label: 'United States (US)', labelZh: '美国 (US)' },
+  { id: 'GLOBAL', label: 'Global English', labelZh: '全球英语市场' },
+  { id: 'EU', label: 'European Union (EU)', labelZh: '欧盟市场 (EU)' },
+  { id: 'APAC', label: 'Asia-Pacific', labelZh: '亚太地区 (APAC)' },
+  { id: 'CN', label: 'Greater China', labelZh: '大中华区 (CN)' },
 ];
 
 function SettingsContent() {
-  const { user, preferences, isLoading, updatePreferences, logout } = useAuth();
+  const { user, preferences, isLoading, updatePreferences } = useAuth();
+  const { locale: i18nLocale, setLocale: setI18nLocale, t, isZh } = useI18n();
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'api-keys' | 'billing'>('profile');
 
   // Preferences form state
-  const [locale, setLocale] = useState<'zh-CN' | 'en-US'>('zh-CN');
+  const [locale, setLocale] = useState<Locale>(i18nLocale);
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>(['US']);
   const [selectedArchetypes, setSelectedArchetypes] = useState<string[]>(['LIGHTWEIGHT_TOOL', 'MICRO_SAAS']);
   const [savingPrefs, setSavingPrefs] = useState(false);
@@ -61,14 +62,16 @@ function SettingsContent() {
   const [copiedKey, setCopiedKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
 
-  // Sync preferences from context
+  // Sync preferences from context or i18n
   useEffect(() => {
     if (preferences) {
-      setLocale(preferences.uiLocale || 'zh-CN');
+      setLocale(preferences.uiLocale || i18nLocale);
       setSelectedMarkets(preferences.preferredMarkets || ['US']);
       setSelectedArchetypes(preferences.preferredBuildTypes || ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS']);
+    } else {
+      setLocale(i18nLocale);
     }
-  }, [preferences]);
+  }, [preferences, i18nLocale]);
 
   // Load API keys when api-keys tab is clicked
   const loadApiKeys = useCallback(async () => {
@@ -97,6 +100,7 @@ function SettingsContent() {
     e.preventDefault();
     try {
       setSavingPrefs(true);
+      setI18nLocale(locale);
       await updatePreferences({
         uiLocale: locale,
         preferredMarkets: selectedMarkets,
@@ -136,7 +140,7 @@ function SettingsContent() {
   };
 
   const handleRevokeApiKey = async (keyId: string) => {
-    if (!confirm('Are you sure you want to revoke this API Key? Any scripts using it will lose access immediately.')) {
+    if (!confirm(isZh ? '确定要撤销此 API 密钥吗？使用它的所有脚本将立即失效。' : 'Are you sure you want to revoke this API Key? Any scripts using it will lose access immediately.')) {
       return;
     }
     try {
@@ -175,9 +179,13 @@ function SettingsContent() {
         <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-6">
           <User className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">Sign in to access Account Dashboard</h2>
+        <h2 className="text-2xl font-bold text-slate-900">
+          {isZh ? '请登录以访问账户控制台' : 'Sign in to access Account Dashboard'}
+        </h2>
         <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto">
-          Manage your research preferences, API keys, project track record, and plan entitlements.
+          {isZh
+            ? '管理您的搜索偏好、API密钥、项目战绩和套餐配额。'
+            : 'Manage your research preferences, API keys, project track record, and plan entitlements.'}
         </p>
 
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -185,16 +193,15 @@ function SettingsContent() {
             href="/login"
             className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 transition"
           >
-            Sign In with Email
+            {t('nav.login')}
           </Link>
           <Link
             href="/register"
             className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition"
           >
-            Create New Account
+            {t('nav.signup')}
           </Link>
         </div>
-
       </div>
     );
   }
@@ -247,20 +254,13 @@ function SettingsContent() {
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1.5"
           >
             <CreditCard className="w-3.5 h-3.5 text-slate-500" />
-            <span>Manage Plan</span>
+            <span>{t('settings.managePlan')}</span>
           </Link>
-          <button
-            onClick={logout}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition flex items-center gap-1.5"
-          >
-            <LogOut className="w-3.5 h-3.5 text-rose-500" />
-            <span>Sign Out</span>
-          </button>
         </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 mb-8 overflow-x-auto pb-1">
+      <div className="flex items-center gap-2 border-b border-slate-200 mb-8 overflow-x-auto pb-2">
         <button
           onClick={() => setActiveTab('profile')}
           className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap ${
@@ -270,7 +270,7 @@ function SettingsContent() {
           }`}
         >
           <User className="w-4 h-4" />
-          <span>Profile & Account</span>
+          <span>{t('settings.tabProfile')}</span>
         </button>
 
         <button
@@ -282,7 +282,7 @@ function SettingsContent() {
           }`}
         >
           <Sliders className="w-4 h-4" />
-          <span>Radar Preferences</span>
+          <span>{t('settings.tabPreferences')}</span>
         </button>
 
         <button
@@ -294,7 +294,7 @@ function SettingsContent() {
           }`}
         >
           <KeyRound className="w-4 h-4" />
-          <span>Developer API Keys</span>
+          <span>{t('settings.tabApiKeys')}</span>
         </button>
 
         <button
@@ -306,7 +306,7 @@ function SettingsContent() {
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>Quotas & Subscription</span>
+          <span>{t('settings.tabBilling')}</span>
         </button>
       </div>
 
@@ -315,15 +315,17 @@ function SettingsContent() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-              <h3 className="text-base font-bold text-slate-900 mb-1">Account Information</h3>
+              <h3 className="text-base font-bold text-slate-900 mb-1">
+                {isZh ? '账户基本信息' : 'Account Information'}
+              </h3>
               <p className="text-xs text-slate-500 mb-6">
-                Personal details and login credentials associated with your account.
+                {isZh ? '与您账户关联的个人信息和身份凭证。' : 'Personal details and login credentials associated with your account.'}
               </p>
 
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Display Name
+                    {t('auth.nameLabel')}
                   </label>
                   <input
                     type="text"
@@ -335,7 +337,7 @@ function SettingsContent() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Email Address
+                    {t('auth.emailLabel')}
                   </label>
                   <input
                     type="email"
@@ -348,7 +350,7 @@ function SettingsContent() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Account Role
+                      {t('settings.accountRole')}
                     </label>
                     <div className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800">
                       {user.role}
@@ -356,7 +358,7 @@ function SettingsContent() {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Account Status
+                      {t('settings.accountStatus')}
                     </label>
                     <div className="px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -366,36 +368,37 @@ function SettingsContent() {
                 </div>
               </div>
             </div>
-
           </div>
 
           {/* Sidebar Info */}
           <div className="space-y-6">
             <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-400">Current Plan</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{t('settings.currentPlanCard')}</span>
               <h4 className="text-2xl font-extrabold mt-1">{user.tier} TIER</h4>
               <p className="text-xs text-slate-300 mt-2">
-                Real-time SERP weakness indicators, commercial proof ledger, and opportunity scoring.
+                {isZh
+                  ? '实时 SERP 薄弱点指标、商业佐证不可篡改账本与机会智能打分。'
+                  : 'Real-time SERP weakness indicators, commercial proof ledger, and opportunity scoring.'}
               </p>
               <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">Entitlements</span>
-                <span className="font-semibold text-emerald-400">Active & Validated</span>
+                <span className="text-slate-400">{t('settings.entitlements')}</span>
+                <span className="font-semibold text-emerald-400">{isZh ? '已激活并经验证' : 'Active & Validated'}</span>
               </div>
               <Link
                 href="/billing"
                 className="mt-4 block w-full py-2.5 text-center rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-xs transition"
               >
-                View Plans & Upgrade →
+                {t('pricing.upgradeToPro')} →
               </Link>
             </div>
 
             <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-xs text-slate-600 space-y-3">
               <div className="font-bold text-slate-800 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Security & Storage</span>
+                <span>{t('settings.securityCard')}</span>
               </div>
               <p>
-                Credentials and session keys are secured with PBKDF2/scrypt key derivation. All database transactions are strictly isolated.
+                {t('settings.securityCardDesc')}
               </p>
             </div>
           </div>
@@ -409,10 +412,10 @@ function SettingsContent() {
             <div>
               <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
-                Target Search Markets
+                {t('settings.targetMarketsTitle')}
               </h3>
               <p className="text-xs text-slate-500 mb-4">
-                Select the geographical and linguistic search indexes you want the Radar scanner to prioritize.
+                {t('settings.targetMarketsDesc')}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {TARGET_MARKETS.map((m) => {
@@ -436,7 +439,9 @@ function SettingsContent() {
                         }}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-xs font-semibold text-slate-800">{m.label}</span>
+                      <span className="text-xs font-semibold text-slate-800">
+                        {isZh ? m.labelZh : m.label}
+                      </span>
                     </label>
                   );
                 })}
@@ -446,10 +451,10 @@ function SettingsContent() {
             <div className="pt-4 border-t border-slate-100">
               <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-600" />
-                Preferred Build Archetypes
+                {t('settings.preferredArchetypesTitle')}
               </h3>
               <p className="text-xs text-slate-500 mb-4">
-                Filter radar alerts and recommendation feeds based on your technical execution capabilities.
+                {t('settings.preferredArchetypesDesc')}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {BUILD_ARCHETYPES.map((a) => {
@@ -473,7 +478,9 @@ function SettingsContent() {
                         }}
                         className="rounded text-emerald-600 focus:ring-emerald-500"
                       />
-                      <span className="text-xs font-semibold text-slate-800">{a.label}</span>
+                      <span className="text-xs font-semibold text-slate-800">
+                        {isZh ? a.labelZh : a.label}
+                      </span>
                     </label>
                   );
                 })}
@@ -481,15 +488,24 @@ function SettingsContent() {
             </div>
 
             <div className="pt-4 border-t border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 mb-1">UI Language & Digest</h3>
+              <h3 className="text-base font-bold text-slate-900 mb-1">
+                {t('settings.languageTitle')}
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                {t('settings.languageDesc')}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Interface Language
+                    {t('settings.languageSelect')}
                   </label>
                   <select
                     value={locale}
-                    onChange={(e) => setLocale(e.target.value as any)}
+                    onChange={(e) => {
+                      const nextLoc = e.target.value as Locale;
+                      setLocale(nextLoc);
+                      setI18nLocale(nextLoc);
+                    }}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm"
                   >
                     <option value="zh-CN">简体中文 (Simplified Chinese)</option>
@@ -508,16 +524,16 @@ function SettingsContent() {
                 {savingPrefs ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Saving...</span>
+                    <span>{t('common.saving')}</span>
                   </>
                 ) : (
-                  <span>Save Preferences</span>
+                  <span>{t('settings.savePreferencesBtn')}</span>
                 )}
               </button>
               {prefsSaved && (
                 <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
                   <CheckCircle2 className="w-4 h-4" />
-                  Preferences updated!
+                  {t('settings.preferencesUpdated')}
                 </span>
               )}
             </div>
@@ -533,17 +549,17 @@ function SettingsContent() {
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Code2 className="w-5 h-5 text-blue-600" />
-                Developer API Keys
+                {t('settings.apiKeysTitle')}
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                Use live API keys (`emd_live_...`) to query the search opportunity catalog, export reports programmatically, or connect internal validation bots.
+                {t('settings.apiKeysDesc')}
               </p>
             </div>
 
             <form onSubmit={handleCreateApiKey} className="flex items-center gap-2">
               <input
                 type="text"
-                placeholder="Key label (e.g. Scraper Bot)"
+                placeholder={t('settings.keyLabelPlaceholder')}
                 value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)}
                 className="px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -558,7 +574,7 @@ function SettingsContent() {
                 ) : (
                   <Plus className="w-3.5 h-3.5" />
                 )}
-                <span>Generate Key</span>
+                <span>{t('settings.generateKeyBtn')}</span>
               </button>
             </form>
           </div>
@@ -576,17 +592,17 @@ function SettingsContent() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 text-amber-600" />
-                  Save Your Secret API Key
+                  {isZh ? '请妥善保存您的 Secret API 密钥' : 'Save Your Secret API Key'}
                 </span>
                 <button
                   onClick={() => setGeneratedSecret(null)}
                   className="text-xs text-amber-700 hover:text-amber-900 font-semibold"
                 >
-                  Dismiss
+                  {t('common.close')}
                 </button>
               </div>
               <p className="text-xs text-amber-800 mb-3">
-                This secret key will <strong>never be shown again</strong>. Please copy and store it securely in your environment variables.
+                {t('settings.secretWarning')}
               </p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 font-mono text-xs px-3 py-2 bg-white rounded-xl border border-amber-300 text-slate-800 select-all overflow-x-auto">
@@ -599,12 +615,12 @@ function SettingsContent() {
                   {copiedKey ? (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>Copied!</span>
+                      <span>{t('settings.copiedKeyBtn')}</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5" />
-                      <span>Copy</span>
+                      <span>{t('settings.copyKeyBtn')}</span>
                     </>
                   )}
                 </button>
@@ -616,28 +632,28 @@ function SettingsContent() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Active API Keys ({apiKeys.length})
+                {t('settings.activeKeys')} ({apiKeys.length})
               </span>
               <button
                 onClick={loadApiKeys}
                 className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1"
               >
                 <RefreshCw className="w-3 h-3" />
-                <span>Refresh</span>
+                <span>{isZh ? '刷新' : 'Refresh'}</span>
               </button>
             </div>
 
             {loadingKeys ? (
               <div className="p-8 text-center">
                 <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto" />
-                <span className="text-xs text-slate-500 mt-2 block">Loading API keys...</span>
+                <span className="text-xs text-slate-500 mt-2 block">{isZh ? '正在加载 API 密钥...' : 'Loading API keys...'}</span>
               </div>
             ) : apiKeys.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
                 <KeyRound className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-700">No API keys created yet</p>
+                <p className="text-sm font-semibold text-slate-700">{t('settings.noKeys')}</p>
                 <p className="text-xs text-slate-400 mt-1">
-                  Create your first key above to access EmeRadar data programmatically.
+                  {isZh ? '在上方生成您的首个密钥，以编程方式访问 EmeRadar 机会数据。' : 'Create your first key above to access EmeRadar data programmatically.'}
                 </p>
               </div>
             ) : (
@@ -654,22 +670,22 @@ function SettingsContent() {
                           <span className="text-sm font-bold text-slate-900">{key.label}</span>
                           {isRevoked ? (
                             <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                              Revoked
+                              {isZh ? '已撤销' : 'Revoked'}
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              Active
+                              {isZh ? '生效中' : 'Active'}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                           <code className="font-mono text-slate-600">{key.keyPrefix}</code>
                           <span>•</span>
-                          <span>Created {new Date(key.createdAt).toLocaleDateString()}</span>
+                          <span>{isZh ? `创建于 ${new Date(key.createdAt).toLocaleDateString('zh-CN')}` : `Created ${new Date(key.createdAt).toLocaleDateString()}`}</span>
                           {key.lastUsedAt && (
                             <>
                               <span>•</span>
-                              <span>Last used {new Date(key.lastUsedAt).toLocaleDateString()}</span>
+                              <span>{isZh ? `最近使用于 ${new Date(key.lastUsedAt).toLocaleDateString('zh-CN')}` : `Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}</span>
                             </>
                           )}
                         </div>
@@ -681,7 +697,7 @@ function SettingsContent() {
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition flex items-center gap-1 self-start sm:self-auto"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Revoke</span>
+                          <span>{t('settings.revokeBtn')}</span>
                         </button>
                       )}
                     </div>
@@ -695,7 +711,7 @@ function SettingsContent() {
           <div className="p-5 rounded-2xl bg-slate-900 text-slate-200">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Example API Request
+                {isZh ? 'API 请求调用示例' : 'Example API Request'}
               </span>
               <span className="text-xs text-emerald-400 font-mono">REST / JSON</span>
             </div>
@@ -715,13 +731,19 @@ function SettingsContent() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                  Subscription Status
+                  {isZh ? '当前订阅状态' : 'Subscription Status'}
                 </span>
                 <h3 className="text-2xl font-extrabold text-slate-900 mt-1">
-                  {user.tier === 'TEAM' ? 'Team Scale Plan' : user.tier === 'PRO' ? 'Builder Pro Plan' : 'Free Starter Plan'}
+                  {user.tier === 'TEAM'
+                    ? (isZh ? 'Team Scale 团队方案' : 'Team Scale Plan')
+                    : user.tier === 'PRO'
+                    ? (isZh ? 'Builder Pro 专业方案' : 'Builder Pro Plan')
+                    : (isZh ? 'Free Starter 免费方案' : 'Free Starter Plan')}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Billing cycle renews automatically. You can upgrade, downgrade, or cancel at any time.
+                  {isZh
+                    ? '计费周期自动续费。您可随时升级、降级或终止订阅。'
+                    : 'Billing cycle renews automatically. You can upgrade, downgrade, or cancel at any time.'}
                 </p>
               </div>
 
@@ -729,7 +751,7 @@ function SettingsContent() {
                 href="/billing"
                 className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition self-start sm:self-auto"
               >
-                Change Plan / Manage Invoices →
+                {isZh ? '调整方案 / 查看账单 →' : 'Change Plan / Manage Invoices →'}
               </Link>
             </div>
 
@@ -737,35 +759,35 @@ function SettingsContent() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>Tracked Projects</span>
-                  <span className="text-blue-600 font-bold">3 / 10 Active</span>
+                  <span>{t('pricing.trackedProjects')}</span>
+                  <span className="text-blue-600 font-bold">{isZh ? '3 / 10 活跃' : '3 / 10 Active'}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
                   <div className="bg-blue-600 h-2 rounded-full" style={{ width: '30%' }} />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">7 project slots remaining</p>
+                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '剩余 7 个项目席位' : '7 project slots remaining'}</p>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>Deep Report Exports</span>
-                  <span className="text-emerald-600 font-bold">12 / 30 Monthly</span>
+                  <span>{t('pricing.monthlyReports')}</span>
+                  <span className="text-emerald-600 font-bold">{isZh ? '12 / 30 每月' : '12 / 30 Monthly'}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
                   <div className="bg-emerald-600 h-2 rounded-full" style={{ width: '40%' }} />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">Resets on 1st of next month</p>
+                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '下月1日重置配额' : 'Resets on 1st of next month'}</p>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>Radar Webhook Alerts</span>
-                  <span className="text-purple-600 font-bold">5 / 5 Enabled</span>
+                  <span>{t('pricing.alertRules')}</span>
+                  <span className="text-purple-600 font-bold">{isZh ? '5 / 5 已启用' : '5 / 5 Enabled'}</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-2">
                   <div className="bg-purple-600 h-2 rounded-full" style={{ width: '100%' }} />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">Instant SERP shift notifications</p>
+                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '即时 SERP 排名异动提醒' : 'Instant SERP shift notifications'}</p>
               </div>
             </div>
           </div>
