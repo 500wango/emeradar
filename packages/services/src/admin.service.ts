@@ -332,28 +332,25 @@ export class AdminService {
         // 3. Ensure card exists
         await client.query(
           `INSERT INTO opportunity_cards (
-             opportunity_id, slug, title, primary_query, market_country, research_language,
+             opportunity_id, slug, primary_query,
              verdict, lifecycle, recommended_archetype, execution_class,
              d_basis_points, m_basis_points, w_basis_points,
              d_band, m_band, w_band, confidence,
-             why_now_summary, top_idea, published_at
+             why_now_summary, top_idea, first_observed_at
            ) VALUES (
-             $1, $2, $3, $4, $5, $6,
-             'BUILD_NOW', 'EARLY_WINDOW', $7, $8,
+             $1, $2, $3,
+             'BUILD_NOW', 'EARLY_WINDOW', $4, $5,
              8000, 7500, 7800,
              'HIGH', 'MEDIUM', 'HIGH', 'HIGH',
-             $9, $10, NOW()
+             $6, $7, NOW()
            )
            ON CONFLICT (opportunity_id) DO UPDATE SET
              verdict = 'BUILD_NOW',
-             published_at = NOW()`,
+             updated_at = NOW()`,
           [
             opp.id,
             opp.slug,
-            opp.title,
             primaryQuery,
-            opp.market_country,
-            opp.research_language,
             opp.recommended_archetype || 'LIGHTWEIGHT_TOOL',
             opp.execution_class || 'S',
             opp.candidate_reason || 'Manually verified and promoted by administrator.',

@@ -111,23 +111,22 @@ export async function incubateCandidatesFromDiscovery(limit = 15): Promise<
       // 4. Create Opportunity Card in WATCH state
       await client.query(
         `INSERT INTO opportunity_cards (
-           opportunity_id, slug, title, primary_query, market_country, research_language,
+           opportunity_id, slug, primary_query,
            verdict, lifecycle, recommended_archetype, execution_class,
            d_basis_points, m_basis_points, w_basis_points,
            d_band, m_band, w_band, confidence,
-           why_now_summary, top_idea, first_observed_at, published_at
+           why_now_summary, top_idea, first_observed_at
          ) VALUES (
-           $1, $2, $3, $4, 'US', 'en-US',
-           'WATCH', 'EARLY_WINDOW', $5, 'S',
+           $1, $2, $3,
+           'WATCH', 'EARLY_WINDOW', $4, 'S',
            7200, 6800, 7100,
            'HIGH', 'MEDIUM', 'HIGH', 'MEDIUM',
-           $6, $7, NOW(), NULL
+           $5, $6, NOW()
          )
          ON CONFLICT (opportunity_id) DO NOTHING`,
         [
           oppId,
           slug,
-          item.title,
           cleanQuery,
           archetype,
           `Fresh builder signal detected from ${item.provider}. Early discussion velocity and organic interest observed.`,
