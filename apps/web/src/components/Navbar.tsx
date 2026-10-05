@@ -12,6 +12,7 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  ShieldAlert,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
@@ -228,6 +229,19 @@ export function Navbar() {
                           <span>{t('nav.billing')}</span>
                         </Link>
                       </div>
+
+                      {/* Admin Console Entry (Only visible to ADMIN / ANALYST) */}
+                      {(user.role === 'ADMIN' || user.role === 'ANALYST') && (
+                        <div className="py-1 border-t border-slate-100">
+                          <Link
+                            href="/admin"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50/50 hover:bg-amber-100/60 transition"
+                          >
+                            <ShieldAlert className="w-4 h-4 text-amber-600" />
+                            <span>⚡ 雷达运维控制中心</span>
+                          </Link>
+                        </div>
+                      )}
 
                       {/* Logout */}
                       <div className="pt-1 border-t border-slate-100">
