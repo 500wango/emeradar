@@ -1,11 +1,12 @@
-import { runDailyPipeline } from './pipeline';
-import { TrackRecordService } from '@emeradar/services';
-import { closePool } from '@emeradar/db';
-import { discoverSources } from './discover-sources';
-import { generateDiscoveryIntents } from './generate-discovery-intents';
-import { validateDiscoveryIntents } from './validate-discovery-intents';
-import { generateExperimentCards } from './generate-experiment-cards';
-import { query } from '@emeradar/db';
+import {
+  runDailyPipeline,
+  discoverSources,
+  generateDiscoveryIntents,
+  validateDiscoveryIntents,
+  generateExperimentCards,
+  TrackRecordService,
+} from '@emeradar/services';
+import { closePool, query } from '@emeradar/db';
 
 async function main() {
   const args = process.argv.slice(2);

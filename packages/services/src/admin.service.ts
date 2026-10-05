@@ -1,11 +1,13 @@
 import { query, transaction } from '@emeradar/db';
 import { AppError } from '@emeradar/core';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { AuthService } from './auth.service';
-
-const execAsync = promisify(exec);
+import {
+  discoverSources,
+  generateDiscoveryIntents,
+  validateDiscoveryIntents,
+  runDailyPipeline,
+} from './pipeline';
 
 export interface AdminUserListItem {
   id: string;
@@ -405,45 +407,82 @@ export class AdminService {
 
   /**
    * Triggers an automated worker task asynchronously
+   * Triggers an automated worker task directly in-process
    */
   static async triggerTask(task: 'discover' | 'generate-intents' | 'validate-intents' | 'run-daily'): Promise<{
     task: string;
     output: string;
     exitCode: number;
   }> {
-    let scriptCommand = '';
-    switch (task) {
-      case 'discover':
-        scriptCommand = 'pnpm --filter @emeradar/worker discover';
-        break;
-      case 'generate-intents':
-        scriptCommand = 'pnpm --filter @emeradar/worker generate-intents 50';
-        break;
-      case 'validate-intents':
-        scriptCommand = 'pnpm --filter @emeradar/worker validate-intents 5';
-        break;
-      case 'run-daily':
-        scriptCommand = 'pnpm --filter @emeradar/worker run-daily';
-        break;
-      default:
-        throw AppError.badRequest(`Unknown task: ${task}`);
-    }
+    const logs: string[] = [];
+    const log = (msg: string) => {
+      console.log(msg);
+      logs.push(msg);
+    };
 
     try {
-      const { stdout, stderr } = await execAsync(scriptCommand, {
-        cwd: process.cwd(),
-        timeout: 60000,
-      });
-      return {
-        task,
-        output: (stdout || '') + (stderr ? `\nSTDERR:\n${stderr}` : ''),
-        exitCode: 0,
-      };
+      if (task === 'discover') {
+        log('[pipeline] Starting signal discovery across active sources and feeds...');
+        const res = await discoverSources();
+        log('[pipeline] Discovery completed:');
+        log(` - Sources scanned: ${res.sources}`);
+        log(` - Raw items collected: ${res.collected}`);
+        log(` - New items recorded: ${res.inserted}`);
+        log(` - Failed sources: ${res.failed}`);
+        return {
+          task,
+          output: logs.join('\n'),
+          exitCode: 0,
+        };
+      }
+
+      if (task === 'generate-intents') {
+        log('[pipeline] Generating unverified query intent hypotheses from collected items...');
+        const created = await generateDiscoveryIntents(50);
+        log(`[pipeline] Intent generation completed: ${created} new intent hypotheses generated.`);
+        return {
+          task,
+          output: logs.join('\n'),
+          exitCode: 0,
+        };
+      }
+
+      if (task === 'validate-intents') {
+        log('[pipeline] Validating discovery intent hypotheses against search signals...');
+        const validated = await validateDiscoveryIntents(5);
+        log(`[pipeline] Intent validation completed: ${validated} discovery intents validated.`);
+        return {
+          task,
+          output: logs.join('\n'),
+          exitCode: 0,
+        };
+      }
+
+      if (task === 'run-daily') {
+        const obsDate = new Date().toISOString().slice(0, 10);
+        log(`[pipeline] Running daily discovery & observation pipeline for ${obsDate}...`);
+        const res = await runDailyPipeline(obsDate);
+        log(`[pipeline] Daily pipeline run complete for ${obsDate}:`);
+        log(` - Processed opportunities: ${res.processedOpportunities}`);
+        log(` - Ledger Merkle Root: ${res.merkleRoot || 'N/A'}`);
+        log(` - Alerts triggered: ${res.alertsTriggered}`);
+        return {
+          task,
+          output: logs.join('\n'),
+          exitCode: 0,
+        };
+      }
+
+      throw AppError.badRequest(`Unknown task: ${task}`);
     } catch (err: any) {
+      log(`[pipeline] Execution error: ${err.message || String(err)}`);
+      if (err.stack) {
+        log(err.stack);
+      }
       return {
         task,
-        output: err.stdout || err.stderr || err.message,
-        exitCode: err.code || 1,
+        output: logs.join('\n'),
+        exitCode: 1,
       };
     }
   }

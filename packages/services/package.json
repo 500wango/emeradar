@@ -13,7 +13,9 @@
     "@emeradar/db": "workspace:*",
     "@emeradar/scoring": "workspace:*",
     "@emeradar/ledger": "workspace:*",
-    "@emeradar/report": "workspace:*"
+    "@emeradar/report": "workspace:*",
+    "@emeradar/collectors": "workspace:*",
+    "@emeradar/llm": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",

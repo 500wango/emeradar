@@ -260,6 +260,9 @@ importers:
 
   packages/services:
     dependencies:
+      '@emeradar/collectors':
+        specifier: workspace:*
+        version: link:../collectors
       '@emeradar/core':
         specifier: workspace:*
         version: link:../core
@@ -269,6 +272,9 @@ importers:
       '@emeradar/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@emeradar/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@emeradar/report':
         specifier: workspace:*
         version: link:../report

@@ -10,3 +10,4 @@ export * from './live-scan.service';
 export * from './public-publication.service';
 export * from './stripe.service';
 export * from './admin.service';
+export * from './pipeline';
