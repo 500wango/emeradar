@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { query } from '@emeradar/db';
 import { AdminService, AuthService } from '../src';
 
 describe('Admin User Management Integration Tests', () => {
@@ -9,20 +10,22 @@ describe('Admin User Management Integration Tests', () => {
   const targetEmail = `target_user_${Date.now()}@emeradar.test`;
 
   it('should create an admin user and a target test user', async () => {
-    // 1. Create admin user
-    const adminCreated = await AdminService.createUserByAdmin({
-      email: adminEmail,
-      displayName: 'System Admin Tester',
-      role: 'ADMIN',
-      tier: 'TEAM',
-    });
-    assert.ok(adminCreated.user.id);
-    assert.equal(adminCreated.user.role, 'ADMIN');
-    assert.equal(adminCreated.user.tier, 'TEAM');
-    adminUserId = adminCreated.user.id;
+    // 1. Seed the first administrator directly (bootstrap bypasses the
+    //    admin-caller guard, which otherwise requires an existing ADMIN).
+    const seededAdminId = `usr_seed_${Date.now().toString(36)}`;
+    await query(
+      `INSERT INTO users (id, email, display_name, role, tier, status)
+       VALUES ($1, $2, $3, 'ADMIN', 'TEAM', 'ACTIVE')`,
+      [seededAdminId, adminEmail, 'System Admin Tester']
+    );
+    adminUserId = seededAdminId;
+    const adminCheck = await AdminService.getUserById(seededAdminId);
+    assert.ok(adminCheck?.id);
+    assert.equal(adminCheck?.role, 'ADMIN');
+    assert.equal(adminCheck?.tier, 'TEAM');
 
-    // 2. Create regular user
-    const targetCreated = await AdminService.createUserByAdmin({
+    // 2. Create regular user through the guarded method (caller must be ADMIN)
+    const targetCreated = await AdminService.createUserByAdmin(adminUserId, {
       email: targetEmail,
       displayName: 'Regular Target User',
       role: 'USER',
@@ -32,6 +35,30 @@ describe('Admin User Management Integration Tests', () => {
     assert.equal(targetCreated.user.role, 'USER');
     assert.equal(targetCreated.user.tier, 'FREE');
     targetUserId = targetCreated.user.id;
+  });
+
+  it('should reject non-admin callers for privileged operations', async () => {
+    // Create an ANALYST via a real ADMIN...
+    const analystCreated = await AdminService.createUserByAdmin(adminUserId, {
+      email: `analyst_${Date.now()}@emeradar.test`,
+      displayName: 'Analyst Staff',
+      role: 'ANALYST',
+    });
+    const analystId = analystCreated.user.id;
+
+    // ...then assert the ANALYST cannot create admin users, change roles or reset passwords.
+    await assert.rejects(
+      () => AdminService.createUserByAdmin(analystId, { email: `evil_${Date.now()}@emeradar.test`, role: 'ADMIN' }),
+      /Only an active Administrator/i
+    );
+    await assert.rejects(
+      () => AdminService.updateUser(analystId, targetUserId, { role: 'ADMIN' }),
+      /Only an active Administrator/i
+    );
+    await assert.rejects(
+      () => AdminService.resetUserPassword(analystId, targetUserId, 'Whatever123!'),
+      /Only an active Administrator/i
+    );
   });
 
   it('should list users with stats and filter by role and search', async () => {
@@ -79,7 +106,7 @@ describe('Admin User Management Integration Tests', () => {
 
   it('should reset user password and verify login with new password', async () => {
     const newPwd = 'BrandNewPassword2026!';
-    const resetRes = await AdminService.resetUserPassword(targetUserId, newPwd);
+    const resetRes = await AdminService.resetUserPassword(adminUserId, targetUserId, newPwd);
     assert.equal(resetRes.temporaryPassword, newPwd);
 
     // Verify login works with new password

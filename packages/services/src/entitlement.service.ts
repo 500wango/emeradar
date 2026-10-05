@@ -227,8 +227,8 @@ export class EntitlementService {
    */
   static async reserveLiveScanQuota(userId: string): Promise<{ remaining: number; limit: number; used: number }> {
     return transaction(async (client) => {
-      const userRes = await client.query<{ tier: string; plan_code: string; entitlements: any }>(
-        `SELECT u.tier, COALESCE(s.plan_code, 'FREE') AS plan_code, p.entitlements
+      const userRes = await client.query<{ role: string; tier: string; plan_code: string; entitlements: any }>(
+        `SELECT u.role, u.tier, COALESCE(s.plan_code, 'FREE') AS plan_code, p.entitlements
          FROM users u
          LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE', 'TRIALING')
          LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, 'FREE')
@@ -240,8 +240,9 @@ export class EntitlementService {
         throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
       }
 
+      const isAdmin = userRes.rows[0].role === 'ADMIN';
       const planCode = userRes.rows[0].plan_code;
-      const limit = planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
+      const limit = isAdmin ? 9999 : planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
       const today = new Date().toISOString().slice(0, 10);
 
       const counter = await client.query<{ used: number }>(

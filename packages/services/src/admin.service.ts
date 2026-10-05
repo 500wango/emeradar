@@ -10,6 +10,36 @@ import {
   incubateCandidatesFromDiscovery,
 } from './pipeline';
 
+// Maximum time an admin HTTP trigger will wait synchronously for a heavy
+// pipeline task. The task keeps running in-process under its advisory lock
+// even after we return to the caller, and any re-trigger is rejected by that
+// lock until the run finishes — so this only bounds request latency.
+const PIPELINE_MAX_WAIT_MS = 120_000;
+
+function withPipelineTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `${label} exceeded the ${Math.round(PIPELINE_MAX_WAIT_MS / 1000)}s synchronous wait limit ` +
+            `and is still running in the background under a concurrency lock. ` +
+            `Do not re-trigger until it completes.`
+        )
+      );
+    }, PIPELINE_MAX_WAIT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export interface AdminUserListItem {
   id: string;
   email: string;
@@ -449,7 +479,7 @@ export class AdminService {
     try {
       if (task === 'discover') {
         log('[pipeline] Starting signal discovery across active sources and feeds...');
-        const res = await discoverSources();
+        const res = await withPipelineTimeout(discoverSources(), 'Signal discovery');
         log('[pipeline] Discovery completed:');
         log(` - Sources scanned: ${res.sources}`);
         log(` - Raw items collected: ${res.collected}`);
@@ -518,7 +548,7 @@ export class AdminService {
       if (task === 'run-daily') {
         const obsDate = new Date().toISOString().slice(0, 10);
         log(`[pipeline] Running daily discovery & observation pipeline for ${obsDate}...`);
-        const res = await runDailyPipeline(obsDate);
+        const res = await withPipelineTimeout(runDailyPipeline(obsDate), 'Daily pipeline');
         log(`[pipeline] Daily pipeline run complete for ${obsDate}:`);
         log(` - Processed opportunities: ${res.processedOpportunities}`);
         log(` - Ledger Merkle Root: ${res.merkleRoot || 'N/A'}`);
@@ -710,6 +740,33 @@ export class AdminService {
   }
 
   /**
+   * Defense-in-depth: verify that the caller of a privileged user-management
+   * operation is an ACTIVE ADMIN. Passing `null` is only permitted for the
+   * one-time bootstrap of the very first administrator (i.e. when no active
+   * ADMIN exists yet). ANALYST / SUPPORT / USER callers are always rejected.
+   */
+  private static async assertAdminCaller(callerUserId: string | null): Promise<void> {
+    if (callerUserId) {
+      const res = await query<{ role: string; status: string }>(
+        `SELECT role, status FROM users WHERE id = $1`,
+        [callerUserId]
+      );
+      const row = res.rows[0];
+      if (!row || row.status !== 'ACTIVE' || row.role !== 'ADMIN') {
+        throw AppError.forbidden('Only an active Administrator can perform this action.');
+      }
+      return;
+    }
+    // Bootstrap path: allowed only while no active ADMIN exists.
+    const adminRes = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'`
+    );
+    if (parseInt(adminRes.rows[0]?.count || '0', 10) > 0) {
+      throw AppError.forbidden('Administrator privileges required.');
+    }
+  }
+
+  /**
    * Updates user role, tier, or status with security validations
    */
   static async updateUser(
@@ -721,6 +778,8 @@ export class AdminService {
       status?: 'ACTIVE' | 'SUSPENDED' | 'DELETED';
     }
   ): Promise<AdminUserListItem> {
+    await this.assertAdminCaller(adminUserId);
+
     const curRes = await query<{
       id: string;
       email: string;
@@ -781,9 +840,12 @@ export class AdminService {
    * Resets a user's password (manual or auto-generated)
    */
   static async resetUserPassword(
+    callerUserId: string | null,
     targetUserId: string,
     newPassword?: string
   ): Promise<{ temporaryPassword: string }> {
+    await this.assertAdminCaller(callerUserId);
+
     const userRes = await query<{ id: string; email: string }>(
       `SELECT id, email FROM users WHERE id = $1`,
       [targetUserId]
@@ -820,13 +882,17 @@ export class AdminService {
   /**
    * Creates a new user directly by Administrator
    */
-  static async createUserByAdmin(input: {
+  static async createUserByAdmin(
+    callerUserId: string | null,
+    input: {
     email: string;
     password?: string;
     displayName?: string;
     role?: 'USER' | 'ANALYST' | 'ADMIN' | 'SUPPORT';
     tier?: 'FREE' | 'PRO' | 'TEAM';
   }): Promise<{ user: AdminUserListItem; temporaryPassword: string }> {
+    await this.assertAdminCaller(callerUserId);
+
     const email = input.email.trim().toLowerCase();
     if (!email || !email.includes('@')) {
       throw AppError.badRequest('Valid email address is required.');

@@ -39,10 +39,22 @@ function LoginFormContent() {
       setError(null);
       const loggedUser = await login(email, password);
       const explicitNext = searchParams.get('next');
+      // Only allow same-origin relative paths to prevent open-redirect attacks
+      // (e.g. //evil.com, https://evil.com, javascript:...). Filter out
+      // role-inappropriate landing pages for ADMINs.
+      const isSafeNext =
+        !!explicitNext &&
+        explicitNext.startsWith('/') &&
+        !explicitNext.startsWith('//') &&
+        !explicitNext.includes('://') &&
+        !/^javascript:/i.test(explicitNext);
       if (loggedUser.role === 'ADMIN') {
-        router.push(explicitNext && !['/projects', '/billing', '/alerts'].includes(explicitNext) ? explicitNext : '/admin');
+        const adminFallback = isSafeNext && !['/projects', '/billing', '/alerts'].includes(explicitNext!)
+          ? explicitNext!
+          : '/admin';
+        router.push(adminFallback);
       } else {
-        router.push(explicitNext || '/feed');
+        router.push(isSafeNext ? explicitNext! : '/feed');
       }
     } catch (err: any) {
       setError(err.message || (isZh ? '登录失败，请核对您的邮箱和密码。' : 'Failed to sign in. Please verify your email and password.'));

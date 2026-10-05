@@ -1,4 +1,4 @@
-import { query, transaction } from '@emeradar/db';
+import { query, transaction, getClient } from '@emeradar/db';
 import {
   AIsaSearchProvider,
   DiscoverySource,
@@ -68,7 +68,47 @@ async function ensureSource(source: DiscoverySource): Promise<void> {
   );
 }
 
+const DISCOVERY_LOCK_ID = 481517;
+
+/**
+ * Concurrency guard: only one discovery run may execute at a time across all
+ * processes. Uses a dedicated pooled connection so the session-level advisory
+ * lock is owned by a stable connection and reliably released afterwards.
+ */
 export async function discoverSources(): Promise<{
+  sources: number;
+  collected: number;
+  inserted: number;
+  failed: number;
+  recentItems: Array<{ title: string; provider: string; url: string }>;
+}> {
+  const lockClient = await getClient();
+  let lockAcquired = false;
+  try {
+    const lockRes = await lockClient.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock($1) as locked`,
+      [DISCOVERY_LOCK_ID]
+    );
+    lockAcquired = Boolean(lockRes.rows[0]?.locked);
+  } catch (err) {
+    lockClient.release();
+    throw err;
+  }
+
+  if (!lockAcquired) {
+    lockClient.release();
+    throw new Error('A discovery run is already in progress. Please wait for it to finish and try again.');
+  }
+
+  try {
+    return await discoverSourcesInner();
+  } finally {
+    await lockClient.query(`SELECT pg_advisory_unlock($1)`, [DISCOVERY_LOCK_ID]).catch(() => undefined);
+    lockClient.release();
+  }
+}
+
+async function discoverSourcesInner(): Promise<{
   sources: number;
   collected: number;
   inserted: number;

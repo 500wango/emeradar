@@ -28,7 +28,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
+  const session = await getAdminSession({ requireAdmin: true });
   if (!session) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }

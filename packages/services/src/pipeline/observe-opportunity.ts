@@ -1,4 +1,4 @@
-import { query } from '@emeradar/db';
+import { query, transaction } from '@emeradar/db';
 import { calculateOpportunityScore, CommercialSummary } from '@emeradar/scoring';
 import {
   AutocompleteCollector,
@@ -146,27 +146,31 @@ export async function observeOpportunity(
         [serpSnap.key, primary.id, obsDate, serpSnap.data.weakResultRatio]
       );
       const snapshotId = snapRes.rows[0]?.id || serpSnap.key;
-      await query(`DELETE FROM serp_results WHERE serp_snapshot_id = $1`, [snapshotId]);
-      for (const item of organicItems as any[]) {
-        await query(
-          `INSERT INTO serp_results (
-            serp_snapshot_id, rank, url, domain, title, snippet,
-            result_type, domain_authority_class, is_weak, weakness_type
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [
-            snapshotId,
-            item.rank,
-            item.url,
-            item.domain,
-            item.title,
-            item.snippet,
-            item.resultType,
-            item.domainAuthorityClass,
-            item.isWeak,
-            item.weaknessType || null,
-          ]
-        );
-      }
+      // DELETE + bulk INSERT must be atomic: a partial failure would otherwise
+      // leave serp_results incomplete and corrupt downstream scoring.
+      await transaction(async (client) => {
+        await client.query(`DELETE FROM serp_results WHERE serp_snapshot_id = $1`, [snapshotId]);
+        for (const item of organicItems as any[]) {
+          await client.query(
+            `INSERT INTO serp_results (
+              serp_snapshot_id, rank, url, domain, title, snippet,
+              result_type, domain_authority_class, is_weak, weakness_type
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [
+              snapshotId,
+              item.rank,
+              item.url,
+              item.domain,
+              item.title,
+              item.snippet,
+              item.resultType,
+              item.domainAuthorityClass,
+              item.isWeak,
+              item.weaknessType || null,
+            ]
+          );
+        }
+      });
     }
   }
 
@@ -523,7 +527,12 @@ async function crawlCommercialDomains(
     );
     await query(
       `INSERT INTO commercial_snapshots (commercial_target_id, obs_date, pricing_plans, payment_gateways, commercial_stage)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (commercial_target_id, obs_date) DO UPDATE SET
+         pricing_plans = EXCLUDED.pricing_plans,
+         payment_gateways = EXCLUDED.payment_gateways,
+         commercial_stage = EXCLUDED.commercial_stage,
+         created_at = NOW()`,
       [
         `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 48)}`,
         obsDate,

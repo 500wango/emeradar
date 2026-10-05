@@ -6,7 +6,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
+  const session = await getAdminSession({ requireAdmin: true });
   if (!session) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
@@ -16,7 +16,7 @@ export async function POST(
     const body = await req.json().catch(() => ({}));
     const { password } = body;
 
-    const res = await AdminService.resetUserPassword(id, password);
+    const res = await AdminService.resetUserPassword(session.user.id, id, password);
     return NextResponse.json(res);
   } catch (err: any) {
     console.error('[admin/users/reset-password] Error:', err);

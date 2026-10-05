@@ -1,4 +1,4 @@
-import { query, transaction } from '@emeradar/db';
+import { query, transaction, getClient } from '@emeradar/db';
 import {
   generateDailyLedger,
   GENESIS_PREV_HASH,
@@ -24,9 +24,26 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 }> {
   console.log(`[pipeline] Starting daily pipeline run for ${obsDate}...`);
 
-  const lockRes = await query<{ locked: boolean }>(`SELECT pg_try_advisory_lock($1) as locked`, [PIPELINE_LOCK_ID]);
-  if (!lockRes.rows[0]?.locked) {
+  // Hold a dedicated pooled connection for the whole run so the session-level
+  // advisory lock is reliably owned (and released) by the SAME connection.
+  // Using pool.query() would check the lock in/out on random connections and
+  // leak the lock, making the concurrency guard unreliable.
+  const lockClient = await getClient();
+  let lockAcquired = false;
+  try {
+    const lockRes = await lockClient.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock($1) as locked`,
+      [PIPELINE_LOCK_ID]
+    );
+    lockAcquired = Boolean(lockRes.rows[0]?.locked);
+  } catch (err) {
+    lockClient.release();
+    throw err;
+  }
+
+  if (!lockAcquired) {
     console.warn(`[pipeline] Another pipeline process holds advisory lock ${PIPELINE_LOCK_ID}. Aborting.`);
+    lockClient.release();
     return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0 };
   }
 
@@ -259,7 +276,8 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       alertsTriggered,
     };
   } finally {
-    await query(`SELECT pg_advisory_unlock($1)`, [PIPELINE_LOCK_ID]).catch(() => undefined);
+    await lockClient.query(`SELECT pg_advisory_unlock($1)`, [PIPELINE_LOCK_ID]).catch(() => undefined);
+    lockClient.release();
   }
 }
 

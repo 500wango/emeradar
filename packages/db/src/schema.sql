@@ -246,6 +246,20 @@ CREATE TABLE IF NOT EXISTS commercial_snapshots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One snapshot per (target, date). De-duplicate pre-existing rows (keep newest)
+-- before enforcing the constraint so re-running the migration is safe.
+DELETE FROM commercial_snapshots a
+ WHERE EXISTS (
+   SELECT 1 FROM commercial_snapshots b
+   WHERE b.commercial_target_id = a.commercial_target_id
+     AND b.obs_date = a.obs_date
+     AND (b.created_at > a.created_at
+          OR (b.created_at = a.created_at AND b.id > a.id))
+ );
+ALTER TABLE commercial_snapshots DROP CONSTRAINT IF EXISTS uq_commercial_snapshot_target_date;
+ALTER TABLE commercial_snapshots
+  ADD CONSTRAINT uq_commercial_snapshot_target_date UNIQUE (commercial_target_id, obs_date);
+
 -- 7. 证据链条 (Evidence)
 CREATE TABLE IF NOT EXISTS evidence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- evd_
