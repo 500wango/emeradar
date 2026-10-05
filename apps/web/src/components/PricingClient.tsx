@@ -13,6 +13,7 @@ import {
   Layers,
   Flame,
   Award,
+  AlertCircle,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import type { UserEntitlementsInfo } from '@emeradar/services';
@@ -28,6 +29,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [noticeBanner, setNoticeBanner] = useState<string | null>(null);
 
   const isPro = entitlements?.tier === 'PRO';
   const isTeam = entitlements?.tier === 'TEAM';
@@ -40,6 +42,8 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
     const isSuccess = params.get('success') === 'true' || params.get('status') === 'success';
+    const reason = params.get('reason');
+    const feature = params.get('feature');
 
     if (sessionId && isSuccess) {
       setSuccessBanner(
@@ -52,6 +56,18 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
       }).catch(console.error);
+    } else if (reason === 'quota_exceeded') {
+      setNoticeBanner(
+        isZh
+          ? '⚡ 您当前的免费体验版包含每月 1 份商业机会深度研报额度（已体验 1/1）。升级套餐即可即时解锁全量研报、代码脚手架与自动化监控。'
+          : '⚡ You have reached your 1 free monthly report limit. Upgrade to Builder Pro to unlock 30 full opportunity reports per month.'
+      );
+    } else if (feature === 'opportunity-detail') {
+      setNoticeBanner(
+        isZh
+          ? '🔒 商业机会决策工作台（包含 9 维需求分析、Top 10 弱站穿透分析与真实结账证据）仅向 Builder Pro 及 Scale Team 会员开放。'
+          : '🔒 Full opportunity decision workspace is available for Builder Pro and Scale Team members.'
+      );
     }
   }, [isZh]);
 
@@ -85,6 +101,12 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       {successBanner && (
         <div className="mb-8 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-sm text-center shadow-xs animate-in fade-in">
           {successBanner}
+        </div>
+      )}
+      {noticeBanner && (
+        <div className="mb-8 p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 font-medium text-sm leading-relaxed text-center shadow-xs animate-in fade-in flex items-center justify-center gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+          <span>{noticeBanner}</span>
         </div>
       )}
       {/* Hero Section */}
