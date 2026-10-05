@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Layers,
   Radio,
+  Users,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
@@ -121,6 +122,17 @@ export function Navbar() {
                   >
                     <Radio className="w-4 h-4 text-blue-600" />
                     <span>{isZh ? '采集源配置' : 'Sources & Feeds'}</span>
+                  </Link>
+                  <Link
+                    href="/admin/users"
+                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/admin/users'
+                        ? 'text-purple-700 bg-purple-50 font-bold'
+                        : 'text-slate-700 hover:text-purple-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Users className="w-4 h-4 text-purple-600" />
+                    <span>{isZh ? '用户与权限' : 'Users & Access'}</span>
                   </Link>
                   <Link
                     href="/feed"
@@ -283,6 +295,13 @@ export function Navbar() {
                           >
                             <Radio className="w-4 h-4 text-slate-400" />
                             <span>{isZh ? '采集源与 RSS 配置' : 'Sources & Feeds'}</span>
+                          </Link>
+                          <Link
+                            href="/admin/users"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-purple-600 transition"
+                          >
+                            <Users className="w-4 h-4 text-slate-400" />
+                            <span>{isZh ? '用户与权限治理' : 'Users & Permissions'}</span>
                           </Link>
                           <Link
                             href="/feed"

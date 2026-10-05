@@ -6,6 +6,7 @@ import {
   Activity,
   Layers,
   Radio,
+  Users,
   ArrowLeft,
   ShieldAlert,
 } from 'lucide-react';
@@ -71,6 +72,13 @@ export default async function AdminLayout({
                 >
                   <Radio className="w-3.5 h-3.5 text-amber-400" />
                   <span>{isZh ? '采集源配置' : 'Sources & Feeds'}</span>
+                </Link>
+                <Link
+                  href="/admin/users"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition flex items-center gap-1.5"
+                >
+                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                  <span>{isZh ? '用户与权限' : 'Users & Access'}</span>
                 </Link>
               </nav>
             </div>
