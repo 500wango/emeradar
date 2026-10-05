@@ -7,6 +7,8 @@ import {
   Section4CommercialValidation,
   Section5ExecutionBlueprint,
   Section6KillCriteria,
+  SectionGoalSimulator,
+  VeteranVerdict,
 } from './types';
 import { ScoringOutput } from '@emeradar/scoring';
 import { Locale } from '@emeradar/core';
@@ -96,6 +98,78 @@ export function generateOpportunityReport(
     },
   };
 
+  // SERP Structural Analysis
+  const top10 = input.top10Serp ?? [];
+  const isHomepage = (url?: string): boolean => {
+    if (!url) return true;
+    try {
+      const pathname = new URL(url).pathname.replace(/\/+$/, '');
+      return pathname === '';
+    } catch {
+      return url.replace(/^\/+|\/+$/g, '').split('/').length <= 1;
+    }
+  };
+  const homepageCount = top10.length ? top10.filter((item) => isHomepage(item.url)).length : 0;
+  const innerCount = top10.length - homepageCount;
+  const weakCount = top10.filter((item) => item.isWeak).length;
+
+  let penetrationAngle: VeteranVerdict['penetrationAngle'] = 'HOMEPAGE_DIRECT';
+  let headline = isZh
+    ? `Top 10 中 ${innerCount} 席为大站无意内页（享 45% 折算），建议以独立专属首页单点穿透。`
+    : `Top 10 has ${innerCount} generic inner pages (discounted at 45%); recommend single-purpose dedicated homepage penetration.`;
+
+  const structuralReasons: string[] = [];
+  if (innerCount >= 5) {
+    structuralReasons.push(
+      isZh
+        ? `大站仅靠内页或博客顺路覆盖（${innerCount}/10），缺乏专属落地页正面阻击。`
+        : `Authority sites cover via generic inner pages (${innerCount}/10), lacking focused landing page defense.`
+    );
+  }
+  if (weakCount > 0) {
+    structuralReasons.push(
+      isZh
+        ? `前十中已观测到 ${weakCount} 个可渗透薄弱结果，存在切实切入空隙。`
+        : `Observed ${weakCount} vulnerable/weak listings in Top 10, providing actionable displacement gaps.`
+    );
+  }
+  if (homepageCount >= 6) {
+    structuralReasons.push(
+      isZh
+        ? `存在多个独立首页争夺，头部竞争较为正面，需重点强化落地页交互。`
+        : `Multiple dedicated homepages present; recommend tight product UX and direct task completion.`
+    );
+  }
+
+  if (top10.length > 0 && top10[0]?.resultType === 'OFFICIAL') {
+    penetrationAngle = 'ALTERNATIVE_INTERCEPT';
+    headline = isZh
+      ? '头部排位为官方绝对垄断位，建议切换为 Alternative / Review 衍生截流打法。'
+      : 'Official authority occupies top ranks; recommend Alternative / Review derivative intercept angle.';
+    structuralReasons.unshift(
+      isZh ? '头部官方占位难以正面替换，主攻“替代品/选型对比”搜索意图。' : 'Official listing hard to displace directly; target alternative and comparison queries.'
+    );
+  } else if (innerCount >= 5) {
+    penetrationAngle = 'HOMEPAGE_DIRECT';
+  } else if (weakCount >= 3) {
+    penetrationAngle = 'LONGTAIL_CLUSTER';
+    headline = isZh
+      ? '竞争盘面较零散，建议以轻量工具矩阵与长尾聚合页联合切入。'
+      : 'Decentralized competition; recommend lightweight tool matrix and long-tail cluster coverage.';
+  }
+
+  const veteranVerdict: VeteranVerdict = {
+    headline,
+    penetrationAngle,
+    structuralReasons: structuralReasons.length
+      ? structuralReasons
+      : [
+          isZh
+            ? '窗口得分受控，新站凭借专业且轻量的落地页具备竞争机会。'
+            : 'Competitive window viable; new focused landing pages have addressable headroom.',
+        ],
+  };
+
   // 2. Section 1: Executive Summary
   const section1: Section1ExecutiveSummary = {
     thesis:
@@ -119,6 +193,7 @@ export function generateOpportunityReport(
         : isZh
         ? '建议先加入雷达关注（WATCH）：监控商业信号与竞品动态，待条件成熟再推进。'
         : 'Recommendation: WATCH. Monitor radar alerts for further commercial validation before committing build resources.',
+    veteranVerdict,
   };
 
   // 3. Section 2: Demand Breakdown
@@ -137,24 +212,12 @@ export function generateOpportunityReport(
   };
 
   // 4. Section 3: Competitive Landscape & SERP Weakness
-  const top10 = input.top10Serp ?? [];
-  const weakCount = top10.filter((item) => item.isWeak).length;
-  const isHomepage = (url?: string): boolean => {
-    if (!url) return true;
-    try {
-      const pathname = new URL(url).pathname.replace(/\/+$/, '');
-      return pathname === '';
-    } catch {
-      return url.replace(/^\/+|\/+$/g, '').split('/').length <= 1;
-    }
-  };
-
   const section3: Section3CompetitiveWeakness = {
     serpWeaknessScore: input.scoring.wScore / 100,
     weakResultsRatio: top10.length > 0 ? weakCount / top10.length : 0,
     top10Results: top10,
-    homepageRatio: top10.length ? top10.filter((item) => isHomepage(item.url)).length / top10.length : 0,
-    innerPageRatio: top10.length ? top10.filter((item) => !isHomepage(item.url)).length / top10.length : 0,
+    homepageRatio: top10.length ? homepageCount / top10.length : 0,
+    innerPageRatio: top10.length ? innerCount / top10.length : 0,
     vulnerableGaps: [],
   };
 
@@ -219,6 +282,44 @@ export function generateOpportunityReport(
       : 'No extra invalidation rule is stored. Publication still requires 14 days of autocomplete history and one single-source organic SERP snapshot.',
   };
 
+  // 8. Goal & ROI Simulator Data
+  const KD_DOMAINS_MAP: Record<number, number> = {
+    0: 0, 10: 10, 20: 22, 30: 36, 40: 56, 50: 84, 60: 129, 70: 202, 80: 353, 90: 756, 100: 1200,
+  };
+  const estimatedKd = Math.max(5, Math.min(95, Math.round(100 - (input.scoring.wScore / 100))));
+  const keys = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+  let lo = 0, hi = 100;
+  for (const k of keys) {
+    if (k <= estimatedKd && k >= lo) lo = k;
+    if (k >= estimatedKd && k <= hi) { hi = k; break; }
+  }
+  const valLo = KD_DOMAINS_MAP[lo] ?? 0;
+  const valHi = KD_DOMAINS_MAP[hi] ?? 1200;
+  const interp = lo === hi ? valLo : Math.round(valLo + ((estimatedKd - lo) * (valHi - valLo)) / (hi - lo));
+  const requiredDomainsLow = Math.max(1, Math.round(interp * 0.7));
+  const requiredDomainsHigh = Math.max(requiredDomainsLow, Math.round(interp * 1.3));
+  const targetDrRange = estimatedKd < 20 ? 'DR 10 ~ 20' : (estimatedKd < 40 ? 'DR 20 ~ 35' : (estimatedKd < 60 ? 'DR 35 ~ 50' : 'DR 50+'));
+  const monthlyVolumeEstimate = (input.clusterQueries?.length || 1) * 750 + (input.queryVelocity || 1) * 350;
+  const kgrRatio = Math.round((0.18 + (input.scoring.wScore < 5000 ? 0.32 : 0.04)) * 100) / 100;
+  const ekgrRatio = Math.round(kgrRatio * (1 + estimatedKd / 100) * 100) / 100;
+
+  const goalSimulator: SectionGoalSimulator = {
+    defaultMonthlyTargetUSD: 2000,
+    estimatedKd,
+    requiredDomainsLow,
+    requiredDomainsHigh,
+    targetDrRange,
+    kgrRatio,
+    ekgrRatio,
+    clickValueUSD: 0.1,
+    monthlyVolumeEstimate,
+    assumptions: [
+      isZh ? '阶梯外链成本：前 10 条约 $100/条，后续阶梯递增 1%~2%' : 'Tiered backlink cost: First 10 @ ~$100, then tiered +1%~2%',
+      isZh ? '平均每次点击商业价值按 $0.10 折算' : 'Average commercial value per organic click modeled at $0.10',
+      isZh ? '转化率按标准微型 SaaS / 工具落地页基准 1.5%~3% 预估' : 'Conversion modeled at 1.5%~3% standard tool landing page baseline',
+    ],
+  };
+
   return {
     metadata,
     section1,
@@ -227,5 +328,6 @@ export function generateOpportunityReport(
     section4,
     section5,
     section6,
+    goalSimulator,
   };
 }

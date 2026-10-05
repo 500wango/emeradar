@@ -177,6 +177,48 @@ export interface TranslationDictionary {
     // Section headers
     threeAxisTitle?: string;
     threeAxisSubtitle?: string;
+    // Enhanced visual showcase & live scanner fields
+    ctaLiveScan?: string;
+    stat1Number?: string;
+    stat1Label?: string;
+    stat2Number?: string;
+    stat2Label?: string;
+    stat3Number?: string;
+    stat3Label?: string;
+    stat4Number?: string;
+    stat4Label?: string;
+    liveScanSectionBadge?: string;
+    liveScanSectionTitle?: string;
+    liveScanSectionDesc?: string;
+    dashboardMockupCaption?: string;
+    floatingBadge1?: string;
+    floatingBadge2?: string;
+    floatingBadge3?: string;
+    floatingBadge4?: string;
+    reportSectionBadge?: string;
+    reportSectionTitle?: string;
+    reportSectionDesc?: string;
+    reportPoint1Title?: string;
+    reportPoint1Desc?: string;
+    reportPoint2Title?: string;
+    reportPoint2Desc?: string;
+    reportPoint3Title?: string;
+    reportPoint3Desc?: string;
+    reportPoint4Title?: string;
+    reportPoint4Desc?: string;
+    comparisonBadge?: string;
+    comparisonTitle?: string;
+    comparisonSubtitle?: string;
+    comparisonColTrad?: string;
+    comparisonColEme?: string;
+    comparisonRow1Trad?: string;
+    comparisonRow1Eme?: string;
+    comparisonRow2Trad?: string;
+    comparisonRow2Eme?: string;
+    comparisonRow3Trad?: string;
+    comparisonRow3Eme?: string;
+    comparisonRow4Trad?: string;
+    comparisonRow4Eme?: string;
   };
   feed: {
     badge: string;

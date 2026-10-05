@@ -99,4 +99,45 @@ describe('Opportunity Report Unit Tests', () => {
     assert.strictEqual(report.section3.homepageRatio, 0.5);
     assert.strictEqual(report.section3.innerPageRatio, 0.5);
   });
+
+  it('generates veteranVerdict and goalSimulator with calibrated KD and domains', () => {
+    const report = generateOpportunityReport({
+      ...sampleInput,
+      top10Serp: [
+        { rank: 1, url: 'https://huge-corp.com/docs/tax', domain: 'huge-corp.com', title: 'Tax Docs', resultType: 'ORGANIC', isWeak: true, pageDiscount: 0.45, isHomepage: false },
+        { rank: 2, url: 'https://newblog.io/calculator', domain: 'newblog.io', title: 'Calculator', resultType: 'ORGANIC', isWeak: true, domainDr: 18, isHomepage: false },
+        { rank: 3, url: 'https://comp.com', domain: 'comp.com', title: 'Home', resultType: 'ORGANIC', isWeak: false, domainDr: 65, isHomepage: true },
+      ],
+      searchVolume: 1200,
+      allintitleCount: 42,
+    });
+
+    // Check Veteran Verdict
+    assert.ok(report.section1.veteranVerdict);
+    assert.strictEqual(typeof report.section1.veteranVerdict.headline, 'string');
+    assert.strictEqual(typeof report.section1.veteranVerdict.penetrationAngle, 'string');
+    assert.ok(report.section1.veteranVerdict.structuralReasons.length > 0);
+
+    // Check Goal Simulator
+    assert.ok(report.goalSimulator);
+    assert.strictEqual(report.goalSimulator.defaultMonthlyTargetUSD, 2000);
+    assert.strictEqual(typeof report.goalSimulator.monthlyVolumeEstimate, 'number');
+    assert.strictEqual(typeof report.goalSimulator.estimatedKd, 'number');
+    assert.ok(report.goalSimulator.requiredDomainsLow >= 0);
+    assert.ok(report.goalSimulator.requiredDomainsHigh >= report.goalSimulator.requiredDomainsLow);
+    assert.strictEqual(typeof report.goalSimulator.kgrRatio, 'number');
+    assert.strictEqual(typeof report.goalSimulator.ekgrRatio, 'number');
+    assert.strictEqual(typeof report.goalSimulator.targetDrRange, 'string');
+
+    // Check Markdown rendering includes Section 7 & Veteran Verdict
+    const md = renderReportToMarkdown(report);
+    assert.ok(md.includes('### Veteran Penetration Verdict'));
+    assert.ok(md.includes('## 7. 🎯 Goal & ROI Simulator (Builder Unit Economics)'));
+    assert.ok(md.includes('Ahrefs-Calibrated KD'));
+
+    // Check HTML rendering includes Section 7 & Veteran Verdict
+    const html = renderReportToHtml(report);
+    assert.ok(html.includes('Veteran Penetration Verdict'));
+    assert.ok(html.includes('Goal &amp; ROI Simulator'));
+  });
 });

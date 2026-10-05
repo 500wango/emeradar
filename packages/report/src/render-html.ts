@@ -179,6 +179,18 @@ export function renderReportToHtml(report: OpportunityReportData): string {
 
   <h2>1. Executive Summary & Radar Verdict</h2>
   <p><strong>Strategic Thesis:</strong> ${esc(section1.thesis)}</p>
+  ${
+    section1.veteranVerdict
+      ? `
+  <div class="callout" style="background-color: #f5f3ff; border-left: 4px solid #7c3aed; color: #4c1d95;">
+    <strong>🎖️ Veteran Penetration Verdict:</strong> ${esc(section1.veteranVerdict.headline)}<br>
+    <div style="margin-top: 6px; font-size: 13px;">
+      <span class="badge" style="background-color: #ddd6fe; color: #4c1d95; margin-right: 8px;">${esc(section1.veteranVerdict.penetrationAngle)}</span>
+      ${section1.veteranVerdict.structuralReasons.map((r) => `<span style="display: block; margin-top: 4px;">🎯 ${esc(r)}</span>`).join('')}
+    </div>
+  </div>`
+      : ''
+  }
   <div class="callout callout-note">
     <strong>Why Now?</strong> ${esc(section1.whyNow)}
   </div>
@@ -274,6 +286,63 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     </ul>
   </div>
   <p style="font-size: 13px; color: #64748b; margin-top: 16px;">${esc(section6.radarWatchGuidance)}</p>
+
+  ${
+    report.goalSimulator
+      ? `
+  <h2>7. Goal &amp; ROI Simulator (Builder Unit Economics)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Target / Value</th>
+        <th>Benchmark &amp; Guidance</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Target Monthly Revenue</strong></td>
+        <td><strong style="color: #16a34a; font-size: 15px;">$${report.goalSimulator.defaultMonthlyTargetUSD.toLocaleString()}</strong> / mo</td>
+        <td>Builder baseline revenue target</td>
+      </tr>
+      <tr>
+        <td><strong>Calibrated KD</strong></td>
+        <td><strong>${report.goalSimulator.estimatedKd}</strong> / 100</td>
+        <td>Target DR range: <strong>${esc(report.goalSimulator.targetDrRange)}</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Required Referring Domains</strong></td>
+        <td><strong>${report.goalSimulator.requiredDomainsLow} &ndash; ${report.goalSimulator.requiredDomainsHigh}</strong> unique domains</td>
+        <td>Calculated using non-linear KD domain curve</td>
+      </tr>
+      <tr>
+        <td><strong>Estimated Link Acquisition Budget</strong></td>
+        <td><strong>$${(report.goalSimulator.requiredDomainsLow * 100).toLocaleString()} &ndash; $${Math.round(report.goalSimulator.requiredDomainsHigh * 125).toLocaleString()}</strong></td>
+        <td>Tiered outreach &amp; link acquisition</td>
+      </tr>
+      <tr>
+        <td><strong>Keyword Golden Ratio (KGR)</strong></td>
+        <td><code>${report.goalSimulator.kgrRatio.toFixed(3)}</code></td>
+        <td>${report.goalSimulator.kgrRatio < 0.25 ? '<span style="color: #16a34a; font-weight: 600;">✅ &lt; 0.25 (Fast rank candidate)</span>' : 'Standard difficulty tier'}</td>
+      </tr>
+      <tr>
+        <td><strong>Extended KGR (EKGR)</strong></td>
+        <td><code>${report.goalSimulator.ekgrRatio.toFixed(3)}</code></td>
+        <td>${report.goalSimulator.ekgrRatio < 1.0 ? '<span style="color: #16a34a; font-weight: 600;">✅ &lt; 1.0 (High opportunity)</span>' : 'Standard tier'}</td>
+      </tr>
+      <tr>
+        <td><strong>Monthly Volume Modeling</strong></td>
+        <td>~${report.goalSimulator.monthlyVolumeEstimate.toLocaleString()} visits/mo</td>
+        <td>Cluster organic search volume estimate</td>
+      </tr>
+    </tbody>
+  </table>
+  <h3>Modeling Assumptions</h3>
+  <ul>
+    ${report.goalSimulator.assumptions.map((a) => `<li>${esc(a)}</li>`).join('')}
+  </ul>`
+      : ''
+  }
 </body>
 </html>`;
 }

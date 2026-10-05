@@ -30,7 +30,16 @@ export function renderReportToMarkdown(report: OpportunityReportData): string {
 
 ### Strategic Thesis
 ${section1.thesis}
-
+${
+  section1.veteranVerdict
+    ? `
+### Veteran Penetration Verdict
+> **${section1.veteranVerdict.headline}**
+> - **Penetration Strategy Angle**: \`${section1.veteranVerdict.penetrationAngle}\`
+${section1.veteranVerdict.structuralReasons.map((r) => `> - 🎯 ${r}`).join('\n')}
+`
+    : ''
+}
 ### Why Now?
 > [!NOTE]
 > ${section1.whyNow}
@@ -171,6 +180,31 @@ ${section6.invalidationConditions.map((cond) => `- 🛑 ${cond}`).join('\n')}
 ### Radar Monitoring Notice
 ${section6.radarWatchGuidance}
 `;
+
+  if (report.goalSimulator) {
+    const sim = report.goalSimulator;
+    const estLowCost = sim.requiredDomainsLow * 100;
+    const estHighCost = Math.round(sim.requiredDomainsHigh * 125);
+    md += `
+---
+
+## 7. 🎯 Goal & ROI Simulator (Builder Unit Economics)
+
+| Metric | Target / Projected Value | Operational Benchmark |
+|--------|-------------------------|-----------------------|
+| **Target Monthly Revenue** | **$${sim.defaultMonthlyTargetUSD.toLocaleString()} / mo** | Baseline ambition tier |
+| **Ahrefs-Calibrated KD** | **${sim.estimatedKd} / 100** | Algorithmic resistance estimate |
+| **Target Domain Rating (DR)** | **${sim.targetDrRange}** | Viable ranking threshold |
+| **Required Referring Domains** | **${sim.requiredDomainsLow} - ${sim.requiredDomainsHigh} domains** | Calibrated link acquisition quota |
+| **Estimated Link Outlay** | **$${estLowCost.toLocaleString()} - $${estHighCost.toLocaleString()}** | Tiered outreach & link acquisition |
+| **Keyword Golden Ratio (KGR)** | **${sim.kgrRatio.toFixed(3)}** | ${sim.kgrRatio < 0.25 ? '✅ Great (< 0.25 - Fast rank candidate)' : '⚠️ Standard'} |
+| **Extended KGR (EKGR)** | **${sim.ekgrRatio.toFixed(3)}** | ${sim.ekgrRatio < 1.0 ? '✅ Promising (< 1.0)' : 'Standard'} |
+| **Monthly Volume Modeling** | **~${sim.monthlyVolumeEstimate.toLocaleString()} visits/mo** | Modeled across query cluster |
+
+### Modeling Assumptions
+${sim.assumptions.map((a) => `- 💡 ${a}`).join('\n')}
+`;
+  }
 
   return md;
 }

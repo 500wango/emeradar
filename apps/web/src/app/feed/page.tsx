@@ -216,7 +216,9 @@ export default async function FeedPage() {
                 </div>
                 <h3 className="mt-2 font-bold text-slate-900">{item.primaryQuery}</h3>
                 <p className="mt-2 text-xs text-slate-600 leading-relaxed line-clamp-3">
-                  {item.featuredEvidenceSnippet || item.whyNowSummary}
+                  {item.featuredEvidenceSnippet || (isZh
+                    ? `搜索候选“${item.primaryQuery}”正在观察中：${item.whyNowSummary}`
+                    : `Search candidate “${item.primaryQuery}” is being observed: ${item.whyNowSummary}`)}
                 </p>
                 <p className="mt-3 text-xs font-semibold text-slate-700">
                   D {item.dBand} · M {item.mBand} · W {item.wBand}

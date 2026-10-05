@@ -26,11 +26,19 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
 
   const locale = await getServerLocale();
 
-  const report = await ReportService.getOrGenerateReport(
-    detail.opportunity.id,
-    userId,
-    locale
-  );
+  let report: any;
+  try {
+    report = await ReportService.getOrGenerateReport(
+      detail.opportunity.id,
+      userId,
+      locale
+    );
+  } catch (err: any) {
+    if (err.code === 'QUOTA_EXCEEDED' || err.status === 429) {
+      redirect(`/pricing?reason=quota_exceeded&feature=report&back=${encodeURIComponent(`/opportunities/${slug}`)}`);
+    }
+    throw err;
+  }
 
   return (
     <ReportStudioClient

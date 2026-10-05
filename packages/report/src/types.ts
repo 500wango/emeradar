@@ -28,12 +28,19 @@ export interface OpportunityReportMetadata {
   };
 }
 
+export interface VeteranVerdict {
+  headline: string;
+  penetrationAngle: 'HOMEPAGE_DIRECT' | 'ALTERNATIVE_INTERCEPT' | 'AGGREGATOR_PAGE' | 'LONGTAIL_CLUSTER';
+  structuralReasons: string[];
+}
+
 export interface Section1ExecutiveSummary {
   thesis: string;
   whyNow: string;
   topIdea: string;
   keyRisks: string[];
   decisionRecommendation: string;
+  veteranVerdict: VeteranVerdict;
 }
 
 export interface Section2DemandBreakdown {
@@ -132,6 +139,19 @@ export interface Section6KillCriteria {
   radarWatchGuidance: string;
 }
 
+export interface SectionGoalSimulator {
+  defaultMonthlyTargetUSD: number;
+  estimatedKd: number;
+  requiredDomainsLow: number;
+  requiredDomainsHigh: number;
+  targetDrRange: string;
+  kgrRatio: number;
+  ekgrRatio: number;
+  clickValueUSD: number;
+  monthlyVolumeEstimate: number;
+  assumptions: string[];
+}
+
 export interface OpportunityReportData {
   metadata: OpportunityReportMetadata;
   section1: Section1ExecutiveSummary;
@@ -140,4 +160,5 @@ export interface OpportunityReportData {
   section4: Section4CommercialValidation;
   section5: Section5ExecutionBlueprint;
   section6: Section6KillCriteria;
+  goalSimulator: SectionGoalSimulator;
 }

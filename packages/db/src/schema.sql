@@ -385,6 +385,27 @@ CREATE TABLE IF NOT EXISTS ledger_checkpoints (
 );
 ALTER TABLE ledger_checkpoints ADD COLUMN IF NOT EXISTS checkpoint_hash CHAR(64);
 
+-- Append-only trigger for audit tables
+CREATE OR REPLACE FUNCTION prevent_ledger_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'Table % is strictly append-only. UPDATE and DELETE are prohibited.', TG_TABLE_NAME
+  USING ERRCODE = '0A000';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_verdicts_append_only ON verdicts;
+CREATE TRIGGER trg_verdicts_append_only
+BEFORE UPDATE OR DELETE ON verdicts
+FOR EACH STATEMENT
+EXECUTE FUNCTION prevent_ledger_modification();
+
+DROP TRIGGER IF EXISTS trg_ledger_checkpoints_append_only ON ledger_checkpoints;
+CREATE TRIGGER trg_ledger_checkpoints_append_only
+BEFORE UPDATE OR DELETE ON ledger_checkpoints
+FOR EACH STATEMENT
+EXECUTE FUNCTION prevent_ledger_modification();
+
 -- 9. 机会研究报告 (Opportunity Reports)
 CREATE TABLE IF NOT EXISTS opportunity_reports (
   id TEXT PRIMARY KEY,                         -- rpt_

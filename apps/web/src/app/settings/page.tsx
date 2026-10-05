@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n, Locale } from '@/lib/i18n';
-import type { ApiKeyItem } from '@emeradar/services';
+import type { ApiKeyItem, UserEntitlementsInfo } from '@emeradar/services';
 import {
   User,
   Sliders,
@@ -57,6 +57,32 @@ function SettingsContent() {
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
+
+  // Entitlements and quotas state
+  const [entitlements, setEntitlements] = useState<UserEntitlementsInfo | null>(null);
+  const [loadingEntitlements, setLoadingEntitlements] = useState(false);
+
+  const loadEntitlements = useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoadingEntitlements(true);
+      const res = await fetch('/api/v1/billing');
+      if (res.ok) {
+        const data = await res.json();
+        setEntitlements(data);
+      }
+    } catch (err) {
+      console.error('Failed to load entitlements:', err);
+    } finally {
+      setLoadingEntitlements(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadEntitlements();
+    }
+  }, [user, loadEntitlements]);
 
   // Sync preferences from context or i18n
   useEffect(() => {
@@ -246,7 +272,7 @@ function SettingsContent() {
 
         <div className="flex items-center gap-2.5">
           <Link
-            href="/billing"
+            href="/pricing"
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1.5"
           >
             <CreditCard className="w-3.5 h-3.5 text-slate-500" />
@@ -381,7 +407,7 @@ function SettingsContent() {
                 <span className="font-semibold text-emerald-400">{isZh ? '已激活并经验证' : 'Active & Validated'}</span>
               </div>
               <Link
-                href="/billing"
+                href="/pricing"
                 className="mt-4 block w-full py-2.5 text-center rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-xs transition"
               >
                 {t('pricing.upgradeToPro')} →
@@ -744,49 +770,121 @@ function SettingsContent() {
               </div>
 
               <Link
-                href="/billing"
+                href="/pricing"
                 className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition self-start sm:self-auto"
               >
-                {isZh ? '调整方案 / 查看账单 →' : 'Change Plan / Manage Invoices →'}
+                {isZh ? '调整方案 / 升级套餐 →' : 'Change Plan / Upgrade →'}
               </Link>
             </div>
 
             {/* Quota Progress */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>{t('pricing.trackedProjects')}</span>
-                  <span className="text-blue-600 font-bold">{isZh ? '3 / 10 活跃' : '3 / 10 Active'}</span>
-                </div>
-                <div className="w-full bg-slate-200 rounded-full h-2">
-                  <div className="bg-blue-600 h-2 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '剩余 7 个项目席位' : '7 project slots remaining'}</p>
+            {loadingEntitlements && !entitlements ? (
+              <div className="p-8 text-center">
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto" />
               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
+                {/* 1. Tracked Projects */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                    <span>{t('pricing.trackedProjects')}</span>
+                    <span className="text-blue-600 font-bold">
+                      {entitlements ? `${entitlements.currentProjectsCount} / ${entitlements.maxProjects}` : '0 / 0'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${entitlements ? Math.min(100, (entitlements.currentProjectsCount / Math.max(1, entitlements.maxProjects)) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {entitlements
+                      ? (isZh
+                          ? `剩余 ${Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount)} 个席位`
+                          : `${Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount)} slots remaining`)
+                      : '-'}
+                  </p>
+                </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>{t('pricing.monthlyReports')}</span>
-                  <span className="text-emerald-600 font-bold">{isZh ? '12 / 30 每月' : '12 / 30 Monthly'}</span>
+                {/* 2. Monthly Reports */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                    <span>{t('pricing.monthlyReports')}</span>
+                    <span className="text-emerald-600 font-bold">
+                      {entitlements ? `${entitlements.exportReportsUsed} / ${entitlements.exportReportsMonthlyLimit}` : '0 / 0'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
+                      className="bg-emerald-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${entitlements ? Math.min(100, (entitlements.exportReportsUsed / Math.max(1, entitlements.exportReportsMonthlyLimit)) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {entitlements
+                      ? (isZh ? `本月剩余 ${entitlements.remainingReports} 份报告` : `${entitlements.remainingReports} reports remaining`)
+                      : '-'}
+                  </p>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-2">
-                  <div className="bg-emerald-600 h-2 rounded-full" style={{ width: '40%' }} />
-                </div>
-                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '下月1日重置配额' : 'Resets on 1st of next month'}</p>
-              </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                  <span>{t('pricing.alertRules')}</span>
-                  <span className="text-purple-600 font-bold">{isZh ? '5 / 5 已启用' : '5 / 5 Enabled'}</span>
+                {/* 3. Alert Rules */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                    <span>{t('pricing.alertRules')}</span>
+                    <span className="text-purple-600 font-bold">
+                      {entitlements ? `${entitlements.currentAlertsCount} / ${entitlements.maxAlerts}` : '0 / 0'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
+                      className="bg-purple-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${entitlements ? Math.min(100, (entitlements.currentAlertsCount / Math.max(1, entitlements.maxAlerts)) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {entitlements
+                      ? (isZh
+                          ? `已启用 ${entitlements.currentAlertsCount} 条规则`
+                          : `${entitlements.currentAlertsCount} rules active`)
+                      : '-'}
+                  </p>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-2">
-                  <div className="bg-purple-600 h-2 rounded-full" style={{ width: '100%' }} />
+
+                {/* 4. Live Scans (Daily) */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                    <span>{isZh ? '实时雷达扫描配额' : 'Live Radar Scans'}</span>
+                    <span className="text-amber-600 font-bold">
+                      {entitlements ? `${entitlements.liveScansUsedToday || 0} / ${entitlements.liveScanDailyLimit || 3}` : '0 / 3'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
+                      className="bg-amber-500 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${entitlements ? Math.min(100, ((entitlements.liveScansUsedToday || 0) / Math.max(1, entitlements.liveScanDailyLimit || 1)) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {entitlements
+                      ? (isZh
+                          ? `今日剩余 ${entitlements.remainingLiveScansToday ?? 3} 次扫描`
+                          : `${entitlements.remainingLiveScansToday ?? 3} scans remaining today`)
+                      : '-'}
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">{isZh ? '即时 SERP 排名异动提醒' : 'Instant SERP shift notifications'}</p>
               </div>
-            </div>
+            )}
           </div>
+
         </div>
       )}
     </div>

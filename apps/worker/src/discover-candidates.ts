@@ -66,7 +66,7 @@ export async function discoverAutocompleteCandidates(obsDate: string): Promise<n
     const queryId = idForQuery('qry', candidateQuery);
     const opportunityId = idForQuery('opp', candidateQuery);
     const slug = slugForQuery(candidateQuery);
-    const reason = `Discovered from autocomplete expansion of "${sourceQuery}" across recent search observations.`;
+    const reason = `New related search: "${candidateQuery}" was discovered while observing "${sourceQuery}".`;
 
     await query(
       `INSERT INTO queries (id, query_text, market_country, research_language, first_seen_date, tier)
@@ -121,8 +121,8 @@ export async function discoverAutocompleteCandidates(obsDate: string): Promise<n
         opportunityId,
         slug,
         candidateQuery,
-        'System-discovered search candidate; evidence is still being collected.',
-        'Observe demand, commercial proof, and entry window before making a build decision.',
+        `Search interest is still being observed for "${candidateQuery}". It appeared as a related search to "${sourceQuery}".`,
+        `Start by checking the core job behind "${candidateQuery}"; confirm demand, paid supply, and competition before building.`,
         reason,
       ]
     );

@@ -28,6 +28,9 @@
 | 18 | QA-TEST-STRATEGY | 测试分层、评测集、验收追溯 | 全员 |
 | 19 | DELIVERY-PLAN | Epic、估算、里程碑、关键路径 | 项目负责人 |
 | 20 | COMMERCIAL-RELEASE | 首发卖什么、不卖什么、页面与闭环 | 产品、全员 |
+| 21 | DOCKER-VPS-DEPLOYMENT | 独立 VPS 与生产 Docker 部署指南 | 运维、全员 |
+| 22 | EARLY-DISCOVERY-DEVELOPMENT-PLAN | 新实体与早期搜索机会开发计划 | 后端、数据 |
+| 23 | COMPETITIVE-EVOLUTION-AND-EXECUTION-PLAN | 竞品对标演进与实施计划 (Sprint 1~4) | 产品、全员 |
 
 ## 2. 依赖关系
 

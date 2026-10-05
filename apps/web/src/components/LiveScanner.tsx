@@ -7,9 +7,10 @@ import { useI18n } from '@/lib/i18n';
 
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
+  showQuickChips?: boolean;
 }
 
-export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
+export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanModalProps = {}) {
   const router = useRouter();
   const { isZh } = useI18n();
   const [query, setQuery] = useState('');
@@ -84,6 +85,33 @@ export function LiveScanner({ onScanSuccess }: LiveScanModalProps = {}) {
           </button>
         </div>
       </form>
+
+      {showQuickChips && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-slate-400 font-medium">
+            {isZh ? '热门生态位实时测验:' : 'Quick niche tests:'}
+          </span>
+          {[
+            'freelance invoice generator',
+            'cron job monitor',
+            'pdf watermark api',
+            'podcast transcript seo',
+          ].map((kw) => (
+            <button
+              key={kw}
+              type="button"
+              onClick={() => {
+                setQuery(kw);
+                handleScan(kw);
+              }}
+              disabled={isScanning}
+              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition-all font-mono text-[11px] disabled:opacity-50"
+            >
+              {kw}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">

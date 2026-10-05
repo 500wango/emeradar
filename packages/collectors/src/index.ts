@@ -4,3 +4,4 @@ export * from './ac-collector';
 export * from './serp-collector';
 export * from './crawl-collector';
 export * from './discovery';
+export * from './checkout-referrals-collector';

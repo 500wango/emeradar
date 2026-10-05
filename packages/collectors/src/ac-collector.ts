@@ -14,6 +14,7 @@ export interface AutocompleteTarget {
   opportunityId?: string;
   marketCountry?: string;
   language?: string;
+  researchLanguage?: string;
 }
 
 export class AutocompleteCollector
@@ -54,7 +55,11 @@ export class AutocompleteCollector
 
     try {
       // 2. Depth 0: Fetch base seed suggestions
-      const baseSuggestions = await this.fetchSuggestions(item.queryText);
+      const baseSuggestions = await this.fetchSuggestions(
+        item.queryText,
+        item.marketCountry,
+        item.researchLanguage || item.language
+      );
       if (!baseSuggestions) {
         return {
           status: 'FAILED',
@@ -78,7 +83,9 @@ export class AutocompleteCollector
         for (const mod of modifiers) {
           if (!ctx.budget.canSpend(this.costPerQueryUsd)) break;
           const subSuggestions = await this.fetchSuggestions(
-            `${item.queryText} ${mod}`
+            `${item.queryText} ${mod}`,
+            item.marketCountry,
+            item.researchLanguage || item.language
           );
           totalRequests++;
           for (const s of subSuggestions ?? []) {
@@ -157,9 +164,15 @@ export class AutocompleteCollector
     }
   }
 
-  private async fetchSuggestions(query: string): Promise<string[] | null> {
+  private async fetchSuggestions(
+    query: string,
+    marketCountry = 'US',
+    language = 'en'
+  ): Promise<string[] | null> {
     try {
-      const url = `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(
+      const gl = (marketCountry || 'US').toLowerCase();
+      const hl = (language || 'en').slice(0, 2).toLowerCase();
+      const url = `https://suggestqueries.google.com/complete/search?client=chrome&gl=${gl}&hl=${hl}&q=${encodeURIComponent(
         query
       )}`;
       const res = await fetch(url, {

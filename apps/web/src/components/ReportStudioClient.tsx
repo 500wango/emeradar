@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { OpportunityReportData } from '@emeradar/report';
 import { useI18n } from '@/lib/i18n';
+import { GoalSimulator } from './GoalSimulator';
 
 interface ReportStudioClientProps {
   reportId: string;
@@ -174,6 +175,27 @@ export function ReportStudioClient({
             <p className="text-sm text-slate-700 leading-relaxed mb-4">
               {section1.thesis}
             </p>
+            {section1.veteranVerdict && (
+              <div className="p-4 rounded-xl bg-purple-50/80 border border-purple-200 text-xs text-purple-950 mb-4">
+                <div className="flex items-center gap-2 font-bold text-purple-900 mb-1.5">
+                  <span className="px-2 py-0.5 rounded text-[10px] uppercase font-mono tracking-wider bg-purple-200/80 text-purple-800 border border-purple-300">
+                    {section1.veteranVerdict.penetrationAngle}
+                  </span>
+                  <span>{isZh ? '老兵切入判决' : 'Veteran Penetration Angle'}</span>
+                </div>
+                <div className="font-semibold text-purple-900 mb-2">
+                  {section1.veteranVerdict.headline}
+                </div>
+                <div className="space-y-1 text-purple-800">
+                  {section1.veteranVerdict.structuralReasons.map((r, i) => (
+                    <div key={i} className="flex items-start gap-1.5">
+                      <span className="text-purple-500 font-bold">🎯</span>
+                      <span>{r}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="p-4 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-900 mb-4">
               <strong>{isZh ? '为何现在切入?' : 'Why Now?'}</strong> {section1.whyNow}
             </div>
@@ -325,6 +347,14 @@ export function ReportStudioClient({
               ))}
             </div>
           </div>
+
+          {/* Goal & Unit Economics Simulator */}
+          {data.goalSimulator && (
+            <GoalSimulator
+              data={data.goalSimulator}
+              primaryQuery={section2.primaryQuery}
+            />
+          )}
 
           {/* §6 Kill Criteria */}
           <div>

@@ -22,6 +22,17 @@ const BASE_WEAKNESS_MAP: Record<ResultType, number> = {
   UNCLASSIFIED: 0.3,
 };
 
+function checkIsHomepage(url?: string, explicit?: boolean): boolean {
+  if (explicit !== undefined) return explicit;
+  if (!url) return true;
+  try {
+    const pathname = new URL(url).pathname.replace(/\/+$/, '');
+    return pathname === '';
+  } catch {
+    return url.replace(/^\/+|\/+$/g, '').split('/').length <= 1;
+  }
+}
+
 export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResult {
   // Sort items by rank ascending
   const sorted = [...items].sort((a, b) => a.rank - b.rank);
@@ -31,6 +42,9 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
   let weightedWeaknessSum = 0;
   let totalWeight = 0;
   let weakCount = 0;
+  let weakSitesCount = 0;
+  let innerPagesCount = 0;
+  let homepageCount = 0;
 
   for (let i = 0; i < top10.length; i++) {
     const item = top10[i];
@@ -53,6 +67,21 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
       relevanceAdj = 0.2;
     }
 
+    const isHome = checkIsHomepage(item.url, item.isHomepage);
+    if (isHome) {
+      homepageCount++;
+    } else {
+      innerPagesCount++;
+    }
+
+    const pageDiscount = isHome ? 1.0 : (item.isDedicatedLandingPage ? 0.65 : 0.45);
+
+    // Weak site detection: DR < 25 or young domain (< 18 months)
+    const isWeakSite = (item.domainDr !== undefined && item.domainDr < 25) || (ageDays > 0 && ageDays < 540 && isHome);
+    if (isWeakSite) {
+      weakSitesCount++;
+    }
+
     const rawTotal = baseWeakness + ageAdj + relevanceAdj;
     const totalWeakness = Math.min(1.0, Math.max(0.0, Math.round(rawTotal * 100) / 100));
 
@@ -72,6 +101,8 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
       weaknessType = 'LOW_RELEVANCE';
     } else if (item.resultType === 'LISTICLE_AFFILIATE') {
       weaknessType = 'AFFILIATE_LISTICLE';
+    } else if (!isHome && pageDiscount === 0.45) {
+      weaknessType = 'GENERIC_INNER_PAGE';
     }
 
     processedItems.push({
@@ -83,9 +114,12 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
       baseWeakness,
       ageAdj,
       relevanceAdj,
+      pageDiscount,
       totalWeakness,
       isWeak,
       weaknessType,
+      isHomepage: isHome,
+      domainDr: item.domainDr,
     });
 
     weightedWeaknessSum += rankWeight * totalWeakness;
@@ -97,9 +131,45 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
     totalWeight > 0 ? (weightedWeaknessSum / totalWeight) * 100 : 0;
   const score = Math.round(normalizedWeakness * 100) / 100;
 
+  // Build structural reasons & penetration angle
+  const structuralPenetrationReasons: string[] = [];
+  if (weakSitesCount > 0) {
+    structuralPenetrationReasons.push(
+      `Top 10 中已有 ${weakSitesCount} 个建站未满18个月或低权重弱站占位，为新站提供直接可穿透证据。`
+    );
+  }
+  if (innerPagesCount >= 5) {
+    structuralPenetrationReasons.push(
+      `Top 10 中有 ${innerPagesCount} 席为大站无意内页或顺路文章，权重享受 45% 折算，缺乏专属首页正面防御。`
+    );
+  }
+  if (homepageCount >= 6) {
+    structuralPenetrationReasons.push(
+      `Top 10 存在多个独立专注首页激烈争夺，正面争夺难度较高。`
+    );
+  }
+
+  let penetrationAngle: SerpWeaknessResult['penetrationAngle'] = 'HOMEPAGE_DIRECT';
+  const hasOfficialTop1 = top10.length > 0 && top10[0]?.resultType === 'OFFICIAL';
+  if (hasOfficialTop1) {
+    penetrationAngle = 'ALTERNATIVE_INTERCEPT';
+    structuralPenetrationReasons.push(
+      `头部排位为官方垄断位，建议切换为 Alternative / Review 衍生词截流打法。`
+    );
+  } else if (innerPagesCount >= 5) {
+    penetrationAngle = 'HOMEPAGE_DIRECT';
+  } else if (weakCount >= 4) {
+    penetrationAngle = 'LONGTAIL_CLUSTER';
+  }
+
   return {
     score,
     items: processedItems,
     weakCount,
+    weakSitesCount,
+    innerPagesCount,
+    homepageCount,
+    structuralPenetrationReasons,
+    penetrationAngle,
   };
 }

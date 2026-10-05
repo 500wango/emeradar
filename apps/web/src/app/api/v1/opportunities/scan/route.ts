@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LiveScanService } from '@emeradar/services';
+import { LiveScanService, EntitlementService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
 import { getAuthUser } from '@/lib/auth-server';
 
@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Reserve live scan daily quota (Free: 3/day, Pro: 30/day, Team: 100/day)
+    const scanQuota = await EntitlementService.reserveLiveScanQuota(auth.user.id);
+
     const result = await LiveScanService.scan({
       query: query.trim(),
       userId: auth.user.id,
@@ -37,6 +40,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       opportunity: result,
+      quota: {
+        remainingToday: scanQuota.remaining,
+        dailyLimit: scanQuota.limit,
+      },
       message: result.isNew
         ? 'Tracking started. The first observation is WATCH with insufficient evidence, not a build decision.'
         : 'This query is already on file.',

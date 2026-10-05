@@ -73,7 +73,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           retryable: true,
           errorCode: 'SERP_UNAVAILABLE',
           message:
-            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI) or BRAVE_API_KEY. A failed fetch is not scored.',
+            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI), AISA_API_KEY (AIsa.one), or BRAVE_API_KEY. A failed fetch is not scored.',
         };
       }
 
@@ -250,6 +250,12 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       if (fromSerpApi && fromSerpApi.length > 0) return fromSerpApi;
     }
 
+    const aisaKey = process.env.AISA_API_KEY;
+    if (aisaKey) {
+      const fromAIsa = await this.fetchAIsa(query, marketCountry, language, aisaKey);
+      if (fromAIsa && fromAIsa.length > 0) return fromAIsa;
+    }
+
     const braveKey = process.env.BRAVE_API_KEY;
     if (braveKey) {
       const fromBrave = await this.fetchBrave(query, marketCountry, braveKey);
@@ -257,6 +263,114 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     }
 
     return null;
+  }
+
+  private async fetchAIsa(
+    query: string,
+    marketCountry: string,
+    language: string,
+    apiKey: string
+  ) {
+    try {
+      const endpoint = process.env.AISA_SEARCH_URL || 'https://api.aisa.one/apis/v1/tavily/search';
+      const isDataForSeo = endpoint.includes('dataforseo');
+
+      const body = isDataForSeo
+        ? JSON.stringify([
+            {
+              keyword: query,
+              location_code: marketCountry === 'US' ? 2840 : undefined,
+              language_code: language || 'en',
+              depth: 10,
+            },
+          ])
+        : JSON.stringify({
+            query,
+            search_depth: 'basic',
+            max_results: 10,
+            include_answer: false,
+          });
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) return null;
+      const data = await res.json();
+
+      // Format 1: Tavily / Web Search format ({ results: [{ title, url, content }] })
+      if (Array.isArray(data?.results)) {
+        return data.results
+          .slice(0, 10)
+          .map((r: any, idx: number) => {
+            const urlStr = String(r.url || '');
+            const title = String(r.title || '');
+            const snippet = String(r.content || r.snippet || '');
+            return {
+              rank: idx + 1,
+              url: urlStr,
+              domain: this.extractDomain(urlStr),
+              title,
+              snippet,
+              resultType: this.inferResultType(urlStr, title, snippet),
+              publishedAt: r.published_date ? new Date(r.published_date) : undefined,
+            };
+          })
+          .filter((row: { url: string }) => row.url.startsWith('http'));
+      }
+
+      // Format 2: DataForSEO SERP format ({ tasks: [{ result: [{ items: [...] }] }] })
+      const dfsItems = data?.tasks?.[0]?.result?.[0]?.items;
+      if (Array.isArray(dfsItems)) {
+        return dfsItems
+          .filter((i: any) => (i.type === 'organic' || !i.type) && i.url)
+          .slice(0, 10)
+          .map((r: any, idx: number) => {
+            const urlStr = String(r.url || '');
+            const title = String(r.title || '');
+            const snippet = String(r.description || r.snippet || '');
+            return {
+              rank: r.rank_group || idx + 1,
+              url: urlStr,
+              domain: this.extractDomain(urlStr),
+              title,
+              snippet,
+              resultType: this.inferResultType(urlStr, title, snippet),
+            };
+          })
+          .filter((row: { url: string }) => row.url.startsWith('http'));
+      }
+
+      // Format 3: Generic items array format ({ items: [...] })
+      if (Array.isArray(data?.items)) {
+        return data.items
+          .slice(0, 10)
+          .map((r: any, idx: number) => {
+            const urlStr = String(r.url || r.link || '');
+            const title = String(r.title || '');
+            const snippet = String(r.snippet || r.excerpt || r.description || '');
+            return {
+              rank: idx + 1,
+              url: urlStr,
+              domain: this.extractDomain(urlStr),
+              title,
+              snippet,
+              resultType: this.inferResultType(urlStr, title, snippet),
+            };
+          })
+          .filter((row: { url: string }) => row.url.startsWith('http'));
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private async fetchSerpApi(

@@ -335,6 +335,31 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       }
     }
 
+    const aisaKey = process.env.AISA_API_KEY;
+    if (aisaKey) {
+      try {
+        const endpoint = 'https://api.aisa.one/apis/v1/tavily/extract';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${aisaKey}`,
+          },
+          body: JSON.stringify({ urls: [url] }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const raw = data.results?.[0]?.raw_content;
+          if (typeof raw === 'string' && raw.length > 50) {
+            return raw;
+          }
+        }
+      } catch {
+        // Fall through
+      }
+    }
+
     return null;
   }
 

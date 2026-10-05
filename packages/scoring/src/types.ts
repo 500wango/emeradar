@@ -32,6 +32,9 @@ export interface SerpItemInput {
   resultType: ResultType;
   ageDays?: number;
   relevance?: number; // 0.0 - 1.0
+  isHomepage?: boolean;
+  isDedicatedLandingPage?: boolean;
+  domainDr?: number;
 }
 
 export interface SerpItemWeaknessOutput {
@@ -43,15 +46,23 @@ export interface SerpItemWeaknessOutput {
   baseWeakness: number;
   ageAdj: number;
   relevanceAdj: number;
+  pageDiscount: number; // 0.45 for inner page, 0.65 for dedicated, 1.0 for homepage
   totalWeakness: number; // 0.0 - 1.0
   isWeak: boolean;
   weaknessType?: string;
+  isHomepage: boolean;
+  domainDr?: number;
 }
 
 export interface SerpWeaknessResult {
   score: number; // 0 - 100
   items: SerpItemWeaknessOutput[];
   weakCount: number;
+  weakSitesCount: number; // sites with DR < 25 or ageDays < 540
+  innerPagesCount: number;
+  homepageCount: number;
+  structuralPenetrationReasons: string[];
+  penetrationAngle: 'HOMEPAGE_DIRECT' | 'ALTERNATIVE_INTERCEPT' | 'AGGREGATOR_PAGE' | 'LONGTAIL_CLUSTER';
 }
 
 export interface DemandFeatures {

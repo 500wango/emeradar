@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   CheckCircle2,
@@ -26,6 +26,8 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
   const { t, dictionary, isZh } = useI18n();
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   const isPro = entitlements?.tier === 'PRO';
   const isTeam = entitlements?.tier === 'TEAM';
@@ -33,8 +35,58 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
 
   const p = dictionary.pricing;
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    const isSuccess = params.get('success') === 'true' || params.get('status') === 'success';
+
+    if (sessionId && isSuccess) {
+      setSuccessBanner(
+        isZh
+          ? '🎉 恭喜！订阅已成功激活，您的工作区配额已即时更新。'
+          : '🎉 Congratulations! Your subscription is active and your quota has been upgraded.'
+      );
+      fetch('/api/v1/billing/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      }).catch(console.error);
+    }
+  }, [isZh]);
+
+  const handleUpgrade = async (planCode: 'PRO' | 'TEAM') => {
+    if (!isLoggedIn) {
+      window.location.href = `/register?plan=${planCode.toLowerCase()}`;
+      return;
+    }
+    setLoadingPlan(planCode);
+    try {
+      const res = await fetch('/api/v1/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planCode, billingCycle }),
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.detail || data.title || 'Failed to start Stripe checkout session.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error connecting to checkout service.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
+      {successBanner && (
+        <div className="mb-8 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-sm text-center shadow-xs animate-in fade-in">
+          {successBanner}
+        </div>
+      )}
       {/* Hero Section */}
       <div className="text-center max-w-4xl mx-auto mb-14">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200/80 mb-5 shadow-sm">
@@ -308,12 +360,16 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 {p.currentActive}
               </button>
             ) : (
-              <Link
-                href={isLoggedIn ? '/settings' : '/register?plan=pro'}
-                className="block w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-lg shadow-blue-600/30 hover:shadow-blue-600/40 transition-all text-center"
+              <button
+                type="button"
+                onClick={() => handleUpgrade('PRO')}
+                disabled={loadingPlan === 'PRO'}
+                className="block w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-lg shadow-blue-600/30 hover:shadow-blue-600/40 transition-all text-center disabled:opacity-60 cursor-pointer"
               >
-                {isLoggedIn ? p.upgradeNow : p.startTrial}
-              </Link>
+                {loadingPlan === 'PRO'
+                  ? (isZh ? '正在连接 Stripe...' : 'Connecting to Stripe...')
+                  : (isLoggedIn ? p.upgradeNow : p.startTrial)}
+              </button>
             )}
             <p className="text-center text-[10px] text-slate-400 mt-2">
               {isZh ? '随时一键取消 · 无任何绑约' : 'Cancel anytime · No lock-in contracts'}
@@ -371,14 +427,19 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 {p.currentActive}
               </button>
             ) : (
-              <a
-                href="mailto:contact@emeradar.com?subject=Inquiry%20regarding%20Team%20Scale%20Plan"
-                className="block w-full py-3 rounded-xl border-2 border-indigo-600 text-xs font-bold text-indigo-700 hover:bg-indigo-50 transition-all text-center"
+              <button
+                type="button"
+                onClick={() => handleUpgrade('TEAM')}
+                disabled={loadingPlan === 'TEAM'}
+                className="block w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all text-center disabled:opacity-60 cursor-pointer"
               >
-                {p.contactSales}
-              </a>
+                {loadingPlan === 'TEAM'
+                  ? (isZh ? '正在连接 Stripe...' : 'Connecting to Stripe...')
+                  : (isLoggedIn ? (isZh ? '升级至 Scale Team' : 'Upgrade to Team') : p.contactSales)}
+              </button>
             )}
           </div>
+
         </div>
       </div>
 

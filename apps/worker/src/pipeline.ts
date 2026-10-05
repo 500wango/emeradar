@@ -15,6 +15,8 @@ import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { PublicPublicationService } from '@emeradar/services';
 import { discoverAutocompleteCandidates } from './discover-candidates';
 
+const PIPELINE_LOCK_ID = 481516;
+
 export async function runDailyPipeline(obsDate = new Date().toISOString().slice(0, 10)): Promise<{
   processedOpportunities: number;
   merkleRoot: string;
@@ -22,7 +24,14 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 }> {
   console.log(`[pipeline] Starting daily pipeline run for ${obsDate}...`);
 
-  const budgetGuard = await CostLedgerService.createBudgetGuard(obsDate, 20.0);
+  const lockRes = await query<{ locked: boolean }>(`SELECT pg_try_advisory_lock($1) as locked`, [PIPELINE_LOCK_ID]);
+  if (!lockRes.rows[0]?.locked) {
+    console.warn(`[pipeline] Another pipeline process holds advisory lock ${PIPELINE_LOCK_ID}. Aborting.`);
+    return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0 };
+  }
+
+  try {
+    const budgetGuard = await CostLedgerService.createBudgetGuard(obsDate, 20.0);
   const runCtx: RunContext = {
     runId: `run_${obsDate.replace(/-/g, '')}_${Date.now()}`,
     obsDate,
@@ -186,11 +195,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       await client.query(
         `INSERT INTO ledger_checkpoints (id, obs_date, total_records, merkle_root, final_row_hash, checkpoint_hash, signature)
          VALUES ($1,$2,$3,$4,$5,$6,'unsigned')
-         ON CONFLICT (obs_date) DO UPDATE SET
-           total_records = EXCLUDED.total_records,
-           merkle_root = EXCLUDED.merkle_root,
-           final_row_hash = EXCLUDED.final_row_hash,
-           checkpoint_hash = EXCLUDED.checkpoint_hash`,
+         ON CONFLICT (obs_date) DO NOTHING`,
         [
           `ckp_${obsDate.replace(/-/g, '')}`,
           obsDate,
@@ -248,11 +253,14 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     `[pipeline] Observed ${observed.length}. Published ${publishable.length}. Alerts ${alertsTriggered}.`
   );
 
-  return {
-    processedOpportunities: observed.length,
-    merkleRoot: dailyLedger?.summary.merkleRoot || '',
-    alertsTriggered,
-  };
+    return {
+      processedOpportunities: observed.length,
+      merkleRoot: dailyLedger?.summary.merkleRoot || '',
+      alertsTriggered,
+    };
+  } finally {
+    await query(`SELECT pg_advisory_unlock($1)`, [PIPELINE_LOCK_ID]).catch(() => undefined);
+  }
 }
 
 async function deliverAlertEmail(to: string, subject: string, text: string): Promise<void> {

@@ -16,6 +16,9 @@ export interface UserEntitlementsInfo {
   feedDelayDays: number;
   opportunityDetailFull: boolean;
   deepReportExport: boolean;
+  liveScanDailyLimit: number;
+  liveScansUsedToday: number;
+  remainingLiveScansToday: number;
 }
 
 export class EntitlementService {
@@ -69,6 +72,17 @@ export class EntitlementService {
     );
     const used = counterRes.rows[0]?.used ?? 0;
 
+    // Daily live scan usage (Free: 3/day, Pro: 30/day, Team: 100/day)
+    const today = new Date().toISOString().slice(0, 10);
+    const scanLimit = row.plan_code === 'TEAM' ? 100 : row.plan_code === 'PRO' ? 30 : 3;
+    const scanCounterRes = await query<{ used: number }>(
+      `SELECT used FROM usage_counters
+       WHERE user_id = $1 AND feature = 'LIVE_SCAN' AND period_start = $2`,
+      [userId, today]
+    );
+    const scansUsedToday = scanCounterRes.rows[0]?.used ?? 0;
+    const remainingScansToday = Math.max(0, scanLimit - scansUsedToday);
+
     // Count projects
     const projRes = await query<{ count: string }>(
       `SELECT COUNT(*) as count FROM projects WHERE user_id = $1`,
@@ -100,6 +114,9 @@ export class EntitlementService {
       feedDelayDays,
       opportunityDetailFull,
       deepReportExport,
+      liveScanDailyLimit: scanLimit,
+      liveScansUsedToday: scansUsedToday,
+      remainingLiveScansToday: remainingScansToday,
     };
   }
 
@@ -195,5 +212,58 @@ export class EntitlementService {
        WHERE user_id = $1 AND feature = 'EXPORT_REPORT' AND period_start = $2;`,
       [userId, periodStart]
     );
+  }
+
+  /**
+   * Hold & Check: Reserve daily live scan quota
+   * Free: 3/day, Pro: 30/day, Team: 100/day
+   */
+  static async reserveLiveScanQuota(userId: string): Promise<{ remaining: number; limit: number; used: number }> {
+    return transaction(async (client) => {
+      const userRes = await client.query<{ tier: string; plan_code: string; entitlements: any }>(
+        `SELECT u.tier, COALESCE(s.plan_code, 'FREE') AS plan_code, p.entitlements
+         FROM users u
+         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE', 'TRIALING')
+         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, 'FREE')
+         WHERE u.id = $1 AND u.status = 'ACTIVE'`,
+        [userId]
+      );
+
+      if (userRes.rows.length === 0) {
+        throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
+      }
+
+      const planCode = userRes.rows[0].plan_code;
+      const limit = planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
+      const today = new Date().toISOString().slice(0, 10);
+
+      const counter = await client.query<{ used: number }>(
+        `INSERT INTO usage_counters (user_id, feature, period_start, used)
+         VALUES ($1, 'LIVE_SCAN', $2, 1)
+         ON CONFLICT (user_id, feature, period_start) DO UPDATE
+         SET used = usage_counters.used + 1
+         WHERE usage_counters.used < $3
+         RETURNING used`,
+        [userId, today, limit]
+      );
+
+      if (counter.rows.length === 0) {
+        throw new EmeradarError(
+          ErrorCode.QUOTA_EXCEEDED,
+          planCode === 'FREE'
+            ? `Daily live scan quota reached (3 scans/day). Upgrade to Builder Pro for 30 scans/day.`
+            : `Daily live scan quota reached (${limit} scans/day).`,
+          429,
+          {
+            upgradeUrl: '/pricing',
+            currentPlan: planCode,
+            limit,
+          }
+        );
+      }
+
+      const used = counter.rows[0].used;
+      return { remaining: Math.max(0, limit - used), limit, used };
+    });
   }
 }

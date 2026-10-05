@@ -34,11 +34,35 @@ export interface ApiKeyItem {
 
 export class AuthService {
   /**
-   * Hashes a password with salt using PBKDF2/scrypt
+   * Hashes a password with a unique per-user salt using scrypt
+   * Returns formatted string: `${salt}:${hashHex}`
    */
-  static hashPassword(password: string, salt = 'emeradar_salt_2026'): string {
-    const key = scryptSync(password, salt, 32);
-    return key.toString('hex');
+  static hashPassword(password: string, salt?: string): string {
+    const actualSalt = salt || randomBytes(16).toString('hex');
+    const key = scryptSync(password, actualSalt, 32);
+    return `${actualSalt}:${key.toString('hex')}`;
+  }
+
+  /**
+   * Verifies password against stored hash (supporting both new `${salt}:${hash}` and legacy static salt)
+   */
+  static verifyPassword(password: string, storedHash: string): boolean {
+    if (!storedHash) return false;
+    let salt: string;
+    let expectedHashHex: string;
+    if (storedHash.includes(':')) {
+      const parts = storedHash.split(':');
+      salt = parts[0];
+      expectedHashHex = parts[1];
+    } else {
+      // Legacy static salt fallback
+      salt = 'emeradar_salt_2026';
+      expectedHashHex = storedHash;
+    }
+    const derivedKey = scryptSync(password, salt, 32);
+    const expectedBuf = Buffer.from(expectedHashHex, 'hex');
+    if (expectedBuf.length !== derivedKey.length) return false;
+    return timingSafeEqual(expectedBuf, derivedKey);
   }
 
   /**
@@ -80,7 +104,7 @@ export class AuthService {
         [userId, email, displayName]
       );
 
-      // 2. Insert credentials account
+      // 2. Insert credentials account with dynamic salt:hash
       await client.query(
         `INSERT INTO accounts (id, user_id, type, provider, provider_account_id, refresh_token)
          VALUES ($1, $2, 'credentials', 'credentials', $3, $4)`,
@@ -138,20 +162,23 @@ export class AuthService {
     if (accRes.rows.length === 0 || !accRes.rows[0].refresh_token) {
       throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Incorrect credentials.', 401);
     }
-    const expectedHash = accRes.rows[0].refresh_token;
-    const inputHash = this.hashPassword(input.password || '');
-    const expectedBuf = Buffer.from(expectedHash, 'hex');
-    const inputBuf = Buffer.from(inputHash, 'hex');
+    const storedHash = accRes.rows[0].refresh_token;
 
-    if (
-      expectedBuf.length !== inputBuf.length ||
-      !timingSafeEqual(expectedBuf, inputBuf)
-    ) {
+    if (!this.verifyPassword(input.password || '', storedHash)) {
       throw new EmeradarError(
         ErrorCode.UNAUTHENTICATED,
         'Incorrect password. Please verify and try again.',
         401
       );
+    }
+
+    // Auto-upgrade legacy static salt hash to dynamic per-user salt
+    if (!storedHash.includes(':')) {
+      const upgradedHash = this.hashPassword(input.password || '');
+      await query(
+        `UPDATE accounts SET refresh_token = $1 WHERE user_id = $2 AND provider = 'credentials'`,
+        [upgradedHash, row.id]
+      ).catch(() => undefined);
     }
 
     // Create session
@@ -358,5 +385,64 @@ export class AuthService {
       `UPDATE api_keys SET revoked_at = NOW() WHERE id = $1 AND user_id = $2`,
       [keyId, userId]
     );
+  }
+
+  /**
+   * Authenticate API Key bearer token for programmatic API access
+   */
+  static async authenticateApiKey(rawKey: string): Promise<{
+    user: UserProfile;
+    preferences: UserPreferencesData;
+    keyId: string;
+    scopes: string[];
+  } | null> {
+    if (!rawKey || !rawKey.startsWith('emd_live_')) return null;
+
+    const keyHash = createHash('sha256').update(rawKey).digest('hex');
+
+    const res = await query<any>(
+      `SELECT
+        k.id AS key_id, k.scopes,
+        u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.created_at,
+        p.ui_locale, p.preferred_build_types, p.preferred_markets, p.preferred_time_budget,
+        p.topics, p.onboarding_completed
+       FROM api_keys k
+       JOIN users u ON u.id = k.user_id
+       LEFT JOIN user_preferences p ON p.user_id = u.id
+       WHERE k.key_hash = $1
+         AND k.revoked_at IS NULL
+         AND (k.expires_at IS NULL OR k.expires_at > NOW())
+         AND u.status = 'ACTIVE'`,
+      [keyHash]
+    );
+
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+
+    // Asynchronously record last used timestamp
+    query(`UPDATE api_keys SET last_used_at = NOW() WHERE id = $1`, [r.key_id]).catch(() => undefined);
+
+    return {
+      user: {
+        id: r.id,
+        email: r.email,
+        displayName: r.display_name,
+        avatarUrl: r.avatar_url,
+        role: r.role,
+        tier: r.tier,
+        status: r.status,
+        createdAt: r.created_at,
+      },
+      preferences: {
+        uiLocale: r.ui_locale || 'zh-CN',
+        preferredBuildTypes: r.preferred_build_types || [],
+        preferredMarkets: r.preferred_markets || ['US'],
+        preferredTimeBudget: r.preferred_time_budget,
+        topics: r.topics || [],
+        onboardingCompleted: r.onboarding_completed ?? true,
+      },
+      keyId: r.key_id,
+      scopes: r.scopes || ['opportunities:read'],
+    };
   }
 }

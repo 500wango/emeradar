@@ -49,14 +49,28 @@ export class PublicPublicationService {
     const row = await query<any>(`SELECT slug, title, primary_query, why_now_summary, top_idea FROM opportunity_cards WHERE opportunity_id = $1`, [opportunityId]);
     if (!row.rows[0]) return decision;
     const card = row.rows[0];
+    const status = decision.eligible ? 'PUBLISHED' : 'DRAFT';
     await query(
       `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, eligibility, quality_report, published_at)
-       VALUES ($1,$2,$3,'OPPORTUNITY',$4,'PUBLISHED',$5,$6,$7,$8,NOW())
-       ON CONFLICT (slug, locale) DO UPDATE SET indexable = EXCLUDED.indexable, content = EXCLUDED.content,
-         eligibility = EXCLUDED.eligibility, quality_report = EXCLUDED.quality_report, published_at = NOW()`,
-      [`pgm_${opportunityId}_${locale}`, card.slug, locale, opportunityId, decision.indexable,
+       VALUES ($1,$2,$3,'OPPORTUNITY',$4,$5,$6,$7,$8,$9,CASE WHEN $5 = 'PUBLISHED' THEN NOW() ELSE NOW() END)
+       ON CONFLICT (slug, locale) DO UPDATE SET
+         status = EXCLUDED.status,
+         indexable = EXCLUDED.indexable,
+         content = EXCLUDED.content,
+         eligibility = EXCLUDED.eligibility,
+         quality_report = EXCLUDED.quality_report,
+         published_at = CASE WHEN EXCLUDED.status = 'PUBLISHED' THEN COALESCE(public_pages.published_at, NOW()) ELSE public_pages.published_at END`,
+      [
+        `pgm_${opportunityId}_${locale}`,
+        card.slug,
+        locale,
+        opportunityId,
+        status,
+        decision.indexable,
         JSON.stringify({ title: card.title, primaryQuery: card.primary_query, whyNow: card.why_now_summary, topIdea: card.top_idea }),
-        JSON.stringify(decision.eligibility), JSON.stringify(decision.qualityReport)]
+        JSON.stringify(decision.eligibility),
+        JSON.stringify(decision.qualityReport),
+      ]
     );
     return decision;
   }

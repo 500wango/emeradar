@@ -50,6 +50,34 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.items[1].isWeak, true);
     assert.strictEqual(res.items[2].totalWeakness, 0.0);
     assert.strictEqual(res.weakCount, 1);
+    assert.strictEqual(res.innerPagesCount, 2);
+    assert.strictEqual(res.homepageCount, 1);
+    assert.ok(Array.isArray(res.structuralPenetrationReasons));
+  });
+
+  it('detects weak sites and brand alternative intercept angle', () => {
+    const res = calculateSerpWeakness([
+      {
+        rank: 1,
+        url: 'https://canva.com',
+        domain: 'canva.com',
+        title: 'Canva Official',
+        resultType: 'OFFICIAL',
+      },
+      {
+        rank: 2,
+        url: 'https://newtool.com',
+        domain: 'newtool.com',
+        title: 'New Young Tool',
+        resultType: 'SPECIALIST',
+        domainDr: 18,
+        ageDays: 120,
+      },
+    ]);
+
+    assert.strictEqual(res.weakSitesCount, 1);
+    assert.strictEqual(res.penetrationAngle, 'ALTERNATIVE_INTERCEPT');
+    assert.ok(res.structuralPenetrationReasons.some((r) => r.includes('弱站')));
   });
 
   it('marks demand as INSUFFICIENT if historyDays < 14', () => {
