@@ -18,7 +18,6 @@ import {
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextUrl = searchParams.get('next') || '/feed';
 
   const { login } = useAuth();
   const { t, isZh } = useI18n();
@@ -38,8 +37,13 @@ function LoginFormContent() {
     try {
       setLoading(true);
       setError(null);
-      await login(email, password);
-      router.push(nextUrl);
+      const loggedUser = await login(email, password);
+      const explicitNext = searchParams.get('next');
+      if (loggedUser.role === 'ADMIN') {
+        router.push(explicitNext && !['/projects', '/billing', '/alerts'].includes(explicitNext) ? explicitNext : '/admin');
+      } else {
+        router.push(explicitNext || '/feed');
+      }
     } catch (err: any) {
       setError(err.message || (isZh ? '登录失败，请核对您的邮箱和密码。' : 'Failed to sign in. Please verify your email and password.'));
     } finally {

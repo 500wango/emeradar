@@ -15,6 +15,7 @@ export default async function AlertsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect('/login');
+  if (session.user.role === 'ADMIN') redirect('/admin');
   const userId = session.user.id;
   const rules = await AlertService.listAlertRules(userId);
   const notifications = await AlertService.listNotifications(userId);

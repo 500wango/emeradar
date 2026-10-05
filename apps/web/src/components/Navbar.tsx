@@ -13,6 +13,8 @@ import {
   LogOut,
   ChevronDown,
   ShieldAlert,
+  Layers,
+  Radio,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
@@ -22,7 +24,8 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 export function Navbar() {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
-  const { t } = useI18n();
+  const { t, isZh } = useI18n();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'ANALYST';
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -84,71 +87,122 @@ export function Navbar() {
 
             {/* Nav Links */}
             <nav className="hidden md:flex items-center gap-1">
-              <Link
-                href="/feed"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname.startsWith('/feed') || pathname.startsWith('/opportunities')
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                <Radar className="w-4 h-4 text-blue-500" />
-                {t('nav.opportunities')}
-              </Link>
-              <Link
-                href="/track-record"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname === '/track-record'
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                <FileCheck2 className="w-4 h-4 text-emerald-500" />
-                {t('nav.trackRecord')}
-              </Link>
-              <Link
-                href="/projects"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname === '/projects'
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                <FolderKanban className="w-4 h-4 text-indigo-500" />
-                {t('nav.projects')}
-              </Link>
-              <Link
-                href="/alerts"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname === '/alerts'
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                <Bell className="w-4 h-4 text-amber-500" />
-                {t('nav.alerts')}
-              </Link>
-              <Link
-                href="/methodology"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  pathname === '/methodology'
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                {t('nav.methodology')}
-              </Link>
-              <Link
-                href="/pricing"
-                className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                  pathname === '/pricing' || pathname === '/billing'
-                    ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                    : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                }`}
-              >
-                <CreditCard className="w-4 h-4 text-slate-400" />
-                {t('nav.pricing')}
-              </Link>
+              {isAdmin ? (
+                <>
+                  <Link
+                    href="/admin"
+                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/admin'
+                        ? 'text-amber-700 bg-amber-50 font-bold'
+                        : 'text-slate-700 hover:text-amber-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    <span>{isZh ? '流水线大屏' : 'Pipeline Ops'}</span>
+                  </Link>
+                  <Link
+                    href="/admin/candidates"
+                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/admin/candidates'
+                        ? 'text-emerald-700 bg-emerald-50 font-bold'
+                        : 'text-slate-700 hover:text-emerald-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4 text-emerald-600" />
+                    <span>{isZh ? '候选池治理' : 'Candidate Pool'}</span>
+                  </Link>
+                  <Link
+                    href="/admin/sources"
+                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/admin/sources'
+                        ? 'text-blue-700 bg-blue-50 font-bold'
+                        : 'text-slate-700 hover:text-blue-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Radio className="w-4 h-4 text-blue-600" />
+                    <span>{isZh ? '采集源配置' : 'Sources & Feeds'}</span>
+                  </Link>
+                  <Link
+                    href="/feed"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname.startsWith('/feed')
+                        ? 'text-slate-900 bg-slate-100 font-semibold'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Radar className="w-4 h-4 text-slate-400" />
+                    <span>{isZh ? '前台预览' : 'Live Feed'}</span>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/feed"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname.startsWith('/feed') || pathname.startsWith('/opportunities')
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Radar className="w-4 h-4 text-blue-500" />
+                    {t('nav.opportunities')}
+                  </Link>
+                  <Link
+                    href="/track-record"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/track-record'
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <FileCheck2 className="w-4 h-4 text-emerald-500" />
+                    {t('nav.trackRecord')}
+                  </Link>
+                  <Link
+                    href="/projects"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/projects'
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <FolderKanban className="w-4 h-4 text-indigo-500" />
+                    {t('nav.projects')}
+                  </Link>
+                  <Link
+                    href="/alerts"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/alerts'
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Bell className="w-4 h-4 text-amber-500" />
+                    {t('nav.alerts')}
+                  </Link>
+                  <Link
+                    href="/methodology"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      pathname === '/methodology'
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {t('nav.methodology')}
+                  </Link>
+                  <Link
+                    href="/pricing"
+                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                      pathname === '/pricing' || pathname === '/billing'
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
+                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-slate-400" />
+                    {t('nav.pricing')}
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
 
@@ -187,58 +241,86 @@ export function Navbar() {
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">{user.email}</div>
                         <div className="mt-2 flex items-center gap-1.5">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${currentTierConfig.classes}`}
-                          >
-                            {user.tier}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
-                            {user.role}
-                          </span>
+                          {isAdmin ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 uppercase tracking-wider">
+                              SYSTEM ADMIN
+                            </span>
+                          ) : (
+                            <>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${currentTierConfig.classes}`}
+                              >
+                                {user.tier}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                {user.role}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
 
                       {/* Menu Items */}
-                      <div className="py-1">
-                        <Link
-                          href="/settings"
-                          className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
-                        >
-                          <Settings className="w-4 h-4 text-slate-400" />
-                          <span>{t('nav.accountSettings')}</span>
-                        </Link>
-                        <Link
-                          href="/projects"
-                          className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
-                        >
-                          <FolderKanban className="w-4 h-4 text-slate-400" />
-                          <span>{t('nav.myProjects')}</span>
-                        </Link>
-                        <Link
-                          href="/alerts"
-                          className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
-                        >
-                          <Bell className="w-4 h-4 text-slate-400" />
-                          <span>{t('nav.alerts')}</span>
-                        </Link>
-                        <Link
-                          href="/billing"
-                          className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
-                        >
-                          <CreditCard className="w-4 h-4 text-slate-400" />
-                          <span>{t('nav.billing')}</span>
-                        </Link>
-                      </div>
-
-                      {/* Admin Console Entry (Only visible to ADMIN / ANALYST) */}
-                      {(user.role === 'ADMIN' || user.role === 'ANALYST') && (
-                        <div className="py-1 border-t border-slate-100">
+                      {isAdmin ? (
+                        <div className="py-1">
                           <Link
                             href="/admin"
                             className="flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50/50 hover:bg-amber-100/60 transition"
                           >
                             <ShieldAlert className="w-4 h-4 text-amber-600" />
-                            <span>⚡ 雷达运维控制中心</span>
+                            <span>{isZh ? '雷达运维大屏' : 'Pipeline Dashboard'}</span>
+                          </Link>
+                          <Link
+                            href="/admin/candidates"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-emerald-600 transition"
+                          >
+                            <Layers className="w-4 h-4 text-slate-400" />
+                            <span>{isZh ? '候选生态位治理' : 'Candidate Pool'}</span>
+                          </Link>
+                          <Link
+                            href="/admin/sources"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                          >
+                            <Radio className="w-4 h-4 text-slate-400" />
+                            <span>{isZh ? '采集源与 RSS 配置' : 'Sources & Feeds'}</span>
+                          </Link>
+                          <Link
+                            href="/feed"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition"
+                          >
+                            <Radar className="w-4 h-4 text-slate-400" />
+                            <span>{isZh ? '前台决策流预览' : 'Browse Live Feed'}</span>
+                          </Link>
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          <Link
+                            href="/settings"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                          >
+                            <Settings className="w-4 h-4 text-slate-400" />
+                            <span>{t('nav.accountSettings')}</span>
+                          </Link>
+                          <Link
+                            href="/projects"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                          >
+                            <FolderKanban className="w-4 h-4 text-slate-400" />
+                            <span>{t('nav.myProjects')}</span>
+                          </Link>
+                          <Link
+                            href="/alerts"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                          >
+                            <Bell className="w-4 h-4 text-slate-400" />
+                            <span>{t('nav.alerts')}</span>
+                          </Link>
+                          <Link
+                            href="/billing"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                          >
+                            <CreditCard className="w-4 h-4 text-slate-400" />
+                            <span>{t('nav.billing')}</span>
                           </Link>
                         </div>
                       )}

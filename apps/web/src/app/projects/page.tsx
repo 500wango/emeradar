@@ -16,6 +16,7 @@ export default async function ProjectsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect('/login');
+  if (session.user.role === 'ADMIN') redirect('/admin');
   const userId = session.user.id;
   const projects = await ProjectService.listUserProjects(userId);
   const { t } = await getServerI18n();
