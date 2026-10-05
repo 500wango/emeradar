@@ -7,6 +7,7 @@ import {
   generateDiscoveryIntents,
   validateDiscoveryIntents,
   runDailyPipeline,
+  incubateCandidatesFromDiscovery,
 } from './pipeline';
 
 export interface AdminUserListItem {
@@ -57,6 +58,13 @@ export interface AdminPipelineOverview {
     startedAt: string;
     finishedAt: string | null;
     errorMessage: string | null;
+  }>;
+  latestDiscoverySignals: Array<{
+    id: string;
+    title: string;
+    provider: string;
+    sourceUrl: string;
+    collectedAt: string;
   }>;
 }
 
@@ -153,6 +161,20 @@ export class AdminService {
        LIMIT 12`
     );
 
+    // 5. Latest discovery signals
+    const signalsRes = await query<{
+      id: string;
+      title: string;
+      provider: string;
+      source_url: string;
+      collected_at: string;
+    }>(
+      `SELECT id, title, provider, source_url, first_collected_at::text as collected_at
+       FROM discovery_items
+       ORDER BY first_collected_at DESC
+       LIMIT 15`
+    );
+
     return {
       opportunityStats: {
         tracked,
@@ -172,6 +194,13 @@ export class AdminService {
         startedAt: r.started_at,
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
+      })),
+      latestDiscoverySignals: signalsRes.rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        provider: r.provider,
+        sourceUrl: r.source_url,
+        collectedAt: r.collected_at,
       })),
     };
   }
@@ -429,6 +458,27 @@ export class AdminService {
         log(` - Raw items collected: ${res.collected}`);
         log(` - New items recorded: ${res.inserted}`);
         log(` - Failed sources: ${res.failed}`);
+
+        if (res.recentItems.length > 0) {
+          log('\n[pipeline] Recently captured raw signals:');
+          for (const item of res.recentItems.slice(0, 10)) {
+            log(` • [${item.provider}] ${item.title}`);
+          }
+        }
+
+        // Automatic incubation into Candidate Opportunities
+        log('\n[pipeline] Incubating fresh candidates from raw signals into Candidate Pool...');
+        const candidates = await incubateCandidatesFromDiscovery(15);
+        if (candidates.length > 0) {
+          log(`[pipeline] Successfully incubated ${candidates.length} new candidate opportunities:`);
+          for (const c of candidates) {
+            log(` • [${c.archetype}] ${c.title} (Query: "${c.primaryQuery}")`);
+          }
+          log('\nAll new candidates are ready for review in "候选池治理 (/admin/candidates)"!');
+        } else {
+          log('[pipeline] All captured signals are already evaluated or present in candidate pool.');
+        }
+
         return {
           task,
           output: logs.join('\n'),
@@ -440,6 +490,16 @@ export class AdminService {
         log('[pipeline] Generating unverified query intent hypotheses from collected items...');
         const created = await generateDiscoveryIntents(50);
         log(`[pipeline] Intent generation completed: ${created} new intent hypotheses generated.`);
+
+        log('\n[pipeline] Incubating candidates from newly identified intents...');
+        const candidates = await incubateCandidatesFromDiscovery(15);
+        if (candidates.length > 0) {
+          log(`[pipeline] Successfully promoted ${candidates.length} candidates into Candidate Pool:`);
+          for (const c of candidates) {
+            log(` • [${c.archetype}] ${c.title}`);
+          }
+        }
+
         return {
           task,
           output: logs.join('\n'),

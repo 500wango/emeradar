@@ -17,7 +17,11 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
   // 2. HackerNews Discovery Source
   sources.push(new HackerNewsDiscoverySource());
 
-  // 3. Env RSS feeds
+  // 3. Default High-Conviction RSS Sources
+  sources.push(new RssDiscoverySource('https://lobste.rs/rss', 'Lobste.rs'));
+  sources.push(new RssDiscoverySource('https://techcrunch.com/category/startups/feed/', 'TechCrunch Startups'));
+
+  // 4. Env RSS feeds
   const envFeeds = (process.env.DISCOVERY_RSS_FEEDS || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -28,7 +32,7 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
     });
   sources.push(...envFeeds);
 
-  // 4. Active sources from database (e.g. added via Admin Console)
+  // 5. Active sources from database (e.g. added via Admin Console)
   try {
     const dbSources = await query<{
       id: string;
@@ -69,11 +73,13 @@ export async function discoverSources(): Promise<{
   collected: number;
   inserted: number;
   failed: number;
+  recentItems: Array<{ title: string; provider: string; url: string }>;
 }> {
   const sources = await getDiscoverySources();
   let collected = 0;
   let inserted = 0;
   let failed = 0;
+  const recentItems: Array<{ title: string; provider: string; url: string }> = [];
 
   for (const source of sources) {
     await ensureSource(source);
@@ -97,6 +103,7 @@ export async function discoverSources(): Promise<{
     collected += outcome.items.length;
     let runInserted = 0;
     for (const item of outcome.items) {
+      recentItems.push({ title: item.title, provider: item.provider, url: item.sourceUrl });
       const written = await transaction(async (client) => {
         const result = await client.query(
           `INSERT INTO discovery_items (
@@ -132,5 +139,5 @@ export async function discoverSources(): Promise<{
     console.log(`[discover] ${source.provider}: ${outcome.items.length} collected, ${runInserted} new`);
   }
 
-  return { sources: sources.length, collected, inserted, failed };
+  return { sources: sources.length, collected, inserted, failed, recentItems };
 }

@@ -12,6 +12,8 @@ import {
   Layers,
   Database,
   ShieldCheck,
+  ExternalLink,
+  Radio,
 } from 'lucide-react';
 import { AdminPipelineOverview } from '@emeradar/services';
 
@@ -404,6 +406,70 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                     </td>
                     <td className="py-3 text-slate-400">
                       {run.finishedAt ? new Date(run.finishedAt).toLocaleString('zh-CN') : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Live Ingested Discovery Signals */}
+      <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 sm:p-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Radio className="w-4 h-4 text-purple-400" />
+            <span>最新全网捕获原始商业信号 (Live Discovery Stream)</span>
+          </h2>
+          <span className="text-[11px] text-slate-400 font-mono">
+            {overview.latestDiscoverySignals?.length || 0} 条实时条目
+          </span>
+        </div>
+
+        {!overview.latestDiscoverySignals || overview.latestDiscoverySignals.length === 0 ? (
+          <p className="text-xs text-slate-500 py-4">
+            暂无采集条目，请在上方 STEP 01 点击「全网信号捕获」触发采集。
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase font-mono text-[10px]">
+                  <th className="pb-3 font-semibold">信号标题</th>
+                  <th className="pb-3 font-semibold">采集信源</th>
+                  <th className="pb-3 font-semibold">入库时间</th>
+                  <th className="pb-3 font-semibold text-right">原文直达</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {overview.latestDiscoverySignals.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                    <td className="py-3 font-medium text-slate-200 max-w-md truncate">
+                      {item.title}
+                    </td>
+                    <td className="py-3">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono">
+                        {item.provider}
+                      </span>
+                    </td>
+                    <td className="py-3 text-slate-400 font-mono text-[11px]">
+                      {item.collectedAt ? new Date(item.collectedAt).toLocaleString('zh-CN') : '-'}
+                    </td>
+                    <td className="py-3 text-right">
+                      {item.sourceUrl ? (
+                        <a
+                          href={item.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline font-mono"
+                        >
+                          <span>查看</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
                     </td>
                   </tr>
                 ))}
