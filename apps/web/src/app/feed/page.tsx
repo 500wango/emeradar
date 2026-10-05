@@ -58,11 +58,11 @@ export default async function FeedPage() {
         </p>
       </div>
 
-      <div className="mb-8">
+      <FeedClient initialItems={feed.items} total={feed.total} />
+
+      <div className="mt-14 pt-8 border-t border-slate-200">
         <TrackRequest />
       </div>
-
-      <FeedClient initialItems={feed.items} total={feed.total} />
 
       {realtime && (
         <section className="mt-14">

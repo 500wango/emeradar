@@ -22,7 +22,7 @@ interface FeedClientProps {
 
 export function FeedClient({ initialItems, total }: FeedClientProps) {
   const { t, isZh } = useI18n();
-  const [selectedVerdict, setSelectedVerdict] = useState<string>('BUILD_NOW');
+  const [selectedVerdict, setSelectedVerdict] = useState<string>('ALL');
   const [selectedArchetype, setSelectedArchetype] = useState<string>('ALL');
   const [selectedClass, setSelectedClass] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -49,7 +49,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
   });
 
   const resetFilters = () => {
-    setSelectedVerdict('BUILD_NOW');
+    setSelectedVerdict('ALL');
     setSelectedArchetype('ALL');
     setSelectedClass('ALL');
     setSearchQuery('');
@@ -176,7 +176,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                 ? `显示 ${filtered.length} / ${total} 项决策`
                 : `Showing ${filtered.length} of ${total} radar items`}
             </span>
-            {(selectedVerdict !== 'BUILD_NOW' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
+            {(selectedVerdict !== 'ALL' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
               <button
                 onClick={resetFilters}
                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"

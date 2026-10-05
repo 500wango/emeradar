@@ -12,6 +12,7 @@ import {
   Lock,
   Layers,
   FileCheck2,
+  FileText,
   XCircle,
   Clock,
   Cpu,
@@ -25,17 +26,17 @@ import { LiveScanner } from '@/components/LiveScanner';
 export default async function HomePage() {
   const { t, isZh } = await getServerI18n();
 
-  // Attempt to fetch actual published BUILD_NOW decisions for the landing showcase
-  let buildNowCards: FeedCardItem[] = [];
+  // Fetch actual verified decisions for the landing showcase
+  let showcaseCards: FeedCardItem[] = [];
   try {
     const res = await OpportunityService.listFeedCards({
-      verdict: 'BUILD_NOW' as any,
-      limit: 2,
+      limit: 6,
     });
-    buildNowCards = res.items || [];
+    showcaseCards = res.items || [];
   } catch (err) {
-    buildNowCards = [];
+    showcaseCards = [];
   }
+  const buildNowCards = showcaseCards.filter((card) => card.verdict === 'BUILD_NOW');
 
   const pillars = [
     {
@@ -319,24 +320,137 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 3. Interactive Live Scanner Bar Section */}
-      <section className="py-16 bg-slate-50 border-b border-slate-200">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 mb-3">
-            <Zap className="w-3.5 h-3.5 text-blue-600" />
-            <span>{t('home.liveScanSectionBadge')}</span>
+      {/* 3. Live Radar Showcase: Curated Proactive Decisions (No Search Needed!) */}
+      <section className="py-18 bg-slate-50 border-b border-slate-200">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 mb-3 shadow-xs">
+              <Flame className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{isZh ? '今日雷达精选推荐 · PROACTIVE RADAR' : 'Today\'s Curated Opportunities · PROACTIVE RADAR'}</span>
+            </div>
+
+            <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
+              {isZh ? '今日已验证可构建生态位' : 'Today\'s Verified Build Opportunities'}
+            </h2>
+
+            <p className="mt-3 text-xs sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
+              {isZh
+                ? '无需构思或搜索关键词。雷达全天候自主嗅探长尾爆发与商业收银台，直接向你交付高置信度立项决策。'
+                : 'No keyword search required. The radar autonomously detects emerging search clusters and live checkout signals, delivering verified build decisions directly to you.'}
+            </p>
           </div>
 
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            {t('home.liveScanSectionTitle')}
-          </h2>
+          {showcaseCards.length > 0 ? (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {showcaseCards.map((card) => {
+                const isBuildNow = card.verdict === 'BUILD_NOW';
+                return (
+                  <div
+                    key={card.opportunityId}
+                    className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs hover:border-blue-400 hover:shadow-md transition-all flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                          isBuildNow
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            : 'bg-blue-100 text-blue-800 border-blue-200'
+                        }`}>
+                          {card.verdict}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                          {card.recommendedArchetype}
+                        </span>
+                      </div>
 
-          <p className="mt-2 text-xs sm:text-sm text-slate-600 max-w-xl mx-auto mb-8">
-            {t('home.liveScanSectionDesc')}
-          </p>
+                      <h3 className="text-base font-extrabold text-slate-900 leading-snug line-clamp-2">
+                        {card.title}
+                      </h3>
+                      <p className="text-xs text-blue-600 font-mono mt-1 truncate">
+                        `{card.primaryQuery}`
+                      </p>
 
-          <div className="max-w-2xl mx-auto">
-            <LiveScanner showQuickChips={true} />
+                      <div className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
+                        <span className="font-semibold text-slate-900 block mb-0.5">
+                          💡 {isZh ? '产品概念:' : 'Concept:'}
+                        </span>
+                        <p className="line-clamp-2">{card.topIdea}</p>
+                      </div>
+
+                      <p className="text-xs text-slate-600 mt-3 leading-relaxed line-clamp-2">
+                        <strong className="text-slate-800">{isZh ? '切入原因: ' : 'Why Now: '}</strong>
+                        {card.whyNowSummary}
+                      </p>
+
+                      {/* 3-Axis Scores Gauge */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center text-[10px]">
+                        <div className="p-1.5 rounded-lg bg-blue-50/60 border border-blue-100">
+                          <span className="text-slate-400 block font-medium">DEMAND</span>
+                          <strong className="text-blue-700 font-mono font-bold">{(card.dBasisPoints / 100).toFixed(0)}/100</strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-emerald-50/60 border border-emerald-100">
+                          <span className="text-slate-400 block font-medium">MONEY</span>
+                          <strong className="text-emerald-700 font-mono font-bold">{(card.mBasisPoints / 100).toFixed(0)}/100</strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-amber-50/60 border border-amber-100">
+                          <span className="text-slate-400 block font-medium">WINDOW</span>
+                          <strong className="text-amber-700 font-mono font-bold">{(card.wBasisPoints / 100).toFixed(0)}/100</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <Link
+                        href={`/opportunities/${card.slug}/report`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{isZh ? '研报 & ROI' : 'Report & ROI'}</span>
+                      </Link>
+
+                      <Link
+                        href={`/opportunities/${card.slug}`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"
+                      >
+                        <span>{isZh ? '决策工作台' : 'Workspace'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-12 bg-white rounded-3xl border border-slate-200">
+              <p className="text-slate-500 text-sm">
+                {isZh ? '雷达正在生成最新周期决策...' : 'Radar is synthesizing latest cycle decisions...'}
+              </p>
+            </div>
+          )}
+
+          {/* Section Footer: Link to Feed + Optional Custom Query Expander */}
+          <div className="mt-12 text-center space-y-4">
+            <Link
+              href="/feed"
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all hover:scale-[1.02]"
+            >
+              <span>{isZh ? '进入实时雷达机会发现流 (查看全部)' : 'Enter Live Opportunity Radar Feed'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+
+            {/* Optional Collapsible for manual scanner */}
+            <details className="mt-6 group border border-slate-200 rounded-2xl bg-white p-4 max-w-xl mx-auto text-left shadow-xs">
+              <summary className="cursor-pointer text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-blue-600" />
+                  <span>{isZh ? '有特定的细分长尾词想让雷达定向扫描？展开即时探测器' : 'Have a custom query to observe? Open live query scanner'}</span>
+                </span>
+                <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <LiveScanner showQuickChips={true} />
+              </div>
+            </details>
           </div>
         </div>
       </section>
@@ -629,10 +743,17 @@ export default async function HomePage() {
 
                   <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
                     <Link
-                      href={`/feed?search=${encodeURIComponent(card.primaryQuery)}`}
+                      href={`/opportunities/${card.slug}/report`}
                       className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
                     >
-                      <span>{isZh ? '在决策动态中查看' : 'Inspect in Feed'}</span>
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>{isZh ? '查看研报与 ROI 测算' : 'Report & ROI Model'}</span>
+                    </Link>
+                    <Link
+                      href={`/opportunities/${card.slug}`}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                    >
+                      <span>{isZh ? '工作台' : 'Workspace'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
