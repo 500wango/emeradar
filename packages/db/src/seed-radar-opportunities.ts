@@ -397,6 +397,31 @@ export async function seedRadarOpportunities(): Promise<void> {
         ]
       );
 
+      // 7.5 Seed Opportunity Snapshot
+      const snapshotId = `snp_${opp.id}_${obsDate}`;
+      await client.query(
+        `INSERT INTO opportunity_snapshots (
+           id, opportunity_id, obs_date, metrics, sealed_at
+         ) VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (opportunity_id, obs_date) DO UPDATE SET
+           metrics = EXCLUDED.metrics,
+           sealed_at = NOW()`,
+        [
+          snapshotId,
+          opp.id,
+          obsDate,
+          JSON.stringify({
+            d_score: opp.dScore,
+            m_score: opp.mScore,
+            w_score: opp.wScore,
+            d_band: opp.dBand,
+            m_band: opp.mBand,
+            w_band: opp.wBand,
+            confidence: opp.confidence,
+          }),
+        ]
+      );
+
       // 8. Seed Append-Only Verdict with cryptographic hashes
       const rowHash = createHash('sha256')
         .update(`${opp.id}|${obsDate}|${opp.verdict}|${opp.dScore}|${opp.mScore}|${opp.wScore}`)
