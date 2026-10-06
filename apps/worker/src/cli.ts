@@ -4,6 +4,8 @@ import {
   generateDiscoveryIntents,
   validateDiscoveryIntents,
   generateExperimentCards,
+  assessCommercialOpportunities,
+  renderCommercialAssessment,
   TrackRecordService,
 } from '@emeradar/services';
 import { closePool, query } from '@emeradar/db';
@@ -63,9 +65,14 @@ async function main() {
         console.error('❌ Checkpoint verification FAILED! Data corruption detected.');
         process.exit(1);
       }
+    } else if (command === 'assess-commercial') {
+      const date = args[1] || new Date().toISOString().slice(0, 10);
+      console.log(`[cli] Re-banding the M-axis for ${date} (read-only, nothing is written)...`);
+      const report = await assessCommercialOpportunities(date);
+      console.log(renderCommercialAssessment(report));
     } else {
       console.log(`Unknown command: ${command}`);
-      console.log('Available commands: run-daily [date], discover, generate-intents [limit], validate-intents [limit], generate-experiments [limit], sync-gsc [days], verify-ledger [date]');
+      console.log('Available commands: run-daily [date], discover, generate-intents [limit], validate-intents [limit], generate-experiments [limit], sync-gsc [days], verify-ledger [date], assess-commercial [date]');
     }
   } catch (err) {
     console.error('[cli] Command failed with error:', err);

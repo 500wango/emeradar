@@ -85,12 +85,15 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     reason =
       'Opportunity reached maximum builder claim capacity (slots full); window closing to public feed to prevent crowding alpha decay.';
   } else {
+    // 07 §6.1: pricing pages with no transaction proxy, revenue disclosure or
+    // persistence are decoration, and decoration caps M at MEDIUM — it must not
+    // clear the standard BUILD_NOW bar. The MEDIUM case is what the compensated
+    // rule below exists for.
     const mVerifiedStandard =
-      (!mSummary.pricingDecorationOnly && mSummary.band === 'HIGH') ||
-      (mSummary.band === 'HIGH' && Boolean(mSummary.hasTransactionTraction)) ||
-      (mSummary.band === 'MEDIUM' &&
-        mSummary.independentDomainsCount >= 2 &&
-        mSummary.hasSubscriptionPlans);
+      mSummary.band === 'HIGH' &&
+      (!mSummary.pricingDecorationOnly ||
+        Boolean(mSummary.hasTransactionTraction) ||
+        (mSummary.persistentPricedDomains ?? 0) >= 1);
 
     const mCompensatedVerified =
       mVerifiedStandard ||

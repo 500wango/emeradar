@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { query } from '@emeradar/db';
 import { EmeradarError, ErrorCode, Locale } from '@emeradar/core';
+import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import {
   generateOpportunityReport,
   renderReportToMarkdown,
@@ -89,10 +90,12 @@ export class ReportService {
 
     // 2. Ensure snapshot exists
     const dScore = Number(opp.d_basis_points) > 0 ? Number(opp.d_basis_points) : 7200;
-    const mScore = Number(opp.m_basis_points) > 0 ? Number(opp.m_basis_points) : 6500;
+    // 07 §10: a missing commercial observation must stay missing. Rewriting it to
+    // MEDIUM/6500 would publish "commercially validated" for an opportunity we never sampled.
+    const mScore = Number(opp.m_basis_points) || 0;
     const wScore = Number(opp.w_basis_points) > 0 ? Number(opp.w_basis_points) : 6800;
     const dBand = opp.d_band && opp.d_band !== 'INSUFFICIENT' ? opp.d_band : 'MEDIUM';
-    const mBand = opp.m_band && opp.m_band !== 'INSUFFICIENT' ? opp.m_band : 'MEDIUM';
+    const mBand = opp.m_band ?? 'INSUFFICIENT';
     const wBand = opp.w_band && opp.w_band !== 'INSUFFICIENT' ? opp.w_band : 'MEDIUM';
     const confidence = opp.confidence && opp.confidence !== 'LOW' ? opp.confidence : 'MEDIUM';
 
@@ -150,12 +153,13 @@ export class ReportService {
            id, opportunity_id, obs_date, scoring_config_version,
            verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
            confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
-         ) VALUES ($1, $2, $3, 'sc-1.0.0', $4, $5, $6, $7, $8, $9, $10, '{}', $11, $12)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '{}', $12, $13)
          ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
         [
           verdictId,
           opp.id,
           today,
+          SCORING_CONFIG_VERSION,
           opp.verdict,
           opp.lifecycle || 'EARLY_WINDOW',
           dScore,

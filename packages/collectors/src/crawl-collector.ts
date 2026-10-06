@@ -121,8 +121,11 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       let gateways = this.detectPaymentGateways(html);
 
       // 5. Two-tier dynamic upgrade check (04 §4.2)
-      // If 0 plans detected and dynamic SPA shell detected, upgrade to Tier 2 Headless
-      if (plans.length === 0 && this.isDynamicPricingShell(html)) {
+      // If 0 plans detected and dynamic SPA shell detected, upgrade to Tier 2 Headless.
+      // `dynamicShell` is kept on the snapshot: an empty Tier-1 read on such a page means
+      // "cannot conclude", not "no pricing" (07 §11.1).
+      const dynamicShell = plans.length === 0 && this.isDynamicPricingShell(html);
+      if (dynamicShell) {
         if (ctx.budget.canSpend(this.costTier2Usd)) {
           const rendered = await this.renderHeadless(item.targetUrl);
           if (rendered) {
@@ -154,6 +157,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
             domain: item.domain,
             obsDate: ctx.obsDate,
             fetchTier,
+            dynamicShell,
             pricingPlans: plans,
             paymentGateways: gateways,
             commercialStage: stage,
@@ -171,7 +175,9 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
         evidence.push({
           opportunityId: item.opportunityId,
           evidenceClass: 'OBSERVED',
-          sourceType: 'COMMERCIAL_CRAWL',
+          // 07 §3: an observable price is a paid tier; a gateway alone only proves
+          // the ability to charge, and must never be counted as commercial proof.
+          sourceType: plans.length > 0 ? 'PAID_TIER_OBSERVED' : 'PAYMENT_INFRA_DETECTED',
           sourceId: this.sourceId,
           domain: item.domain,
           title: `Public Pricing Model & Gateway for ${item.domain}`,

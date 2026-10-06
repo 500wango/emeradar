@@ -10,7 +10,8 @@
     "validate-intents": "tsx src/cli.ts validate-intents",
     "generate-experiments": "tsx src/cli.ts generate-experiments",
     "sync-gsc": "tsx src/cli.ts sync-gsc",
-    "verify-ledger": "tsx src/cli.ts verify-ledger"
+    "verify-ledger": "tsx src/cli.ts verify-ledger",
+    "assess-commercial": "tsx src/cli.ts assess-commercial"
   },
   "dependencies": {
     "@emeradar/core": "workspace:*",

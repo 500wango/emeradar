@@ -237,6 +237,8 @@ describe('CrawlCollector', () => {
 
       assert.equal(outcome.evidence.length, 1);
       assert.equal(outcome.evidence[0].evidenceClass, 'OBSERVED');
+      assert.equal(outcome.evidence[0].sourceType, 'PAID_TIER_OBSERVED');
+      assert.equal(data.dynamicShell, false);
       assert.equal(outcome.raw?.contentHash.length, 64);
     }
   });
@@ -254,6 +256,7 @@ describe('CrawlCollector', () => {
     if (outcome.status === 'OK') {
       const data = outcome.snapshots[0].data;
       assert.equal(data.fetchTier, 'HEADLESS');
+      assert.equal(data.dynamicShell, true);
       assert.equal(data.commercialStage, 'PRICED');
       assert.ok(data.pricingPlans.some((p: any) => p.name === 'Hobby'));
     }

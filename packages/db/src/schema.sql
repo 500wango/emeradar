@@ -260,6 +260,29 @@ ALTER TABLE commercial_snapshots DROP CONSTRAINT IF EXISTS uq_commercial_snapsho
 ALTER TABLE commercial_snapshots
   ADD CONSTRAINT uq_commercial_snapshot_target_date UNIQUE (commercial_target_id, obs_date);
 
+ALTER TABLE commercial_snapshots ADD COLUMN IF NOT EXISTS fetch_tier TEXT NOT NULL DEFAULT 'STATIC';
+ALTER TABLE commercial_snapshots ADD COLUMN IF NOT EXISTS fetch_status TEXT NOT NULL DEFAULT 'OK'
+  CHECK (fetch_status IN ('OK','FAILED','ROBOTS_DISALLOWED','BUDGET_SKIPPED','BLOCKED_404'));
+ALTER TABLE commercial_snapshots ADD COLUMN IF NOT EXISTS dynamic_shell BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_commercial_snapshot_target_date
+  ON commercial_snapshots (commercial_target_id, obs_date DESC);
+
+-- A target domain can serve several opportunities; sampling coverage (07 §5,§6.1)
+-- and persistence (07 §7) are only computable per opportunity.
+CREATE TABLE IF NOT EXISTS commercial_target_opportunities (
+  commercial_target_id TEXT NOT NULL REFERENCES commercial_targets(id) ON DELETE CASCADE,
+  opportunity_id TEXT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+  validation_level TEXT NOT NULL DEFAULT 'DIRECT'
+    CHECK (validation_level IN ('DIRECT','CATEGORY','ANALOG')),
+  first_linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (commercial_target_id, opportunity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cto_opportunity ON commercial_target_opportunities(opportunity_id);
+
+-- 07 §8 owner grouping: seeded with the registrable domain; owner-signal
+-- union-find is not implemented yet, so independence stays conservative.
+ALTER TABLE commercial_targets ADD COLUMN IF NOT EXISTS owner_group TEXT;
+
 -- 7. 证据链条 (Evidence)
 CREATE TABLE IF NOT EXISTS evidence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- evd_

@@ -100,7 +100,9 @@ export function calculateOpportunityScore(
     flags: verdictResult.flags,
     explanation: {
       dReason: dResult.reason,
-      mReason: input.commercial.negativeReasons?.join('; ') || 'Active commercial validation signals.',
+      mReason: input.commercial.negativeReasons?.length
+        ? input.commercial.negativeReasons.join('; ')
+        : input.commercial.bandReason || 'Active commercial validation signals.',
       wReason: wResult.reason,
       verdictReason: verdictResult.reason,
       rulesTriggered: verdictResult.rulesTriggered,

@@ -1,5 +1,6 @@
 import { query, transaction } from '@emeradar/db';
 import { AppError } from '@emeradar/core';
+import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { randomBytes, createHash } from 'node:crypto';
 import { AuthService } from './auth.service';
 import {
@@ -637,16 +638,17 @@ export class AdminService {
              verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
              confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
            ) VALUES (
-             $1, $2, $3, 'sc-1.0.0',
+             $1, $2, $3, $4,
              'BUILD_NOW', 'EARLY_WINDOW',
              8200, 7600, 7900, 'HIGH',
-             $4, '{}', $5, $6
+             $5, '{}', $6, $7
            )
            ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
           [
             `vdt_${opp.id}_${today.replace(/-/g, '')}`,
             opp.id,
             today,
+            SCORING_CONFIG_VERSION,
             [snapshotId],
             prevHash,
             rowHash,

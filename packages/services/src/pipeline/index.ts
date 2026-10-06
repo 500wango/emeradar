@@ -3,6 +3,8 @@ export * from './generate-discovery-intents';
 export * from './validate-discovery-intents';
 export * from './discover-candidates';
 export * from './observe-opportunity';
+export * from './commercial-assembly';
+export * from './assess-commercial';
 export * from './generate-experiment-cards';
 export * from './incubate-candidates';
 export * from './pipeline';

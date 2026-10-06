@@ -5,6 +5,7 @@ import {
   Band,
   BuildArchetype,
   ExecutionClass,
+  CommercialStage,
 } from '@emeradar/core';
 
 export type AxisBand = Band;
@@ -91,6 +92,18 @@ export interface WindowFeatures {
   fastTrack?: boolean;
 }
 
+export interface CommercialNegativeSignal {
+  type: string;
+  domains: number;
+  strong: boolean;
+}
+
+/**
+ * M-axis input contract (07-COMMERCIAL-SIGNAL-SPEC §5).
+ * Assembly fills the raw counts; bandM() derives band/score/stage/negatives.
+ * Fields beyond independentDomainsCount/band are optional so hand-built
+ * summaries (tests, legacy callers) still type-check.
+ */
 export interface CommercialSummary {
   independentDomainsCount: number;
   hasSubscriptionPlans: boolean;
@@ -102,6 +115,22 @@ export interface CommercialSummary {
   hasTransactionTraction?: boolean;
   pricingDecorationOnly?: boolean;
   persistentPricedDomains?: number;
+
+  asOf?: string;
+  sampledDomains?: number;
+  sampleCoverage?: number;
+  independentPricedDomains?: number;
+  categoryOrAnalogPricedDomains?: number;
+  intentQueryCount?: number;
+  infraOnlyDomains?: number;
+  revenueEvidence?: { observed: number; selfReported: number };
+  negatives?: CommercialNegativeSignal[];
+  contradictions?: number;
+  evidenceIds?: string[];
+  stage?: CommercialStage;
+  maxSnapshotSpanDays?: number;
+  persistenceDaysNeeded?: number;
+  bandReason?: string;
 }
 
 export interface EvidenceConfidenceInput {

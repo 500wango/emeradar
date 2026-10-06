@@ -1,11 +1,25 @@
 import { query, transaction } from '@emeradar/db';
-import { calculateOpportunityScore, CommercialSummary, AxisBand } from '@emeradar/scoring';
+import {
+  bandM,
+  calculateOpportunityScore,
+  CommercialSummary,
+} from '@emeradar/scoring';
 import {
   AutocompleteCollector,
+  CostLedgerService,
   CrawlCollector,
   RunContext,
   SerpCollector,
 } from '@emeradar/collectors';
+import {
+  FetchFailureFacts,
+  buildCommercialRawSummary,
+  emitNegativesFromDiff,
+  factsFromCrawl,
+  hasFreshCommercialSnapshot,
+  writeCommercialSnapshot,
+  writeFailedCommercialSnapshot,
+} from './commercial-assembly';
 
 const SKIP_COMMERCIAL_DOMAINS = [
   'github.com',
@@ -18,6 +32,11 @@ const SKIP_COMMERCIAL_DOMAINS = [
   'medium.com',
   'quora.com',
 ];
+
+// 07 §7 samples weekly, so a wider target set costs less than it looks: a domain with a
+// successful read is not re-fetched for COMMERCIAL_STALENESS_DAYS.
+const COMMERCIAL_MAX_TARGETS_PER_OPP = 8;
+const COMMERCIAL_STALENESS_DAYS = 7;
 
 export interface ObservedOpportunity {
   opportunityId: string;
@@ -204,7 +223,7 @@ export async function observeOpportunity(
   const serpHistoryDays = serpHistoryRes.rows[0]?.days ?? 0;
   const recentSerp = Boolean(serpHistoryRes.rows[0]?.recent);
 
-  const pricedDomains = await crawlCommercialDomains(
+  await crawlCommercialDomains(
     organicItems,
     opp.id,
     obsDate,
@@ -212,17 +231,24 @@ export async function observeOpportunity(
     collectors.crawl
   );
 
-  const tractionRes = await query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM evidence
-     WHERE opportunity_id = $1 AND (
-       source_type IN ('TRANSACTION_TRACTION_OBSERVED', 'PLATFORM_COUNTER', 'PLATFORM_REPORTED_REVENUE', 'SOCIAL_COMMERCE_DISCUSSIONS')
-       OR payload->>'has_transaction_traction' = 'true'
-     )`,
-    [opp.id]
+  const commercialFacts = await buildCommercialRawSummary(
+    opp.id,
+    obsDate,
+    opp.research_language
   );
-  const transactionTractionCount = tractionRes.rows[0]?.count ?? 0;
-
-  const commercial = commercialSummary(pricedDomains, transactionTractionCount);
+  const commercialBanding = bandM(commercialFacts);
+  const commercial: CommercialSummary = {
+    ...commercialFacts,
+    band: commercialBanding.band,
+    totalScore: commercialBanding.basisPoints,
+    stage: commercialBanding.stage,
+    pricingDecorationOnly: commercialBanding.pricingDecorationOnly,
+    hasStrongNegative: commercialBanding.hasStrongNegative,
+    negativeReasons: commercialBanding.negativeReasons,
+    persistenceDaysNeeded: commercialBanding.persistenceDaysNeeded,
+    bandReason: commercialBanding.reason,
+  };
+  const independentPricedDomains = commercial.independentPricedDomains ?? 0;
   const clusterRes = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count FROM opportunity_queries WHERE opportunity_id = $1`,
     [opp.id]
@@ -350,7 +376,7 @@ export async function observeOpportunity(
   const prev = prevRes.rows[0];
 
   const independentSourceCount = (acOutcome.status === 'OK' ? 1 : 0) +
-    (recentSerp ? 1 : 0) + (pricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
+    (recentSerp ? 1 : 0) + (independentPricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
 
   const historyRes = await query<{ verdict: string; lifecycle: string; w_band: string }>(
     `SELECT v.verdict, v.lifecycle, COALESCE(c.w_band, 'INSUFFICIENT') AS w_band
@@ -408,7 +434,7 @@ export async function observeOpportunity(
     confidence: {
       nIndependentSources: independentSourceCount,
       totalEvidenceCount: Math.max(1, historyDays + (recentSerp ? 1 : 0)),
-      observedEvidenceCount: (acOutcome.status === 'OK' ? 1 : 0) + (recentSerp ? 1 : 0) + pricedDomains,
+      observedEvidenceCount: (acOutcome.status === 'OK' ? 1 : 0) + (recentSerp ? 1 : 0) + independentPricedDomains,
       medianEvidenceAgeDays,
       historyDays,
     },
@@ -527,7 +553,7 @@ export async function observeOpportunity(
     })]
   );
 
-  const whyNowSummary = `Autocomplete history ${historyDays}/14 days (recent coverage ${autocompleteRecentDays}/7). Organic SERP days ${serpHistoryDays}/14. Independent sources ${independentSourceCount}. Domains with observed pricing or checkout: ${pricedDomains}.`;
+  const whyNowSummary = `Autocomplete history ${historyDays}/14 days (recent coverage ${autocompleteRecentDays}/7). Organic SERP days ${serpHistoryDays}/14. Independent sources ${independentSourceCount}. Domains with observed pricing or checkout: ${independentPricedDomains}.`;
 
   return {
     opportunityId: opp.id,
@@ -551,50 +577,49 @@ async function crawlCommercialDomains(
   obsDate: string,
   ctx: RunContext,
   crawl: CrawlCollector
-): Promise<number> {
-  const seen = new Set<string>();
-  let priced = 0;
+): Promise<void> {
+  const considered = new Set<string>();
   for (const item of items) {
     const domain = item.domain.replace(/^www\./, '');
-    if (!domain || seen.has(domain) || SKIP_COMMERCIAL_DOMAINS.some((skip) => domain === skip || domain.endsWith(`.${skip}`))) {
+    if (!domain || considered.has(domain) || SKIP_COMMERCIAL_DOMAINS.some((skip) => domain === skip || domain.endsWith(`.${skip}`))) {
       continue;
     }
-    seen.add(domain);
-    if (seen.size > 3) break;
+    if (considered.size >= COMMERCIAL_MAX_TARGETS_PER_OPP) break;
+    considered.add(domain);
+    const targetUrl = `https://${domain}/pricing`;
+
+    // 07 §7 validates persistence weekly; re-fetching the same domains daily buys nothing.
+    if (await hasFreshCommercialSnapshot(domain, obsDate, COMMERCIAL_STALENESS_DAYS)) continue;
+
     const outcome = await crawl.collect(ctx, {
       targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
       domain,
-      targetUrl: `https://${domain}/pricing`,
+      targetUrl,
       opportunityId,
     });
-    if (outcome.status !== 'OK') continue;
+
+    if (outcome.status === 'FAILED' && outcome.cost) {
+      await CostLedgerService.recordCost(outcome.cost);
+    }
+
+    if (outcome.status !== 'OK') {
+      // Empty and failed reads must be recorded: without them, removal of a paid tier
+      // has nothing to diff against and robots-blocked targets stay in the coverage
+      // denominator (07 §6.1, §11 step 5).
+      await writeFailedCommercialSnapshot(opportunityId, domain, targetUrl, obsDate, {
+        fetchStatus: commercialFetchStatus(outcome),
+      });
+      continue;
+    }
+
+    await CostLedgerService.recordCost(outcome.cost);
     const snap = outcome.snapshots[0];
-    const plans = snap?.data.pricingPlans || [];
-    const gateways = snap?.data.paymentGateways || [];
-    if (plans.length === 0 && gateways.length === 0) continue;
-    priced += 1;
-    await query(
-      `INSERT INTO commercial_targets (id, domain, target_url, last_crawled_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (domain) DO UPDATE SET last_crawled_at = NOW(), target_url = EXCLUDED.target_url`,
-      [`cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 48)}`, domain, `https://${domain}/pricing`]
-    );
-    await query(
-      `INSERT INTO commercial_snapshots (commercial_target_id, obs_date, pricing_plans, payment_gateways, commercial_stage)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (commercial_target_id, obs_date) DO UPDATE SET
-         pricing_plans = EXCLUDED.pricing_plans,
-         payment_gateways = EXCLUDED.payment_gateways,
-         commercial_stage = EXCLUDED.commercial_stage,
-         created_at = NOW()`,
-      [
-        `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 48)}`,
-        obsDate,
-        JSON.stringify(plans),
-        gateways,
-        snap?.data.commercialStage || 'NONE',
-      ]
-    );
+    if (!snap) continue;
+
+    const facts = factsFromCrawl(snap.data);
+    const targetId = await writeCommercialSnapshot(opportunityId, domain, targetUrl, facts);
+    await emitNegativesFromDiff(opportunityId, domain, targetId, obsDate, facts, crawl.sourceId);
+
     for (const ev of outcome.evidence) {
       await query(
         `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at)
@@ -613,31 +638,16 @@ async function crawlCommercialDomains(
       );
     }
   }
-  return priced;
 }
 
-function commercialSummary(pricedDomains: number, transactionTractionCount = 0): CommercialSummary {
-  // PRD §3 & 05-SCORING-CONFIG-SPEC & 07-COMMERCIAL-SIGNAL-SPEC:
-  // "HIGH 要求至少两个独立域名上的 observed 定价或结账 且 存在交易/营收/持续性证据"
-  // If only pricing page with no transaction traction, pricingDecorationOnly = true and band capped at MEDIUM or LOW.
-  const hasTransactionTraction = transactionTractionCount > 0;
-  const pricingDecorationOnly = pricedDomains >= 2 && !hasTransactionTraction;
-
-  let band: AxisBand = 'INSUFFICIENT';
-  if (pricedDomains >= 2) {
-    band = hasTransactionTraction ? 'HIGH' : 'MEDIUM';
-  } else if (pricedDomains === 1) {
-    band = hasTransactionTraction ? 'MEDIUM' : 'LOW';
+function commercialFetchStatus(
+  outcome: Extract<Awaited<ReturnType<CrawlCollector['collect']>>, { status: 'SKIPPED' | 'FAILED' }>
+): FetchFailureFacts['fetchStatus'] {
+  if (outcome.status === 'SKIPPED') {
+    return outcome.reason === 'ROBOTS_DISALLOWED' ? 'ROBOTS_DISALLOWED' : 'BUDGET_SKIPPED';
   }
-
-  return {
-    band,
-    independentDomainsCount: pricedDomains,
-    hasSubscriptionPlans: pricedDomains > 0,
-    hasOneTimePlans: false,
-    hasStrongNegative: false,
-    hasTransactionTraction,
-    pricingDecorationOnly,
-    totalScore: band === 'HIGH' ? 8200 : band === 'MEDIUM' ? 6200 : band === 'LOW' ? 2500 : 0,
-  };
+  // A dead pricing page is not a commercial signal in either direction (07 does not
+  // define 404 as negative), so it must not feed the diff.
+  return /HTTP 404/.test(outcome.message) ? 'BLOCKED_404' : 'FAILED';
 }
+

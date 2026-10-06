@@ -141,7 +141,7 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 
-  it('evaluates BUILD_NOW verdict when M is verified with >=2 paid domains and subscriptions even if band is MEDIUM', () => {
+  it('routes two decoration-priced domains through the compensated rule, not standard BUILD_NOW', () => {
     const res = evaluateVerdict({
       dBand: 'HIGH',
       mSummary: {
@@ -150,6 +150,7 @@ describe('Scoring Engine Unit Tests', () => {
         hasSubscriptionPlans: true,
         hasOneTimePlans: false,
         hasStrongNegative: false,
+        pricingDecorationOnly: true,
         totalScore: 6500,
       },
       wBand: 'HIGH',
@@ -157,7 +158,28 @@ describe('Scoring Engine Unit Tests', () => {
       historyDays: 30,
     });
     assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
-    assert.strictEqual(res.verdict, 'BUILD_NOW');
+    assert.ok(res.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
+    assert.ok(!res.rulesTriggered.includes('RULE_BUILD_NOW'));
+  });
+
+  it('does not publish BUILD_NOW for decoration pricing without a breakout signal', () => {
+    const res = evaluateVerdict({
+      dBand: 'MEDIUM',
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        pricingDecorationOnly: true,
+        totalScore: 6200,
+      },
+      wBand: 'MEDIUM',
+      confidence: 'MEDIUM',
+      historyDays: 30,
+    });
+    assert.notStrictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.rawVerdict, 'WATCH');
   });
 
   it('immediately yields PASS when strong negative commercial signal exists (bypassing debounce)', () => {

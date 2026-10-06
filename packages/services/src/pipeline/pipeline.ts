@@ -11,6 +11,7 @@ import {
   RunContext,
   SerpCollector,
 } from '@emeradar/collectors';
+import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { PublicPublicationService } from '../public-publication.service';
 import { discoverAutocompleteCandidates } from './discover-candidates';
@@ -137,7 +138,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     const rowData: VerdictRowData = {
       opportunityId: item.opportunityId,
       obsDate,
-      scoringConfigVersion: 'sc-1.0.0',
+      scoringConfigVersion: SCORING_CONFIG_VERSION,
       verdict: item.output.verdict,
       lifecycle: item.output.lifecycle,
       dBasisPoints: item.output.dScore,
@@ -215,13 +216,14 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
             confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
           ) VALUES (
-            $1,$2,$3,'sc-1.0.0',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
           )
           ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
           [
             `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
             row.opportunityId,
             obsDate,
+            row.data.scoringConfigVersion,
             row.data.verdict,
             row.data.lifecycle,
             row.data.dBasisPoints,
