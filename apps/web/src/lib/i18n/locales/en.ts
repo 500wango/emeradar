@@ -335,9 +335,9 @@ export const en: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro',
-    planProMonthlyPrice: '$39',
-    planProYearlyPrice: '$29',
-    planProBilledYearly: 'billed annually ($348/yr)',
+    planProMonthlyPrice: '$29',
+    planProYearlyPrice: '$24',
+    planProBilledYearly: 'billed annually ($290/yr)',
     planProDesc: 'Capture high-conviction markets before incumbents. Full evidence ledger & exportable deep-dive reports.',
     proFeatures: [
       '⚡ Realtime decision feed (Zero delay — up to 10 verified opportunities / day)',

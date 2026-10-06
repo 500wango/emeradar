@@ -26,18 +26,22 @@ import { LiveScanner } from '@/components/LiveScanner';
 export default async function HomePage() {
   const { t, isZh } = await getServerI18n();
 
-  // Fetch actual verified decisions for the landing showcase (strictly BUILD_NOW only)
+  // Fetch actual verified decisions for the landing showcase.
+  // Only high-conviction verdicts belong here — never show WATCH/PASS cards
+  // in the "verified decisions" section, even if they are TRACKED.
   let showcaseCards: FeedCardItem[] = [];
   try {
     const res = await OpportunityService.listFeedCards({
-      verdict: 'BUILD_NOW',
       limit: 6,
+      verdicts: ['BUILD_NOW', 'EARLY_BET'],
     });
     showcaseCards = res.items || [];
   } catch (err) {
     showcaseCards = [];
   }
-  const buildNowCards = showcaseCards;
+  // The "published BUILD_NOW" section below renders a BUILD_NOW-coloured badge,
+  // so it must not receive EARLY_BET cards.
+  const buildNowCards = showcaseCards.filter((card) => card.verdict === 'BUILD_NOW');
 
   const pillars = [
     {

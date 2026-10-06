@@ -65,7 +65,7 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>{isZh ? '升级至 Builder Pro ($49/月)' : 'Upgrade to Builder Pro'}</span>
+                <span>{isZh ? '升级至 Builder Pro ($29/月)' : 'Upgrade to Builder Pro'}</span>
               </Link>
               <Link
                 href={`/opportunities/${slug}`}

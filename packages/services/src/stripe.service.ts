@@ -31,8 +31,8 @@ export class StripeService {
     const planPrices = {
       PRO: {
         name: 'Builder Pro',
-        monthly: 4900, // $49
-        yearly: 46800, // $39/mo * 12 = $468
+        monthly: 2900, // $29
+        yearly: 29000, // ~$24/mo * 12 = $290 (2 months free)
       },
       TEAM: {
         name: 'Scale Team',
@@ -174,7 +174,7 @@ export class StripeService {
   /**
    * Verifies Stripe Webhook signature (HMAC-SHA256)
    */
-  static verifyWebhookSignature(payload: string, header: string, secret: string): boolean {
+  static verifyWebhookSignature(payload: string, header: string, secret: string, maxAgeSec = 600): boolean {
     try {
       const parts = header.split(',');
       const timestampPart = parts.find((p) => p.startsWith('t='));
@@ -183,6 +183,10 @@ export class StripeService {
 
       const timestamp = timestampPart.slice(2);
       const signature = sigPart.slice(3);
+
+      // Replay protection: reject signatures older than maxAgeSec.
+      const ts = Number(timestamp);
+      if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxAgeSec) return false;
 
       const crypto = require('node:crypto');
       const expected = crypto
