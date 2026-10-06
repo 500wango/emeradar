@@ -31,8 +31,8 @@ export class StripeService {
     const planPrices = {
       PRO: {
         name: 'Builder Pro',
-        monthly: 4900, // $49
-        yearly: 46800, // $39/mo * 12 = $468
+        monthly: 2900, // $29
+        yearly: 29000, // ~$24/mo * 12 = $290 (2 months free)
       },
       TEAM: {
         name: 'Scale Team',
