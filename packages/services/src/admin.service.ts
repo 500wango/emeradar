@@ -376,6 +376,20 @@ export class AdminService {
            )
            ON CONFLICT (opportunity_id) DO UPDATE SET
              verdict = 'BUILD_NOW',
+             lifecycle = 'EARLY_WINDOW',
+             -- Preserve real measured scores; only fill in admin-assertion values
+             -- where the card still carries unmeasured zeros (the dirty-data case).
+             d_basis_points = CASE WHEN opportunity_cards.d_basis_points = 0 THEN 8000 ELSE opportunity_cards.d_basis_points END,
+             m_basis_points = CASE WHEN opportunity_cards.m_basis_points = 0 THEN 7500 ELSE opportunity_cards.m_basis_points END,
+             w_basis_points = CASE WHEN opportunity_cards.w_basis_points = 0 THEN 7800 ELSE opportunity_cards.w_basis_points END,
+             d_band = CASE WHEN opportunity_cards.d_basis_points = 0 THEN 'HIGH' ELSE opportunity_cards.d_band END,
+             m_band = CASE WHEN opportunity_cards.m_basis_points = 0 THEN 'MEDIUM' ELSE opportunity_cards.m_band END,
+             w_band = CASE WHEN opportunity_cards.w_basis_points = 0 THEN 'HIGH' ELSE opportunity_cards.w_band END,
+             confidence = CASE WHEN opportunity_cards.d_basis_points = 0 THEN 'HIGH' ELSE opportunity_cards.confidence END,
+             recommended_archetype = EXCLUDED.recommended_archetype,
+             execution_class = EXCLUDED.execution_class,
+             why_now_summary = EXCLUDED.why_now_summary,
+             top_idea = EXCLUDED.top_idea,
              updated_at = NOW()`,
           [
             opp.id,

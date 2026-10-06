@@ -184,7 +184,7 @@ export async function observeOpportunity(
   const serpHistoryDays = serpHistoryRes.rows[0]?.days ?? 0;
   const recentSerp = Boolean(serpHistoryRes.rows[0]?.recent);
 
-  const pricedDomains = await crawlCommercialDomains(
+  const commercialCrawl = await crawlCommercialDomains(
     organicItems,
     opp.id,
     obsDate,
@@ -192,7 +192,7 @@ export async function observeOpportunity(
     collectors.crawl
   );
 
-  const commercial = commercialSummary(pricedDomains);
+  const commercial = commercialSummary(commercialCrawl);
   const clusterRes = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count FROM opportunity_queries WHERE opportunity_id = $1`,
     [opp.id]
@@ -320,7 +320,7 @@ export async function observeOpportunity(
   const prev = prevRes.rows[0];
 
   const independentSourceCount = (acOutcome.status === 'OK' ? 1 : 0) +
-    (recentSerp ? 1 : 0) + (pricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
+    (recentSerp ? 1 : 0) + (commercialCrawl.pricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
 
   const historyRes = await query<{ verdict: string; lifecycle: string; w_band: string }>(
     `SELECT v.verdict, v.lifecycle, COALESCE(c.w_band, 'INSUFFICIENT') AS w_band
@@ -359,7 +359,7 @@ export async function observeOpportunity(
     confidence: {
       nIndependentSources: independentSourceCount,
       totalEvidenceCount: Math.max(1, historyDays + (recentSerp ? 1 : 0)),
-      observedEvidenceCount: (acOutcome.status === 'OK' ? 1 : 0) + (recentSerp ? 1 : 0) + pricedDomains,
+      observedEvidenceCount: (acOutcome.status === 'OK' ? 1 : 0) + (recentSerp ? 1 : 0) + commercialCrawl.pricedDomains,
       medianEvidenceAgeDays,
       historyDays,
     },
@@ -473,7 +473,7 @@ export async function observeOpportunity(
     })]
   );
 
-  const whyNowSummary = `Autocomplete history ${historyDays}/14 days (recent coverage ${autocompleteRecentDays}/7). Organic SERP days ${serpHistoryDays}/14. Independent sources ${independentSourceCount}. Domains with observed pricing or checkout: ${pricedDomains}.`;
+  const whyNowSummary = `Autocomplete history ${historyDays}/14 days (recent coverage ${autocompleteRecentDays}/7). Organic SERP days ${serpHistoryDays}/14. Independent sources ${independentSourceCount}. Domains with observed pricing or checkout: ${commercialCrawl.pricedDomains}.`;
 
   return {
     opportunityId: opp.id,
@@ -497,9 +497,11 @@ async function crawlCommercialDomains(
   obsDate: string,
   ctx: RunContext,
   crawl: CrawlCollector
-): Promise<number> {
+): Promise<CommercialCrawlResult> {
   const seen = new Set<string>();
+  const gateways = new Set<string>();
   let priced = 0;
+  let subscription = 0;
   for (const item of items) {
     const domain = item.domain.replace(/^www\./, '');
     if (!domain || seen.has(domain) || SKIP_COMMERCIAL_DOMAINS.some((skip) => domain === skip || domain.endsWith(`.${skip}`))) {
@@ -519,6 +521,10 @@ async function crawlCommercialDomains(
     const gateways = snap?.data.paymentGateways || [];
     if (plans.length === 0 && gateways.length === 0) continue;
     priced += 1;
+    if (plans.some((p: { billingPeriod?: string }) => p.billingPeriod === 'monthly' || p.billingPeriod === 'yearly')) {
+      subscription += 1;
+    }
+    for (const g of gateways) gateways.add(g);
     await query(
       `INSERT INTO commercial_targets (id, domain, target_url, last_crawled_at)
        VALUES ($1, $2, $3, NOW())
@@ -559,17 +565,39 @@ async function crawlCommercialDomains(
       );
     }
   }
-  return priced;
+  return {
+    pricedDomains: priced,
+    subscriptionDomains: subscription,
+    distinctGateways: Array.from(gateways),
+  };
 }
 
-function commercialSummary(pricedDomains: number): CommercialSummary {
-  const band = pricedDomains >= 2 ? 'MEDIUM' : pricedDomains === 1 ? 'LOW' : 'INSUFFICIENT';
+interface CommercialCrawlResult {
+  pricedDomains: number;
+  subscriptionDomains: number;
+  distinctGateways: string[];
+}
+
+function commercialSummary(crawl: CommercialCrawlResult): CommercialSummary {
+  const { pricedDomains, subscriptionDomains, distinctGateways } = crawl;
+  // HIGH is deliberately hard to reach: at most 3 SERP domains are crawled, so this
+  // requires ALL of them to be monetized, ≥2 with recurring billing, and ≥2 distinct
+  // payment gateways (i.e. not one vendor's ecosystem). This keeps BUILD_NOW rare,
+  // matching the PRD's high-precision bar for the top verdict.
+  const band =
+    pricedDomains >= 3 && subscriptionDomains >= 2 && distinctGateways.length >= 2
+      ? 'HIGH'
+      : pricedDomains >= 2
+        ? 'MEDIUM'
+        : pricedDomains === 1
+          ? 'LOW'
+          : 'INSUFFICIENT';
   return {
     band,
     independentDomainsCount: pricedDomains,
-    hasSubscriptionPlans: pricedDomains > 0,
+    hasSubscriptionPlans: subscriptionDomains > 0,
     hasOneTimePlans: false,
     hasStrongNegative: false,
-    totalScore: band === 'MEDIUM' ? 5500 : band === 'LOW' ? 2500 : 0,
+    totalScore: band === 'HIGH' ? 8500 : band === 'MEDIUM' ? 5500 : band === 'LOW' ? 2500 : 0,
   };
 }

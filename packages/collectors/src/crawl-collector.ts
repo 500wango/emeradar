@@ -23,6 +23,7 @@ export interface PricingPlan {
   priceYearly?: number;
   currency: string;
   features?: string[];
+  billingPeriod?: 'monthly' | 'yearly' | 'unknown';
 }
 
 export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
@@ -388,6 +389,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
             currency,
             priceMonthly: period && period.startsWith('y') ? Math.round(price / 12) : price,
             priceYearly: period && period.startsWith('y') ? price : price * 10,
+            billingPeriod: !period ? 'unknown' : period.startsWith('y') ? 'yearly' : 'monthly',
           });
         }
       }

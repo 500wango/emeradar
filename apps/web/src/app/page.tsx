@@ -26,11 +26,14 @@ import { LiveScanner } from '@/components/LiveScanner';
 export default async function HomePage() {
   const { t, isZh } = await getServerI18n();
 
-  // Fetch actual verified decisions for the landing showcase
+  // Fetch actual verified decisions for the landing showcase.
+  // Only high-conviction verdicts belong here — never show WATCH/PASS cards
+  // in the "verified decisions" section, even if they are TRACKED.
   let showcaseCards: FeedCardItem[] = [];
   try {
     const res = await OpportunityService.listFeedCards({
       limit: 6,
+      verdicts: ['BUILD_NOW', 'EARLY_BET'],
     });
     showcaseCards = res.items || [];
   } catch (err) {

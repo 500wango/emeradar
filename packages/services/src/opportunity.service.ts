@@ -3,6 +3,8 @@ import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } fro
 
 export interface FeedCardFilterOptions {
   verdict?: Verdict;
+  /** Match any of these verdicts. Takes precedence over `verdict` when set. */
+  verdicts?: Verdict[];
   archetype?: BuildArchetype;
   executionClass?: ExecutionClass;
   minD?: number;
@@ -160,6 +162,7 @@ export class OpportunityService {
   static async listFeedCards(options: FeedCardFilterOptions = {}): Promise<FeedResponse> {
     const {
       verdict,
+      verdicts,
       archetype,
       executionClass,
       minD,
@@ -177,7 +180,10 @@ export class OpportunityService {
       params.push(String(minAgeDays));
     }
 
-    if (verdict) {
+    if (verdicts && verdicts.length > 0) {
+      conditions.push(`c.verdict = ANY($${paramIdx++})`);
+      params.push(verdicts);
+    } else if (verdict) {
       conditions.push(`c.verdict = $${paramIdx++}`);
       params.push(verdict);
     }
