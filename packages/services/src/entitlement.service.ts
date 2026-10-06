@@ -58,14 +58,13 @@ export class EntitlementService {
     const apiAccess = isAdmin || !!ent.api_access;
     const opportunityDetailFull = isAdmin || row.plan_code !== 'FREE';
     const deepReportExport = isAdmin || row.plan_code !== 'FREE';
-    const realtime = isAdmin || row.plan_code === 'PRO' || row.plan_code === 'TEAM';
     const feedDelayDays = isAdmin
       ? 0
       : typeof ent.feed_delay_days === 'number'
-      ? ent.feed_delay_days
-      : realtime
-      ? 0
-      : 45;
+      ? ent.feed_delay_days === 45
+        ? 0
+        : ent.feed_delay_days
+      : 0;
 
     // Check usage in current month
     const startOfMonth = new Date();

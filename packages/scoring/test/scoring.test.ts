@@ -255,4 +255,157 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(out1.verdict, 'BUILD_NOW');
     assert.strictEqual(out1.recommendedArchetype, 'LIGHTWEIGHT_TOOL');
   });
+
+  it('supports Fast-Track 7-day qualification for breakout pulse momentum', () => {
+    const demandRes = calculateDemandScore({
+      clusterSize: 12,
+      newQueries7d: 7,
+      clusterGrowth30d: 1.5,
+      expansionSlope30d: 0.8,
+      attentionSourcesActive14d: 3,
+      attentionGrowth14d: 0.5,
+      historyDays: 7, // 7 days instead of 14
+      fastTrack: true,
+    });
+    assert.strictEqual(demandRes.band, 'HIGH');
+    assert.ok(demandRes.reason.includes('[FAST-TRACK]'));
+
+    const windowRes = calculateWindowScore({
+      serpWeakness: 75.0,
+      eSpecialist30d: 0,
+      eAuthoritative30d: 0,
+      volatility30d: 2,
+      crowdingIndex: 10,
+      serpHistoryDays: 7, // 7 days SERP
+      recentSerpSnapshotAvailable: true,
+      fastTrack: true,
+    });
+    assert.strictEqual(windowRes.band, 'HIGH');
+
+    const verdictRes = evaluateVerdict({
+      dBand: demandRes.band,
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 1,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        hasTransactionTraction: true, // transaction traction observed
+        totalScore: 6500,
+      },
+      wBand: windowRes.band,
+      confidence: 'MEDIUM',
+      historyDays: 7,
+      fastTrack: true,
+    });
+    assert.strictEqual(verdictRes.rawVerdict, 'BUILD_NOW');
+    assert.ok(verdictRes.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
+    assert.ok(verdictRes.flags.includes('FAST_TRACK'));
+  });
+
+  it('triggers RULE_BUILD_NOW_COMPENSATED when breakout demand and open window compensate for developing commercial proof', () => {
+    const verdictRes = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: false,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        hasTransactionTraction: true,
+        totalScore: 6000,
+      },
+      wBand: 'HIGH',
+      confidence: 'MEDIUM',
+      historyDays: 20,
+    });
+    assert.strictEqual(verdictRes.rawVerdict, 'BUILD_NOW');
+    assert.ok(verdictRes.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
+  });
+
+  it('demotes pricing decoration without transaction traction from standard BUILD_NOW', () => {
+    // Pricing decoration only (static pricing table, no reviews, no transactions)
+    const decoratedRes = evaluateVerdict({
+      dBand: 'MEDIUM',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        pricingDecorationOnly: true, // decoration only
+        hasTransactionTraction: false,
+        totalScore: 7500,
+      },
+      wBand: 'MEDIUM',
+      confidence: 'MEDIUM',
+      historyDays: 30,
+    });
+    // Should NOT qualify for standard BUILD_NOW because mVerifiedStandard fails
+    assert.notStrictEqual(decoratedRes.rawVerdict, 'BUILD_NOW');
+
+    // But with transaction traction, it qualifies!
+    const withTractionRes = evaluateVerdict({
+      dBand: 'MEDIUM',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        pricingDecorationOnly: true,
+        hasTransactionTraction: true,
+        totalScore: 7500,
+      },
+      wBand: 'MEDIUM',
+      confidence: 'MEDIUM',
+      historyDays: 30,
+    });
+    assert.strictEqual(withTractionRes.rawVerdict, 'BUILD_NOW');
+    assert.ok(withTractionRes.rulesTriggered.includes('RULE_BUILD_NOW'));
+  });
+
+  it('triggers CROWDED_LOCKED circuit breaker and WINDOW_CLOSING when claim slots are full', () => {
+    const crowdedRes = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 8000,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 35,
+      claimsCount: 5,
+      maxClaims: 5, // slots full
+    });
+    assert.strictEqual(crowdedRes.rawVerdict, 'WINDOW_CLOSING');
+    assert.strictEqual(crowdedRes.verdict, 'WINDOW_CLOSING'); // debounce bypassed
+    assert.ok(crowdedRes.flags.includes('CROWDED_LOCKED'));
+    assert.ok(crowdedRes.rulesTriggered.includes('RULE_CROWDED_LOCKED'));
+  });
+
+  it('activates relaxed EARLY_BET for fast-track pulse with emerging signals', () => {
+    const earlyRes = evaluateVerdict({
+      dBand: 'MEDIUM',
+      mSummary: {
+        band: 'LOW',
+        independentDomainsCount: 0,
+        hasSubscriptionPlans: false,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 1000,
+      },
+      wBand: 'HIGH',
+      confidence: 'LOW',
+      historyDays: 8,
+      fastTrack: true,
+    });
+    assert.strictEqual(earlyRes.rawVerdict, 'EARLY_BET');
+    assert.ok(earlyRes.rulesTriggered.includes('RULE_EARLY_BET'));
+    assert.ok(earlyRes.flags.includes('FAST_TRACK'));
+  });
 });

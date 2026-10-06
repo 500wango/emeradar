@@ -22,7 +22,38 @@ export class TrackRecordService {
     const hitRate30d =
       evaluated.length > 0 ? Math.round((hits / evaluated.length) * 1000) / 10 : null;
 
-    // 2. Checkpoints
+    // 2. Cohort Hit-Rate Matrix (grouped by predicted_at month)
+    const cohortMap = new Map<string, any[]>();
+    for (const ep of episodes) {
+      const month = ep.predicted_at
+        ? new Date(ep.predicted_at).toISOString().slice(0, 7)
+        : '2025-01';
+      if (!cohortMap.has(month)) cohortMap.set(month, []);
+      cohortMap.get(month)!.push(ep);
+    }
+
+    const cohorts = Array.from(cohortMap.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([month, cohortEpisodes]) => {
+        const eval30 = cohortEpisodes.filter((e) => e.outcome_30d === 'HIT' || e.outcome_30d === 'MISS');
+        const hits30 = eval30.filter((e) => e.outcome_30d === 'HIT').length;
+        const eval60 = cohortEpisodes.filter((e) => e.outcome_60d === 'HIT' || e.outcome_60d === 'MISS');
+        const hits60 = eval60.filter((e) => e.outcome_60d === 'HIT').length;
+        const eval90 = cohortEpisodes.filter((e) => e.outcome_90d === 'HIT' || e.outcome_90d === 'MISS');
+        const hits90 = eval90.filter((e) => e.outcome_90d === 'HIT').length;
+
+        return {
+          month,
+          total: cohortEpisodes.length,
+          hitRate30d: eval30.length > 0 ? `${Math.round((hits30 / eval30.length) * 1000) / 10}%` : '—',
+          hitRate60d: eval60.length > 0 ? `${Math.round((hits60 / eval60.length) * 1000) / 10}%` : '—',
+          hitRate90d: eval90.length > 0 ? `${Math.round((hits90 / eval90.length) * 1000) / 10}%` : '—',
+          sampleSize: cohortEpisodes.length,
+          status: eval60.length > 0 ? 'MATURED' : eval30.length > 0 ? 'EVALUATING' : 'ACCUMULATING',
+        };
+      });
+
+    // 3. Checkpoints
     const ckpRes = await query<any>(
       `SELECT id, obs_date, total_records, merkle_root, final_row_hash, verified_at
        FROM ledger_checkpoints
@@ -39,6 +70,7 @@ export class TrackRecordService {
         activeWatchlistCount: episodes.length,
       },
       episodes,
+      cohorts,
       checkpoints: ckpRes.rows,
     };
   }

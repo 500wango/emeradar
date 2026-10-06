@@ -74,6 +74,7 @@ export interface DemandFeatures {
   attentionGrowth14d: number;
   trendsSlope90d?: number;
   historyDays: number;
+  fastTrack?: boolean;
 }
 
 export interface WindowFeatures {
@@ -84,6 +85,10 @@ export interface WindowFeatures {
   crowdingIndex: number;
   serpHistoryDays: number;
   recentSerpSnapshotAvailable: boolean;
+  claimsCount?: number;
+  maxClaims?: number;
+  isCrowdedLocked?: boolean;
+  fastTrack?: boolean;
 }
 
 export interface CommercialSummary {
@@ -94,6 +99,9 @@ export interface CommercialSummary {
   negativeReasons?: string[];
   totalScore: number; // for ranking
   band: AxisBand;
+  hasTransactionTraction?: boolean;
+  pricingDecorationOnly?: boolean;
+  persistentPricedDomains?: number;
 }
 
 export interface EvidenceConfidenceInput {

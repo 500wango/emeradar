@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();
-  const { stats, episodes, checkpoints } = data;
+  const { stats, episodes, cohorts = [], checkpoints } = data;
   const { t, locale } = await getServerI18n();
 
   return (
@@ -83,6 +83,69 @@ export default async function TrackRecordPage() {
           <span className="text-xs text-slate-400 mt-1 block">
             {t('trackRecord.ledgerHeightDesc')}
           </span>
+        </div>
+      </div>
+
+      {/* Cohort Hit-Rate Matrix */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-12">
+        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              {locale === 'zh-CN' ? '预测队列命中率矩阵 (Cohort Track Record)' : 'Cohort Precision & Hit-Rate Matrix'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {locale === 'zh-CN'
+                ? '按发现月份追踪 T+30 / T+60 / T+90 真实搜索量验证与商业化存续率'
+                : 'Empirical hit-rate measured at T+30, T+60, and T+90 post-verdict timestamps'}
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+            {locale === 'zh-CN' ? '前瞻性实证' : 'Forward-tested'}
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? '队列月份' : 'Cohort Month'}</th>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? '样本容量' : 'Sample Size'}</th>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+30 命中率' : 'T+30 Precision'}</th>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+60 命中率' : 'T+60 Precision'}</th>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+90 命中率' : 'T+90 Precision'}</th>
+                <th className="py-3 px-6">{locale === 'zh-CN' ? '成熟度状态' : 'Maturity Status'}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {cohorts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-6 px-6 text-center text-slate-400 text-xs">
+                    {locale === 'zh-CN' ? '尚无成熟队列数据' : 'No cohort data available yet.'}
+                  </td>
+                </tr>
+              ) : (
+                cohorts.map((c: any) => (
+                  <tr key={c.month} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-6 font-semibold text-slate-900 font-mono">{c.month}</td>
+                    <td className="py-3 px-6 text-slate-600">{c.total} opportunities</td>
+                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate30d}</td>
+                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate60d}</td>
+                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate90d}</td>
+                    <td className="py-3 px-6">
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        c.status === 'MATURED'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : c.status === 'EVALUATING'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {c.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

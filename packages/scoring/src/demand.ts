@@ -17,8 +17,10 @@ export function calculateDemandScore(
     trends?: number;
   }
 ): DemandScoreResult {
+  const isFastTrack = Boolean(features.fastTrack) && features.historyDays >= 7;
+
   // If baseline period / insufficient history
-  if (features.historyDays < 14) {
+  if (features.historyDays < 14 && !isFastTrack) {
     return {
       basisPoints: 0,
       band: 'INSUFFICIENT',
@@ -84,10 +86,14 @@ export function calculateDemandScore(
 
   if (basisPoints >= 7500 && features.newQueries7d >= 3 && features.clusterSize >= 8) {
     band = 'HIGH';
-    reason = `Strong demand velocity: ${features.newQueries7d} new queries in 7d, cluster size ${features.clusterSize}.`;
+    reason = isFastTrack
+      ? `[FAST-TRACK] Strong demand velocity: ${features.newQueries7d} new queries in 7d, cluster size ${features.clusterSize}.`
+      : `Strong demand velocity: ${features.newQueries7d} new queries in 7d, cluster size ${features.clusterSize}.`;
   } else if (basisPoints >= 5000 && features.clusterSize >= 5) {
     band = 'MEDIUM';
-    reason = `Moderate demand growth across ${features.clusterSize} clustered queries.`;
+    reason = isFastTrack
+      ? `[FAST-TRACK] Moderate demand growth across ${features.clusterSize} clustered queries.`
+      : `Moderate demand growth across ${features.clusterSize} clustered queries.`;
   }
 
   return {

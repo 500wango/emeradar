@@ -51,7 +51,7 @@ export async function runSeed(): Promise<void> {
     console.log('[seed] Inserting Plans...');
     await client.query(`
       INSERT INTO plans (code, name, price_usd_monthly, entitlements) VALUES
-      ('FREE', 'Free Starter', 0.00, '{"view_cards_monthly": 10, "export_reports_monthly": 1, "max_projects": 1, "max_alerts": 1, "feed_delay_days": 45, "api_access": false}'),
+      ('FREE', 'Free Starter', 0.00, '{"view_cards_monthly": 10, "export_reports_monthly": 1, "max_projects": 1, "max_alerts": 1, "feed_delay_days": 0, "api_access": false}'),
       ('PRO', 'Builder Pro', 49.00, '{"view_cards_monthly": -1, "export_reports_monthly": 30, "max_projects": 50, "max_alerts": 20, "feed_delay_days": 0, "api_access": true}'),
       ('TEAM', 'Scale Team', 149.00, '{"view_cards_monthly": -1, "export_reports_monthly": 100, "max_projects": 100, "max_alerts": 100, "feed_delay_days": 0, "api_access": true}');
     `);

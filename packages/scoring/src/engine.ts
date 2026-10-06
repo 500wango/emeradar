@@ -20,16 +20,34 @@ export interface FullOpportunityScoreInput {
   confidence: EvidenceConfidenceInput;
   recommendation: RecommendationInput;
   prev?: PrevScoringState;
+  fastTrack?: boolean;
+  claimsCount?: number;
+  maxClaims?: number;
+  isCrowdedLocked?: boolean;
 }
 
 export function calculateOpportunityScore(
   input: FullOpportunityScoreInput
 ): ScoringOutput {
+  const isFastTrack = Boolean(input.fastTrack || input.demand.fastTrack || input.window.fastTrack);
+  const isCrowdedLocked = Boolean(input.isCrowdedLocked || input.window.isCrowdedLocked);
+  const claimsCount = input.claimsCount ?? input.window.claimsCount;
+  const maxClaims = input.maxClaims ?? input.window.maxClaims;
+
   // 1. Demand Axis
-  const dResult = calculateDemandScore(input.demand);
+  const dResult = calculateDemandScore({
+    ...input.demand,
+    fastTrack: isFastTrack,
+  });
 
   // 2. Window Axis
-  const wResult = calculateWindowScore(input.window);
+  const wResult = calculateWindowScore({
+    ...input.window,
+    fastTrack: isFastTrack,
+    claimsCount,
+    maxClaims,
+    isCrowdedLocked,
+  });
 
   // 3. Evidence Confidence
   const confResult = calculateConfidence(input.confidence);
@@ -46,6 +64,10 @@ export function calculateOpportunityScore(
     confidence: confResult.level,
     prev: input.prev,
     historyDays: input.demand.historyDays,
+    fastTrack: isFastTrack,
+    claimsCount,
+    maxClaims,
+    isCrowdedLocked,
   });
 
   // 6. Lifecycle Evaluation

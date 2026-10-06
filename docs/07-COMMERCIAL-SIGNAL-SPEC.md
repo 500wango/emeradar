@@ -30,10 +30,12 @@ SERP Top10/20 + 簇 query ──▶ 目标发现 (commercial_targets)
 
 | 类型 | 类别 | 检测方式 | 证明 | 不证明 |
 |------|------|----------|------|--------|
-| `PRICING_PAGE_OBSERVED` | OBSERVED | 存在可访问的定价页 | 该站点公开了价格信息 | 有人购买、有收入 |
-| `PAID_TIER_OBSERVED` | OBSERVED | 定价页含 price > 0 的套餐（字面校验通过） | 站点以付费方式销售 | 实际成交量、收入规模 |
+| `PRICING_PAGE_OBSERVED` | OBSERVED | 存在可访问的定价页（装饰性定价） | 该站点公开了价格信息 | 有人购买、有真实用户 |
+| `PAID_TIER_OBSERVED` | OBSERVED | 定价页含 price > 0 的套餐（字面校验通过） | 站点以付费方式销售 | 实际成交量、是否为占坑站点 |
 | `CHECKOUT_OBSERVED` | OBSERVED | 定价页 / 页内存在指向购买流程的入口（不发起支付） | 存在可购买路径 | 有人完成了购买 |
 | `PAYMENT_INFRA_DETECTED` | OBSERVED | 页面资源匹配支付供应商签名（版本化 `payment_signatures`） | 站点具备收款能力 | 有任何销售、有任何收入 |
+| `TRANSACTION_TRACTION_OBSERVED` | OBSERVED | 评价/评分增长（Chrome 扩展商店、Shopify、Trustpilot）或公开交易徽章 | 真实用户在使用并支付 | 净利润、具体利润率 |
+| `SOCIAL_COMMERCE_DISCUSSIONS` | OBSERVED | 社区中集中出现付款/订阅/寻求替代品讨论（"paid for", "subscribed", "pricey alternative"） | 真实用户付费意愿与痛点 | 付费规模全貌 |
 | `PLATFORM_COUNTER` | OBSERVED | 平台自身生成的销售 / 下载 / 评价计数 | 平台显示的计数值 | 计数的构成、收入 |
 | `PLATFORM_REPORTED_REVENUE` | OBSERVED | 收入透明平台的公开验证数据 | 平台披露的收入 / 销售额（含披露口径） | 利润、可持续性、可复制性 |
 | `SITE_CLAIMED_COUNTER` | SELF_REPORTED | 站点自述"X 用户 / X 销售" | 站点宣称了该数字 | 该数字真实、其中付费占比 |
@@ -93,10 +95,11 @@ interface CommercialSummary {
 | 档 | 条件 |
 |----|------|
 | `INSUFFICIENT` | `sampledDomains < 3` 或 `sampleCoverage < 0.6` |
-| `HIGH` | `P ≥ 2` ∧（`revenueEvidence.observed + selfReported ≥ 1` ∨ `persistentPricedDomains ≥ 1`） |
-| `MEDIUM` | `P ≥ 2` ∨（`P ≥ 1` ∧ `categoryOrAnalogPricedDomains ≥ 1`） |
-| `LOW` | 其余（含仅 `intentQueryCount`、仅 `infraOnlyDomains`、`P = 1`） |
+| `HIGH` | `P ≥ 2` ∧（`revenueEvidence.observed + selfReported ≥ 1` ∨ `hasTransactionTraction` ∨ `persistentPricedDomains ≥ 1`） |
+| `MEDIUM` | `P ≥ 2` ∨（`P ≥ 1` ∧ (`categoryOrAnalogPricedDomains ≥ 1` ∨ `hasTransactionTraction`)） |
+| `LOW` | 其余（含仅 `intentQueryCount`、仅 `infraOnlyDomains`、`P = 1` 且无交易代理的装饰性定价） |
 
+- **防“有人收费 ≠ 有人付费”**：单纯有 2 个域名挂静态 Pricing 表或支付按钮但 0 交易声量、0 真实流量、0 评价增长（`pricingDecorationOnly = true`）时，**禁止直接定为 HIGH**；上限仅为 `MEDIUM`。要达到 `HIGH`，必须有 `hasTransactionTraction`（交易动量证据）或持续性/营收证据支撑。
 - `P` 只计 `OBSERVED` 且在 `evidence_max_age_days`（默认 120）内的证据。
 - **robots.txt 剔除规则**：`sampleCoverage` 的分母必须剔除被 `robots.txt` 明确禁爬（`SKIPPED/ROBOTS_DISALLOWED`）的目标域名，防止因合规爬虫行为导致商业性强的机会被永久误判为 `INSUFFICIENT`；剔除情况在商业面板与证据抽屉显式注明。
 - **强负面**（`hasStrongNegative`）：`NEG_SHUTDOWN_NOTICE`（针对 DIRECT 域名）；或 `NEG_PRICING_REMOVED` / `NEG_PAID_TO_FREE` 在 ≥ 2 个独立域名同时出现。

@@ -59,8 +59,8 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 
 | 字段 | `FREE`（初始假设） | `PRO`（初始假设） |
 |------|---------------------|---------------------|
-| `feed_realtime` | `false` | `true` |
-| `feed_delay_days` | `free_delay_days`（全局配置，初始 45，与 15 §2 的延迟发布规则一致） | 0 |
+| `feed_realtime` | `false`（但开放每周 1 条精选实时 BUILD_NOW 及实时候选异动流 Watching Queue） | `true` |
+| `feed_delay_days` | 0（彻底移除 45 天无用延迟，改为按条数及形态限流） | 0 |
 | `opportunity_detail_full` | `false`（仅摘要 + Track Record 已公开部分） | `true` |
 | `scores_visible` | `false` | `false`（首发对任何套餐都不展示数值分，见 05 §1；此字段预留给未来可能的调试 / 企业需求） |
 | `compare_max_items` | 2 | 3 |

@@ -124,45 +124,60 @@ observed_share = OBSERVED 证据占本机会有效证据的比例
 | 字段 | 值 |
 |------|----|
 | `verdict` / `raw_verdict` | `WATCH` |
-| `flags` | 含 `PARTIAL_DATA`；历史不足 14 天再加 `BASELINE_PERIOD` |
+| `flags` | 含 `PARTIAL_DATA`；历史不足基线天数再加 `BASELINE_PERIOD` |
 | `confidence` | 不得为 `HIGH`。关键源失败或历史不足时为 `LOW` |
-| 机会 `status` | 保持或降为 `CANDIDATE`，信息流查询排除它 |
+| 机会 `status` | 保持或降为 `CANDIDATE`，进入「正在监测的异动流」 |
 
-失败条件：
-- `history_days < 14`，或 D 轴覆盖不足（§4.1 的 `INSUFFICIENT`）
-- `serp_history_days < 14`，或最近一份快照不是 §3.3 认可的单一来源自然搜索结果
-- M 轴唯一支撑是 `INFERRED`（例如查询词里的商业修饰词），且没有 observed 定价 / 结账
-- 任一关键采集源在本批失败，而调用方用空列表继续打分
+判定规则（支持双轨制）：
+- **常规 Evergreen 轨**：`history_days < 14`，或 D 轴覆盖不足（§4.1 的 `INSUFFICIENT`），或 `serp_history_days < 14`，或最近一份快照不是 §3.3 认可的自然搜索结果。
+- **Fast-Track 快车道豁免**：若机会标记为脉冲型（`history_days >= 7` 且 `new_queries_7d >= 3` 且增长加速度显著），允许以 7 天历史进入资格评估，打上 `FAST_TRACK` 标识。
+- M 轴唯一支撑是 `INFERRED`（例如查询词里的商业修饰词），且没有 observed 定价 / 结账或交易代理证据。
+- 任一关键采集源在本批失败，而调用方用空列表继续打分。
 
 即时追踪申请（01 F3）走这条路径：它可以保存第一次联想观测和辅助来源行，但不得调用 §5.1 的升档规则。每日批处理在资格满足后才第一次允许 `BUILD_NOW` / `EARLY_BET`。`WINDOW_CLOSING` 另外要求 `prev.verdict` 已是发布过的 `BUILD_NOW` 或 `EARLY_BET`。
 
-### 5.1 原始 Verdict（`raw_verdict`）
-自上而下评估，首个命中即返回：
+### 5.1 原始 Verdict（`raw_verdict`）与产出健康区间
+系统引入 **Verdict 产出健康区间（Yield Health Band，目标每周 1–5 条 BUILD_NOW/EARLY_BET）**，废除单纯的静态全硬布尔阻断，引入**特征补偿机制（Feature Compensation）**：
 
 ```ts
 function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   const negativeM = a.m.hasStrongNegative;
 
+  // 1. 拥挤度与认领上限自激熔断（防止 Alpha Decay 公地悲剧）
+  if (a.w.isCrowdedLocked || (a.w.claimsCount >= a.w.maxClaims)) {
+    return WINDOW_CLOSING; // 或转入 CONTESTED，避免被更多订阅者踏平
+  }
+
+  // 2. 标准 BUILD_NOW 门槛
   if (a.d >= MEDIUM && a.m === HIGH && a.w >= MEDIUM && a.conf >= MEDIUM && !negativeM)
     return BUILD_NOW;
 
-  if (a.d === HIGH && a.w === HIGH && a.m in {LOW, MEDIUM, INSUFFICIENT} && a.conf >= LOW && !negativeM)
+  // 3. 特征补偿 BUILD_NOW（打破 0 产出：强爆发需求 + 宽阔窗口 补偿 中等商业验证）
+  const mVerified = a.m.band === 'HIGH' || 
+    (a.m.band === 'MEDIUM' && (a.m.independentDomainsCount >= 2 || a.m.hasTransactionTraction));
+  if (a.d === HIGH && a.w === HIGH && mVerified && a.conf >= MEDIUM && !negativeM)
+    return BUILD_NOW;
+
+  // 4. 激活 EARLY_BET（放宽门槛，先上车后补票）
+  // 门槛：D=HIGH 且 W >= MEDIUM；或 Fast-Track 脉冲下 D >= MEDIUM 且 W=HIGH
+  const isEarlyBet = (a.d === HIGH && a.w >= MEDIUM) || (a.fastTrack && a.d >= MEDIUM && a.w === HIGH);
+  if (isEarlyBet && a.m in {LOW, MEDIUM, INSUFFICIENT} && a.conf >= LOW && !negativeM)
     return EARLY_BET;
 
+  // 5. 窗口关闭
   if ((prev.verdict in {BUILD_NOW, EARLY_BET} && wDroppedWithin(14)) ||
       (prev.verdict === WINDOW_CLOSING && a.w !== HIGH && a.d >= MEDIUM && daysInState(prev) <= cfg.windowClosingMaxDays))
     return WINDOW_CLOSING;
 
-  // PASS 条件先于 WATCH 评估；"数据不足"不等于"低"，不触发 PASS
+  // 6. PASS 条件先于 WATCH 评估
   if (a.d === LOW || negativeM || a.w === LOW) return PASS;
 
   return WATCH;   // 含 D 为 INSUFFICIENT 的情形，此时附加 PARTIAL_DATA flag
 }
 ```
-说明与对 01 §5.7 的澄清：
-- **PASS 条件先于 WATCH 评估。** 若按 PRD 表格顺序（WATCH 在前），"窗口为 LOW"或"商业强负面"但 D ≥ MEDIUM 的机会将永远无法判 PASS。
-- `INSUFFICIENT` 在档位比较中不满足"≥ MEDIUM"，也不等于 `LOW`：它不会升档，也不会因此被判 PASS，而是落入 `WATCH` 并附 `PARTIAL_DATA`（P2）。Feed 默认隐藏带 `PARTIAL_DATA` 的 `WATCH`。
-
+说明：
+- **特征补偿（Compensated Build）**：当搜索需求呈现强烈脉冲拉升、且 SERP 极其虚弱无竞品占据时，即便商业变现证据仍处于中档验证期（如只有 1-2 个独立定价站或初现交易代理），系统允许补偿升档为 `BUILD_NOW`，避免好机会因教条的商业硬指标被完全漏掉。
+- **认领保护**：每条 `BUILD_NOW` 机会限制 3-5 人认领，槽位满即触发 `isCrowdedLocked`，自动转为 `WINDOW_CLOSING` 并降低后续可见性。
 - `EARLY_BET` 的界面必须带"商业未验证"标记（16）。
 - `windowClosingMaxDays` 默认 30，超时后回落到 `WATCH` 或 `PASS`。
 
@@ -170,7 +185,7 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 账本发布值 `verdict` 由 `raw_verdict` 与历史决定：
 - 升档（→ `BUILD_NOW` / `EARLY_BET`）：`raw_verdict` 连续 `confirm_days.upgrade`（默认 2）天不变才发布。
 - 降档：连续 `confirm_days.downgrade`（默认 2）天才发布。
-- **绕过去抖**：M 轴出现强负面信号（`hasStrongNegative`）→ 立即 `PASS`；`DEAD` 状态 → 立即 `PASS`。
+- **绕过去抖**：M 轴出现强负面信号（`hasStrongNegative`）→ 立即 `PASS`；认领槽位耗尽熔断（`isCrowdedLocked`）→ 立即降级；`DEAD` 状态 → 立即 `PASS`。
 - `raw_verdict` 与 `verdict` 均写入账本。
 
 ### 5.3 Flags
@@ -181,6 +196,8 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 | `LOW_CONFIDENCE` | `confidence = LOW` |
 | `PARTIAL_DATA` | 任一轴 `INSUFFICIENT`，或宇宙过小 |
 | `BASELINE_PERIOD` | 机会仍在基线期内 |
+| `FAST_TRACK` | 经 7 天脉冲快车道评估晋级 |
+| `CROWDED_LOCKED` | 认领槽位已满（>= 5），窗口对公域关闭 |
 
 ## 6. 生命周期
 
@@ -244,7 +261,9 @@ DRAFT ──(提交)──▶ SHADOW ──(≥14 天 + 对比报告 + 回测不
 - 晋升前必须提供：与 `ACTIVE` 的 Verdict 差异报告；在历史快照上的回测指标（06 §10）不劣化；Admin 双人批准（若仅一名 Admin，则批准后冷却 24 小时才生效）。
 - `ACTIVE` 只前向生效；**永不改写历史账本**。
 - 配置内容一旦离开 `DRAFT` 即不可变（03 I3）；变更 = 新版本。
-- BUILD NOW 稀缺性监控：若 BUILD_NOW 占 TRACKED 的比例连续 7 天 > `build_now_target_share_max`，触发 Admin 告警并要求复核阈值。
+- BUILD NOW 产出健康监控与稀缺性管理：
+  - **产出下限（Recall 守卫）**：若全平台连续 7 天没有产出任何一条 `BUILD_NOW` 或 `EARLY_BET`，触发 P1 Yield 告警，自动进入分位数截断点校准流程，严防漏斗断流；
+  - **产出上限（Precision 守卫）**：若 BUILD_NOW 占 TRACKED 的比例连续 7 天 > `build_now_target_share_max`，触发 Admin 告警并要求复核阈值。
 
 ## 8. 重算接口
 ```ts

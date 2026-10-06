@@ -50,13 +50,28 @@
 ### 1.7 首发商业产品
 首发卖的是每日少数可执行决定，以及这些决定事后能否被复盘。完整包装、页面与门槛见 `20-COMMERCIAL-RELEASE.md`。这里只锁定会改变行为的规则：
 
-1. **发布资格先于裁决。** 主查询的联想观测少于 14 天，或还没有一份单一来源的自然搜索结果快照，或任一关键轴为 `INSUFFICIENT`，或置信度为 `LOW`：不得发布 `BUILD_NOW`、`EARLY_BET`、`WINDOW_CLOSING`。记录状态为 `CANDIDATE`，裁决为 `WATCH`，并带 `PARTIAL_DATA`。信息流不展示 `CANDIDATE`。
-2. **窗口关闭有前置裁决。** `WINDOW_CLOSING` 只可能来自一条已经发布的 `BUILD_NOW` 或 `EARLY_BET`，且 W 在 14 天内下降至少一档。当天竞争看起来不强，不是窗口关闭。
-3. **商业高档要有观测。** 查询里出现 pricing、tool、api 等词只是 `INFERRED`，M 轴最高为 `LOW`，且不能单独把机会推进 `BUILD_NOW`。`HIGH` 仍要求至少两个独立域名上的 observed 定价或结账。支付按钮只证明有收款设施。
-4. **信息流回答做不做。** 每天最多 10 条已发布机会，默认页是 `BUILD_NOW`。`EARLY_BET` 必须标明「商业未验证」。卡片显示分档，不把基点当成百分制主视觉。
-5. **动作闭环。** 已发布的 `BUILD_NOW` / `EARLY_BET` 可以关注、做、放弃、导出报告。「做」写入 `decisions` 并创建 Project，绑当时的 `verdict_id`。放弃必须选择原因。「做」不能作用在 `CANDIDATE` 上。
-6. **付费物。** Free：战绩、延迟 45 天的机会摘要、每月 1 份报告预览且不能导出。Pro：实时信息流、完整详情、每月 30 份报告导出、关注与邮件告警、项目追踪。首发不卖 Team，不把 API 当作套餐卖点。
-7. **对外数字。** 在战绩页同时有命中和失误、并写明样本数与 T+30/60/90 之前，首页、徽章和广告不得出现预测准确率。不得写「扫描了数百万查询」除非数据源登记里有对应体量。
+1. **发布资格与双轨生命周期。** 
+   - **Evergreen 慢车道（结构型需求）**：观测 ≥ 14 天，且具备单一来源自然搜索快照，置信度 ≥ `MEDIUM`。
+   - **Fast-Track 快车道（脉冲型/新生态需求）**：观测历史只需 ≥ 7 天。若 7 天内出现显著爆发斜率（如 `new_queries_7d ≥ 3` 且加速度拉升）且 SERP 前 5 无绝对龙头，可立即进入快车道评估。
+   - 处于观察积累期的记录状态为 `CANDIDATE`，裁决为 `WATCH` 并带 `PARTIAL_DATA`。候选池作为「正在观测的异动流」对试用及免费用户开放，消除冷启动死寂感。
+2. **窗口关闭有前置裁决。** `WINDOW_CLOSING` 只可能来自一条已经发布的 `BUILD_NOW` 或 `EARLY_BET`，且 W 在 14 天内下降至少一档，或认领槽位已满触发 `CROWDED_LOCKED`。当天竞争看起来不强，不是窗口关闭。
+3. **商业信号真实性（防“有人收费 ≠ 有人付费”）。**
+   - **装饰性定价（`PRICING_DECORATION`）**：仅有定价页或支付按钮，无真实用户与交易痕迹，属于弱信号，上限仅为 `LOW`（单站）或弱 `MEDIUM`（多站）。
+   - **真实交易代理（`COMMERCIAL_TRACTION`）**：具备用户评价/评论增长（Chrome 插件市场、Shopify App、Trustpilot 等）、社交交易付费讨论、公开 MRR / 销售徽章，或具备可核实自然流量规模。只有具备交易代理或持续营收证据时，M 轴才评为 `HIGH`。
+4. **信息流回答做不做（产出健康区间与特征补偿）。**
+   - **Verdict 健康产出区间**：目标每周稳定输出 1–5 条 `BUILD_NOW` 或 `EARLY_BET`，严防“0 产出导致漏斗干涸”。
+   - **复合得分与特征补偿**：摒弃纯布尔硬截断。当需求极强爆发（D=HIGH）且竞争极度空虚（W=HIGH）时，若具备基础商业信号（M=MEDIUM），通过补偿机制即可评为 `BUILD_NOW`（标明 `RULE_BUILD_NOW_COMPENSATED`）。
+   - **激活 `EARLY_BET`**：定位为“先上车后补票”。门槛调整为 D=HIGH 且 W ≥ MEDIUM（或快车道脉冲下 D ≥ MEDIUM 且 W=HIGH），即使商业未验证亦允许发布，为 Builder 留出抢跑窗口。
+5. **动作闭环与防公地悲剧（Slotting 认领槽位）。**
+   - 已发布的 `BUILD_NOW` / `EARLY_BET` 可以关注、做、放弃、导出报告。
+   - **认领槽位限制**：每条 `BUILD_NOW` 机会限制最大活跃认领人数（默认 3–5 人）。点击「做」（GO）扣除 1 个槽位，绑定 `verdict_id` 并创建 Project。满额后卡片标记为 `CROWDED_LOCKED`，对全员停止新推荐，并对 W 轴施加拥挤度负反馈，保护抢跑者的 Alpha。
+   - **形态分流（Form-Factor Sharding）**：同一需求推荐不同 Build Archetype（插件版、PSEO 目录站、轻量工具、API），避免所有订阅者开发同质竞品。
+6. **付费物（彻底移除 45 天延迟，改为“少而实时”）。** 
+   - **Free**：公开战绩、**每周 1 条实时精选 BUILD_NOW 机会卡片**、实时候选异动池（Watching Queue）只读浏览、每月 1 份报告预览（不可导出）。消除 SaaS 试用期无价值感。
+   - **Pro**：全量实时信息流、完整详情、认领槽位特权、每月 30 份报告导出、关注与邮件/Webhook 告警、Project 追踪。
+7. **可证伪战绩大盘（胜率优先于密码学）。** 
+   - Merkle 树作为底层后台不可篡改的技术审计存证，前台不作为主打卖点；
+   - 前台主打 **公开 Cohort 战绩大盘（Hit Rate & Accuracy Matrix）** 与事后复盘：系统自动前向追踪 T+30/60/90 天主词搜索量走势与 SERP 新独立站存活情况，直面命中与失误。在样本充足前，不宣称未经证实的胜率。
 
 研究市场首发固定为美国英语（`market_country = US`，`research_language = en-US`）。每张卡片写明这一点。界面可以是英语或中文，原始查询和证据标题不翻译。
 
@@ -357,15 +372,15 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 ### 7.2 页面范围（首发）
 - Landing：展示真实的已发布机会卡（分档，不展示伪造准确率）。账本尚未同时包含命中与失误时，不写预测准确率，改链到方法论和战绩页的覆盖说明。主按钮进入信息流或注册，不把即时扫词当作首屏产品。
 - Pricing、Methodology、Data Sources、Docs / API 入口、Login / Signup
-- **Track Record**：预测账本的公开视图，包含命中与失误，展示 T+30/60/90 天结果
-- **延迟机会页**：仅发布满足资格规则的机会（例如 Verdict 已过 T+45 天，且 W 已降至 ≤ Medium 或进入 CONTESTED）
+- **Track Record**：公开 Cohort 战绩大盘，展示系统自动前向追踪的 T+30/60/90 天结果、命中率、失误复盘，底栏附密码学 Merkle 根校验入口
+- **公开异动与案例页**：展示已沉淀的历史案例与已过期的机会形态拆解
 - **Market / Trend 聚合页**：主题级热度，不暴露具体机会的可执行细节
 - 精选 Compare 页（仅限已过期机会）
 
 ### 7.3 发布流水线
 ```
 public projection
-→ publication eligibility（延迟规则）
+→ publication eligibility
 → duplicate / cannibalization check
 → localized render
 → quality validation
@@ -381,8 +396,8 @@ Programmatic 规模化仅在 Gate 2 通过后启动。页面数量与纯流量�
 ## 8. 商业模式与单位经济
 
 - **套餐结构**（具体配额与价格在计费与权限规格中定义，定价由预售访谈决定）：
-  - Free：Track Record、延迟 45 天的机会摘要、每月 1 份报告预览（不可导出）
-  - Pro：实时 Feed（每日最多 10 条已发布决定）、完整 Detail、Watch / 邮件告警、每月 30 份报告导出、Project 追踪
+  - Free：公开战绩大盘、每周 1 条实时精选 BUILD_NOW、实时候选异动池（Watching Queue）只读浏览、每月 1 份报告预览（不可导出）
+  - Pro：实时 Feed（每日最多 10 条已发布决定）、完整 Detail、认领槽位特权、Watch / 邮件告警、每月 30 份报告导出、Project 追踪
   - Team 与开放 API：不在首发售卖。权益字段可以预留，首发套餐快照里 `api_access = false`
 - Web、API 共用同一套配额。
 - **单位经济约束**：追踪池规模由成本模型与目标毛利率反推，而不是反过来。必须能回答：每个付费用户每月消耗多少数据成本？目标毛利率 ≥ 70%（待定价确定后校准）。

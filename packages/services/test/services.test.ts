@@ -42,7 +42,7 @@ describe('Services Layer Integration Tests', () => {
     assert.strictEqual(freeEnt.tier, 'FREE');
     assert.strictEqual(freeEnt.exportReportsMonthlyLimit, 1);
     assert.strictEqual(freeEnt.apiAccess, false);
-    assert.strictEqual(freeEnt.feedDelayDays, 45);
+    assert.strictEqual(freeEnt.feedDelayDays, 0); // Real-time feed (delay removed per 01-PRD & 13-BILLING-RBAC flaw #2 fix)
     assert.strictEqual(freeEnt.opportunityDetailFull, false);
     assert.strictEqual(freeEnt.deepReportExport, false);
 

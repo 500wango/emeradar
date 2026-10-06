@@ -212,7 +212,17 @@ export async function observeOpportunity(
     collectors.crawl
   );
 
-  const commercial = commercialSummary(pricedDomains);
+  const tractionRes = await query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM evidence
+     WHERE opportunity_id = $1 AND (
+       source_type IN ('TRANSACTION_TRACTION_OBSERVED', 'PLATFORM_COUNTER', 'PLATFORM_REPORTED_REVENUE', 'SOCIAL_COMMERCE_DISCUSSIONS')
+       OR payload->>'has_transaction_traction' = 'true'
+     )`,
+    [opp.id]
+  );
+  const transactionTractionCount = tractionRes.rows[0]?.count ?? 0;
+
+  const commercial = commercialSummary(pricedDomains, transactionTractionCount);
   const clusterRes = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count FROM opportunity_queries WHERE opportunity_id = $1`,
     [opp.id]
@@ -356,6 +366,20 @@ export async function observeOpportunity(
     : 0;
   const wBandHistory = historyRes.rows.map((row) => row.w_band).reverse().slice(-10) as any[];
 
+  const claimsRes = await query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ABANDONED'`,
+    [opp.id]
+  );
+  const claimsCount = claimsRes.rows[0]?.count ?? 0;
+  const maxClaims = 5;
+  const isCrowdedLocked = claimsCount >= maxClaims;
+
+  const isFastTrack =
+    historyDays >= 7 &&
+    historyDays < 14 &&
+    newQueries7d >= 3 &&
+    clusterGrowth30d >= 0.5;
+
   const output = calculateOpportunityScore({
     demand: {
       clusterSize: clusterRes.rows[0]?.count ?? 1,
@@ -365,6 +389,7 @@ export async function observeOpportunity(
       attentionSourcesActive14d,
       attentionGrowth14d,
       historyDays,
+      fastTrack: isFastTrack,
     },
     window: {
       serpWeakness,
@@ -374,6 +399,10 @@ export async function observeOpportunity(
       crowdingIndex: windowFeatures?.crowding ?? 0,
       serpHistoryDays,
       recentSerpSnapshotAvailable: recentSerp,
+      claimsCount,
+      maxClaims,
+      isCrowdedLocked,
+      fastTrack: isFastTrack,
     },
     commercial,
     confidence: {
@@ -383,6 +412,10 @@ export async function observeOpportunity(
       medianEvidenceAgeDays,
       historyDays,
     },
+    fastTrack: isFastTrack,
+    claimsCount,
+    maxClaims,
+    isCrowdedLocked,
     recommendation: {
       queryTypes: {
         informationalRatio,
@@ -410,9 +443,10 @@ export async function observeOpportunity(
       : undefined,
   });
 
+  const minHistoryReq = isFastTrack ? 7 : 14;
   const publishable =
-    historyDays >= 14 &&
-    serpHistoryDays >= 14 &&
+    historyDays >= minHistoryReq &&
+    serpHistoryDays >= minHistoryReq &&
     recentSerp &&
     output.dBand !== 'INSUFFICIENT' &&
     output.wBand !== 'INSUFFICIENT' &&
@@ -430,8 +464,8 @@ export async function observeOpportunity(
     output.verdict = 'WATCH';
     output.rawVerdict = 'WATCH';
     output.confidence = 'LOW';
-    output.dBand = historyDays >= 14 ? output.dBand : 'INSUFFICIENT';
-    output.wBand = serpHistoryDays >= 14 && recentSerp ? output.wBand : 'INSUFFICIENT';
+    output.dBand = historyDays >= minHistoryReq ? output.dBand : 'INSUFFICIENT';
+    output.wBand = serpHistoryDays >= minHistoryReq && recentSerp ? output.wBand : 'INSUFFICIENT';
     output.mBand = commercial.band;
   }
 
@@ -582,17 +616,28 @@ async function crawlCommercialDomains(
   return priced;
 }
 
-function commercialSummary(pricedDomains: number): CommercialSummary {
-  // PRD §3 & 05-SCORING-CONFIG-SPEC:
-  // "HIGH 仍要求至少两个独立域名上的 observed 定价或结账"
-  // When >= 2 independent domains have observed pricing/checkout signals, M band is HIGH.
-  const band: AxisBand = pricedDomains >= 2 ? 'HIGH' : pricedDomains === 1 ? 'LOW' : 'INSUFFICIENT';
+function commercialSummary(pricedDomains: number, transactionTractionCount = 0): CommercialSummary {
+  // PRD §3 & 05-SCORING-CONFIG-SPEC & 07-COMMERCIAL-SIGNAL-SPEC:
+  // "HIGH 要求至少两个独立域名上的 observed 定价或结账 且 存在交易/营收/持续性证据"
+  // If only pricing page with no transaction traction, pricingDecorationOnly = true and band capped at MEDIUM or LOW.
+  const hasTransactionTraction = transactionTractionCount > 0;
+  const pricingDecorationOnly = pricedDomains >= 2 && !hasTransactionTraction;
+
+  let band: AxisBand = 'INSUFFICIENT';
+  if (pricedDomains >= 2) {
+    band = hasTransactionTraction ? 'HIGH' : 'MEDIUM';
+  } else if (pricedDomains === 1) {
+    band = hasTransactionTraction ? 'MEDIUM' : 'LOW';
+  }
+
   return {
     band,
     independentDomainsCount: pricedDomains,
     hasSubscriptionPlans: pricedDomains > 0,
     hasOneTimePlans: false,
     hasStrongNegative: false,
-    totalScore: pricedDomains >= 3 ? 8200 : pricedDomains >= 2 ? 7600 : pricedDomains === 1 ? 2500 : 0,
+    hasTransactionTraction,
+    pricingDecorationOnly,
+    totalScore: band === 'HIGH' ? 8200 : band === 'MEDIUM' ? 6200 : band === 'LOW' ? 2500 : 0,
   };
 }

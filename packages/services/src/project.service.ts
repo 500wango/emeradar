@@ -460,6 +460,23 @@ export class ProjectService {
       );
     }
 
+    // Check opportunity builder claim capacity (max 5 active claims to prevent alpha decay tragedy of commons)
+    if (input.opportunityId) {
+      const claimsRes = await query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ABANDONED'`,
+        [input.opportunityId]
+      );
+      const claimsCount = claimsRes.rows[0]?.count ?? 0;
+      const MAX_CLAIMS_PER_OPPORTUNITY = 5;
+      if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
+        throw new EmeradarError(
+          ErrorCode.PRECONDITION_FAILED,
+          `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
+          409
+        );
+      }
+    }
+
     // Ensure decision exists or create GO decision
     let decisionId = input.decisionId;
     if (!decisionId) {

@@ -271,6 +271,22 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                       {opp.marketCountry} · {opp.researchLanguage}
                     </span>
                   </div>
+                  {opp.claimsCount !== undefined && (
+                    <div className="mt-2.5 flex items-center gap-2 text-xs">
+                      <span className="text-slate-500 font-medium">{isZh ? '认领槽位:' : 'Builder slots:'}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                        opp.isCrowdedLocked || (opp.claimsCount >= (opp.maxClaims ?? 5))
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : opp.claimsCount >= 3
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-emerald-50 text-emerald-700'
+                      }`}>
+                        {opp.isCrowdedLocked || (opp.claimsCount >= (opp.maxClaims ?? 5))
+                          ? (isZh ? `已满 (${opp.claimsCount}/5 🔒 窗口关闭)` : `Full (${opp.claimsCount}/5 🔒 Closed)`)
+                          : (isZh ? `${opp.claimsCount} / ${opp.maxClaims ?? 5} 已认领` : `${opp.claimsCount} / ${opp.maxClaims ?? 5} claimed`)}
+                      </span>
+                    </div>
+                  )}
                   {isEarlyBet && (
                     <p className="mt-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
                       {isZh ? '商业化论证未经验证' : 'Commercial case unverified'}

@@ -41,6 +41,9 @@ export interface FeedCardItem {
   candidateReason?: string | null;
   observationDays?: number;
   serpObservationDays?: number;
+  claimsCount?: number;
+  maxClaims?: number;
+  isCrowdedLocked?: boolean;
 }
 
 export interface FeedResponse {
@@ -242,7 +245,8 @@ export class OpportunityService {
         o.discovery_source,
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
-        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days
+        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
+        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND pr.status != 'ABANDONED'), 0)::int AS claims_count
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE ${whereClause}
@@ -279,6 +283,9 @@ export class OpportunityService {
       candidateReason: r.candidate_reason,
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
+      claimsCount: r.claims_count ?? 0,
+      maxClaims: 5,
+      isCrowdedLocked: (r.claims_count ?? 0) >= 5,
     }));
 
     // Zero-state relaxed count fallback if 0 items found
@@ -336,7 +343,8 @@ export class OpportunityService {
         o.discovery_source,
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
-        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days
+        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
+        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND pr.status != 'ABANDONED'), 0)::int AS claims_count
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE o.status = 'CANDIDATE'
@@ -373,6 +381,9 @@ export class OpportunityService {
       candidateReason: r.candidate_reason,
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
+      claimsCount: r.claims_count ?? 0,
+      maxClaims: 5,
+      isCrowdedLocked: (r.claims_count ?? 0) >= 5,
     }));
   }
 

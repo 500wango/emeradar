@@ -8,12 +8,15 @@ export interface WindowScoreResult {
 }
 
 export function calculateWindowScore(features: WindowFeatures): WindowScoreResult {
-  if (features.serpHistoryDays < 14 || !features.recentSerpSnapshotAvailable) {
+  const isFastTrack = Boolean(features.fastTrack) && features.serpHistoryDays >= 7;
+  const minHistory = isFastTrack ? 7 : 14;
+
+  if (features.serpHistoryDays < minHistory || !features.recentSerpSnapshotAvailable) {
     return {
       basisPoints: 0,
       band: 'INSUFFICIENT',
       pressure: 0,
-      reason: 'Insufficient SERP history (minimum 14 days required) or no recent snapshot.',
+      reason: `Insufficient SERP history (minimum ${minHistory} days required) or no recent snapshot.`,
     };
   }
 
