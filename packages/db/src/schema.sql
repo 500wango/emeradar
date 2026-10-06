@@ -695,3 +695,22 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip INET,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 15. 管线执行审计与可观测性
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+  id TEXT PRIMARY KEY,
+  obs_date DATE NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('RUNNING','COMPLETED','FAILED','ABORTED')),
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  duration_ms INTEGER,
+  processed_opportunities INTEGER NOT NULL DEFAULT 0,
+  merkle_root TEXT,
+  alerts_triggered INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_obs_date ON pipeline_runs(obs_date);
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);

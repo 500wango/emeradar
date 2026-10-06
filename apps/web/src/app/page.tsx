@@ -26,17 +26,18 @@ import { LiveScanner } from '@/components/LiveScanner';
 export default async function HomePage() {
   const { t, isZh } = await getServerI18n();
 
-  // Fetch actual verified decisions for the landing showcase
+  // Fetch actual verified decisions for the landing showcase (strictly BUILD_NOW only)
   let showcaseCards: FeedCardItem[] = [];
   try {
     const res = await OpportunityService.listFeedCards({
+      verdict: 'BUILD_NOW',
       limit: 6,
     });
     showcaseCards = res.items || [];
   } catch (err) {
     showcaseCards = [];
   }
-  const buildNowCards = showcaseCards.filter((card) => card.verdict === 'BUILD_NOW');
+  const buildNowCards = showcaseCards;
 
   const pillars = [
     {

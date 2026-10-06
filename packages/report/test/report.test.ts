@@ -59,6 +59,13 @@ describe('Opportunity Report Unit Tests', () => {
     assert.strictEqual(report.section5.targetTimeframeDays, 14);
     assert.strictEqual(report.section5.executionBrief.initialPages.length, 3);
     assert.strictEqual(report.section6.activeRules.length, 0);
+
+    // Verify Indie Competition & Moat Audit
+    assert.ok(report.section3.indieCompetitionAudit);
+    assert.strictEqual(report.section3.indieCompetitionAudit.barrierToEntry, 'LOW');
+    assert.strictEqual(report.section3.indieCompetitionAudit.indieEntrantDensity, 'HIGH');
+    assert.ok(report.section3.indieCompetitionAudit.shadowChannels.length >= 3);
+    assert.ok(report.section3.indieCompetitionAudit.defensiveMoatAdvice.length > 0);
   });
 
   it('renders report to GitHub Flavored Markdown with tables and alerts', () => {
@@ -139,5 +146,97 @@ describe('Opportunity Report Unit Tests', () => {
     const html = renderReportToHtml(report);
     assert.ok(html.includes('Veteran Penetration Verdict'));
     assert.ok(html.includes('Goal &amp; ROI Simulator'));
+  });
+
+  it('renders thorough Chinese report for zh-CN users', () => {
+    const reportZh = generateOpportunityReport({
+      ...sampleInput,
+      opportunity: {
+        id: 'opp_stripe_dispute_compiler',
+        title: 'Stripe Dispute Evidence Auto-Compiler & Chargeback Defense',
+        slug: 'stripe-dispute-evidence-compiler',
+        marketCountry: 'US',
+        researchLanguage: 'en-US',
+      },
+      locale: 'zh-CN',
+      top10Serp: [
+        {
+          rank: 1,
+          domain: 'stripe.com',
+          title: 'Responding to disputes | Stripe Docs',
+          resultType: 'OFFICIAL',
+          isWeak: true,
+          weaknessReason: 'Generic documentation without downloadable assembler',
+        },
+      ],
+      paidCompetitors: [
+        {
+          domain: 'chargeblast.com',
+          pricingModel: 'SUBSCRIPTION',
+          priceRange: '$49 - $199/mo',
+          paymentGateways: ['Stripe'],
+        },
+      ],
+    });
+
+    assert.strictEqual(reportZh.metadata.locale, 'zh-CN');
+    assert.strictEqual(reportZh.metadata.title, 'Stripe 争议退款证据自动收集与抗辩举证中心');
+    assert.ok(reportZh.section1.thesis.includes('针对美区搜索核心词'));
+    assert.ok(reportZh.section1.thesis.includes('立即立项'));
+    assert.ok(reportZh.section1.decisionRecommendation.includes('建议立即立项开发'));
+    assert.strictEqual(reportZh.section5.sprintPlan14d.length, 3);
+    assert.ok(reportZh.section5.sprintPlan14d[0].phase.includes('阶段一'));
+
+    // Check Markdown output is fully localized in Chinese
+    const mdZh = renderReportToMarkdown(reportZh);
+    assert.ok(mdZh.includes('# 🎯 商业机会深度研究报告：'));
+    assert.ok(mdZh.includes('## 1. 📊 执行摘要与决策裁决'));
+    assert.ok(mdZh.includes('## 2. 🔍 搜索需求与查询词图谱分析'));
+    assert.ok(mdZh.includes('## 3. 🛡️ 竞争格局与搜索结果薄弱点分析'));
+    assert.ok(mdZh.includes('中小开发者水下生态与技术壁垒审计'));
+    assert.ok(mdZh.includes('巨头盲区警示'));
+    assert.ok(mdZh.includes('## 4. 💰 商业验证与变现天花板'));
+    assert.ok(mdZh.includes('## 5. 🛠️ 14 天冲刺执行蓝图'));
+    assert.ok(mdZh.includes('## 6. 🛑 止损与叫停红线'));
+    assert.ok(mdZh.includes('## 7. 🎯 商业收益与 SEO 外链预算测算'));
+    assert.ok(mdZh.includes('🟢 立即立项 (BUILD NOW)'));
+
+    // Check HTML output is fully localized in Chinese
+    const htmlZh = renderReportToHtml(reportZh);
+    assert.ok(htmlZh.includes('<html lang="zh-CN">'));
+    assert.ok(htmlZh.includes('商业机会深度研究报告：'));
+    assert.ok(htmlZh.includes('搜索需求评分 (D)'));
+    assert.ok(htmlZh.includes('商业变现验证 (M)'));
+    assert.ok(htmlZh.includes('竞争进入窗口 (W)'));
+    assert.ok(htmlZh.includes('中小开发者水下生态与技术壁垒审计'));
+  });
+
+  it('renders pure English report for en-US users without mixed Chinese', () => {
+    const reportEn = generateOpportunityReport({
+      ...sampleInput,
+      locale: 'en-US',
+    });
+
+    const mdEn = renderReportToMarkdown(reportEn);
+    assert.ok(mdEn.includes('# 🎯 Opportunity Research Report:'));
+    assert.ok(mdEn.includes('## 1. 📊 Executive Summary & Radar Verdict'));
+    assert.ok(mdEn.includes('## 2. 🔍 Search Demand & Query Clustering'));
+    assert.ok(mdEn.includes('## 3. 🛡️ Competitive Landscape & SERP Weakness'));
+    assert.ok(mdEn.includes('Indie Competition & Defense Moat Audit'));
+    assert.ok(mdEn.includes('Strategic Alert'));
+    assert.ok(mdEn.includes('## 4. 💰 Commercial Validation & Monetization'));
+    assert.ok(mdEn.includes('## 5. 🛠️ Execution Blueprint & 14-Day Sprint'));
+    assert.ok(mdEn.includes('## 6. 🚨 Kill Criteria & Radar Invalidation Alerts'));
+    assert.ok(mdEn.includes('## 7. 🎯 Goal & ROI Simulator (Builder Unit Economics)'));
+    // Ensure no Chinese characters in en-US output
+    assert.strictEqual(/[\u4e00-\u9fa5]/.test(mdEn), false);
+
+    const htmlEn = renderReportToHtml(reportEn);
+    assert.ok(htmlEn.includes('<html lang="en">'));
+    assert.ok(htmlEn.includes('Demand Score (D)'));
+    assert.ok(htmlEn.includes('Commercial (M)'));
+    assert.ok(htmlEn.includes('Window (W)'));
+    assert.ok(htmlEn.includes('Indie Competition & Defense Moat Audit'));
+    assert.strictEqual(/[\u4e00-\u9fa5]/.test(htmlEn), false);
   });
 });

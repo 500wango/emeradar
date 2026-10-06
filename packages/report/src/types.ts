@@ -59,6 +59,19 @@ export interface Section2DemandBreakdown {
   momentumAssessment: string;
 }
 
+export interface IndieCompetitionAudit {
+  barrierToEntry: 'LOW' | 'MEDIUM' | 'HIGH';
+  barrierReason: string;
+  indieEntrantDensity: 'LOW' | 'MODERATE' | 'HIGH';
+  densityWarning?: string;
+  shadowChannels: {
+    channel: 'CHROME_EXTENSION' | 'GITHUB_OPENSOURCE' | 'SERP_PAGES_2_3' | 'COMMUNITY_MICROS';
+    presence: 'DETECTED' | 'MODERATE' | 'MINIMAL';
+    observation: string;
+  }[];
+  defensiveMoatAdvice: string;
+}
+
 export interface Section3CompetitiveWeakness {
   serpWeaknessScore: number;
   weakResultsRatio: number;
@@ -74,6 +87,7 @@ export interface Section3CompetitiveWeakness {
   homepageRatio: number;
   innerPageRatio: number;
   vulnerableGaps: string[];
+  indieCompetitionAudit?: IndieCompetitionAudit;
 }
 
 export interface Section4CommercialValidation {

@@ -144,10 +144,14 @@ export class AuthService {
     );
 
     if (userRes.rows.length === 0) {
+      // Dummy check to mitigate timing side-channel attacks against non-existent users
+      try {
+        this.verifyPassword(input.password || '', '00000000000000000000000000000000:0000000000000000000000000000000000000000000000000000000000000000');
+      } catch {}
       throw new EmeradarError(
-        ErrorCode.NOT_FOUND,
-        'No active account found with this email address.',
-        404
+        ErrorCode.UNAUTHENTICATED,
+        'Invalid email or password.',
+        401
       );
     }
 
@@ -160,14 +164,14 @@ export class AuthService {
     );
 
     if (accRes.rows.length === 0 || !accRes.rows[0].refresh_token) {
-      throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Incorrect credentials.', 401);
+      throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'Invalid email or password.', 401);
     }
     const storedHash = accRes.rows[0].refresh_token;
 
     if (!this.verifyPassword(input.password || '', storedHash)) {
       throw new EmeradarError(
         ErrorCode.UNAUTHENTICATED,
-        'Incorrect password. Please verify and try again.',
+        'Invalid email or password.',
         401
       );
     }

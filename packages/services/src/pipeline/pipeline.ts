@@ -44,17 +44,32 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   if (!lockAcquired) {
     console.warn(`[pipeline] Another pipeline process holds advisory lock ${PIPELINE_LOCK_ID}. Aborting.`);
     lockClient.release();
+    const abortRunId = `run_${obsDate.replace(/-/g, '')}_${Date.now()}`;
+    await query(
+      `INSERT INTO pipeline_runs (id, obs_date, status, started_at, completed_at, error_message)
+       VALUES ($1, $2, 'ABORTED', NOW(), NOW(), 'Advisory lock held by another process')`,
+      [abortRunId, obsDate]
+    ).catch(() => undefined);
     return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0 };
   }
 
+  const runId = `run_${obsDate.replace(/-/g, '')}_${Date.now()}`;
+  const startTime = Date.now();
+  await query(
+    `INSERT INTO pipeline_runs (id, obs_date, status, started_at, metadata)
+     VALUES ($1, $2, 'RUNNING', NOW(), $3)
+     ON CONFLICT (id) DO NOTHING`,
+    [runId, obsDate, JSON.stringify({ trigger: 'cli/cron' })]
+  ).catch((e) => console.warn('[pipeline] Failed to record run start in pipeline_runs:', e));
+
   try {
     const budgetGuard = await CostLedgerService.createBudgetGuard(obsDate, 20.0);
-  const runCtx: RunContext = {
-    runId: `run_${obsDate.replace(/-/g, '')}_${Date.now()}`,
-    obsDate,
-    clock: () => new Date(),
-    budget: budgetGuard,
-  };
+    const runCtx: RunContext = {
+      runId,
+      obsDate,
+      clock: () => new Date(),
+      budget: budgetGuard,
+    };
 
   const collectors = {
     autocomplete: new AutocompleteCollector(),
@@ -75,8 +90,9 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     research_language: string;
     recommended_archetype: string;
     execution_class: string;
+    status: string;
   }>(
-    `SELECT id, slug, title, market_country, research_language, recommended_archetype, execution_class
+    `SELECT id, slug, title, market_country, research_language, recommended_archetype, execution_class, status
      FROM opportunities
      WHERE status IN ('CANDIDATE', 'TRACKED')
      ORDER BY id ASC`
@@ -144,6 +160,16 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 
   await transaction(async (client) => {
     for (const item of observed) {
+      const originalOpp = opps.find((o) => o.id === item.opportunityId);
+      const isAlreadyTracked = originalOpp?.status === 'TRACKED';
+
+      // If already tracked and current pipeline run did not pass automated publication
+      // (e.g. transient external provider error or missing API key), preserve verified scores
+      if (isAlreadyTracked && !item.publishable) {
+        console.log(`[pipeline] Preserving manually tracked opportunity ${item.opportunityId} (${item.slug}) from automatic downgrade.`);
+        continue;
+      }
+
       await client.query(
         `UPDATE opportunity_cards SET
            verdict = $2,
@@ -174,9 +200,10 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
           item.topIdea,
         ]
       );
+      const targetStatus = isAlreadyTracked ? 'TRACKED' : (item.publishable ? 'TRACKED' : 'CANDIDATE');
       await client.query(`UPDATE opportunities SET status = $2 WHERE id = $1`, [
         item.opportunityId,
-        item.publishable ? 'TRACKED' : 'CANDIDATE',
+        targetStatus,
       ]);
     }
 
@@ -269,12 +296,42 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   console.log(
     `[pipeline] Observed ${observed.length}. Published ${publishable.length}. Alerts ${alertsTriggered}.`
   );
+  const durationMs = Date.now() - startTime;
+    await query(
+      `UPDATE pipeline_runs SET
+         status = 'COMPLETED',
+         completed_at = NOW(),
+         duration_ms = $1,
+         processed_opportunities = $2,
+         merkle_root = $3,
+         alerts_triggered = $4
+       WHERE id = $5`,
+      [
+        durationMs,
+        observed.length,
+        dailyLedger?.summary.merkleRoot || '',
+        alertsTriggered,
+        runId,
+      ]
+    ).catch((e) => console.warn('[pipeline] Failed to record run completion in pipeline_runs:', e));
 
     return {
       processedOpportunities: observed.length,
       merkleRoot: dailyLedger?.summary.merkleRoot || '',
       alertsTriggered,
     };
+  } catch (err: any) {
+    const durationMs = Date.now() - startTime;
+    await query(
+      `UPDATE pipeline_runs SET
+         status = 'FAILED',
+         completed_at = NOW(),
+         duration_ms = $1,
+         error_message = $2
+       WHERE id = $3`,
+      [durationMs, err?.message || String(err), runId]
+    ).catch((e) => console.warn('[pipeline] Failed to record run failure in pipeline_runs:', e));
+    throw err;
   } finally {
     await lockClient.query(`SELECT pg_advisory_unlock($1)`, [PIPELINE_LOCK_ID]).catch(() => undefined);
     lockClient.release();

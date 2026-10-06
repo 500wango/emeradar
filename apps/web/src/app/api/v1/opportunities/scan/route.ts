@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LiveScanService, EntitlementService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+    const scopeError = requireScope(auth, 'opportunities:write');
+    if (scopeError) return scopeError;
     const body = await request.json().catch(() => ({}));
     const { query, marketCountry, language, archetype } = body;
 

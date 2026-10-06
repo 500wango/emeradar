@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReportService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function GET(
   request: NextRequest,
@@ -14,6 +14,8 @@ export async function GET(
 
     const auth = await getAuthUser(request);
     if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const scopeError = requireScope(auth, 'reports:read');
+    if (scopeError) return scopeError;
     const userId = auth.user.id;
 
     const result = await ReportService.getOrGenerateReport(id, userId, locale);

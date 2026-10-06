@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,6 +16,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    const scopeError = requireScope(auth, 'api_keys:read');
+    if (scopeError) return scopeError;
 
     const keys = await AuthService.listApiKeys(auth.user.id);
     return NextResponse.json({ keys });
@@ -46,6 +49,22 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    // RBAC & Entitlement check: Free users cannot create API keys (docs/13 §3.2 api_access)
+    if (auth.user.tier === 'FREE' && auth.user.role === 'USER') {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Plan Upgrade Required',
+          status: 403,
+          detail: 'Developer API key access is not available on the Free plan. Please upgrade to Pro or Team.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const scopeError = requireScope(auth, 'api_keys:write');
+    if (scopeError) return scopeError;
 
     const body = await request.json().catch(() => ({}));
     const label = body.label?.trim() || 'Default Production Key';

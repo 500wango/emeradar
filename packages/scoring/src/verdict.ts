@@ -62,7 +62,13 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   const wGeMedium = wBand === 'HIGH' || wBand === 'MEDIUM';
   const confGeMedium = confidence === 'HIGH' || confidence === 'MEDIUM';
 
-  if (dGeMedium && mSummary.band === 'HIGH' && wGeMedium && confGeMedium && !negativeM) {
+  const mVerified =
+    mSummary.band === 'HIGH' ||
+    (mSummary.band === 'MEDIUM' &&
+      mSummary.independentDomainsCount >= 2 &&
+      mSummary.hasSubscriptionPlans);
+
+  if (dGeMedium && mVerified && wGeMedium && confGeMedium && !negativeM) {
     raw = 'BUILD_NOW';
     rulesTriggered.push('RULE_BUILD_NOW');
     reason =

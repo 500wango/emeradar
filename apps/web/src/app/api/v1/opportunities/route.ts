@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EntitlementService, OpportunityService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +12,8 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
+    const scopeError = requireScope(auth, 'opportunities:read');
+    if (scopeError) return scopeError;
     const ent = await EntitlementService.getUserEntitlements(auth.user.id);
     const { searchParams } = new URL(request.url);
     const verdict = searchParams.get('verdict') as any;

@@ -80,6 +80,49 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
       );
     }
 
+    if (err.code === 'PRECONDITION_FAILED' || err.status === 409) {
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-16">
+          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 shadow-lg text-center relative overflow-hidden">
+            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-xs">
+              <Sparkles className="w-7 h-7" />
+            </div>
+
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-100/70 text-blue-800 mb-3">
+              {isZh ? '专业版专属研报' : 'Pro & Team Exclusive'}
+            </span>
+
+            <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
+              {isZh ? '解锁全生态位深度可行性研报' : 'Unlock Deep Feasibility Report'}
+            </h2>
+
+            <p className="text-sm text-slate-600 max-w-md mx-auto mb-8 leading-relaxed">
+              {err.message || (isZh
+                ? '免费体验版研报仅对已正式发布的 BUILD NOW 或 EARLY BET 决策开放。升级至 Builder Pro 或 Scale Team 即可即时解锁任意生态位（包含观察期与候选利基）的完整深度研报。'
+                : 'Free tier reports are limited to published BUILD NOW or EARLY BET verdicts. Upgrade to Builder Pro or Scale Team to unlock in-depth reports for any niche.')}
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href={`/pricing?reason=candidate_report&feature=report&back=${encodeURIComponent(`/opportunities/${slug}`)}`}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>{isZh ? '升级解锁此研报 ($49/月)' : 'Upgrade to Unlock Report'}</span>
+              </Link>
+              <Link
+                href={`/opportunities/${slug}`}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>{isZh ? '返回机会看板' : 'Back to Opportunity'}</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     console.error(`[OpportunityReportPage] Report unavailable for ${slug}:`, err?.message || err);
 
     return (
@@ -89,12 +132,12 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
             <Clock className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">
-            {isZh ? '深度研究报告暂未开放' : 'Research Report Not Yet Available'}
+            {isZh ? '深度研究报告加载失败' : 'Report Unavailable'}
           </h2>
           <p className="text-sm text-slate-600 max-w-md mx-auto mb-6 leading-relaxed">
             {err.detail || err.message || (isZh
-              ? '该机会目前处于候选孵化或初始观察阶段，系统尚未完成 14 天完整搜索与商业信号沉淀。完整六章节研究报告仅对正式发布的 BUILD NOW 或 EARLY BET 决策开放。'
-              : 'This opportunity is currently in observation. Full research reports are exported only after a published BUILD NOW or EARLY BET verdict.')}
+              ? '生成研报时发生异常，请稍后刷新重试或联系客服。'
+              : 'Failed to generate report. Please try again later.')}
           </p>
           <div className="flex items-center justify-center gap-3">
             <Link

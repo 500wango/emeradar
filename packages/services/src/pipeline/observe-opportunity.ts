@@ -1,5 +1,5 @@
 import { query, transaction } from '@emeradar/db';
-import { calculateOpportunityScore, CommercialSummary } from '@emeradar/scoring';
+import { calculateOpportunityScore, CommercialSummary, AxisBand } from '@emeradar/scoring';
 import {
   AutocompleteCollector,
   CrawlCollector,
@@ -122,13 +122,33 @@ export async function observeOpportunity(
     ? (trend.recent_avg - trend.prior_avg) / trend.prior_avg
     : null;
 
-  const serpOutcome = await collectors.serp.collect(ctx, {
+  let serpOutcome = await collectors.serp.collect(ctx, {
     queryId: primary.id,
     queryText: primary.query_text,
     opportunityId: opp.id,
     marketCountry: opp.market_country,
     researchLanguage: opp.research_language,
   });
+
+  // Collector retry with backoff if retryable failure occurs
+  if (serpOutcome.status === 'FAILED' && serpOutcome.retryable) {
+    console.warn(`[pipeline:collector] Retrying SERP collection for query "${primary.query_text}" (${serpOutcome.message})...`);
+    await new Promise((r) => setTimeout(r, 1000));
+    serpOutcome = await collectors.serp.collect(ctx, {
+      queryId: primary.id,
+      queryText: primary.query_text,
+      opportunityId: opp.id,
+      marketCountry: opp.market_country,
+      researchLanguage: opp.research_language,
+    });
+  }
+
+  if (serpOutcome.status !== 'OK') {
+    const outcomeDetails = 'message' in serpOutcome ? (serpOutcome as any).message : (serpOutcome as any).reason;
+    console.warn(
+      `[pipeline:collector] SERP collection failed for query "${primary.query_text}": status=${serpOutcome.status}, reason=${outcomeDetails}`
+    );
+  }
 
   let serpWeakness = 0;
   let organicItems: Array<{ domain: string; url: string }> = [];
@@ -563,13 +583,16 @@ async function crawlCommercialDomains(
 }
 
 function commercialSummary(pricedDomains: number): CommercialSummary {
-  const band = pricedDomains >= 2 ? 'MEDIUM' : pricedDomains === 1 ? 'LOW' : 'INSUFFICIENT';
+  // PRD §3 & 05-SCORING-CONFIG-SPEC:
+  // "HIGH 仍要求至少两个独立域名上的 observed 定价或结账"
+  // When >= 2 independent domains have observed pricing/checkout signals, M band is HIGH.
+  const band: AxisBand = pricedDomains >= 2 ? 'HIGH' : pricedDomains === 1 ? 'LOW' : 'INSUFFICIENT';
   return {
     band,
     independentDomainsCount: pricedDomains,
     hasSubscriptionPlans: pricedDomains > 0,
     hasOneTimePlans: false,
     hasStrongNegative: false,
-    totalScore: band === 'MEDIUM' ? 5500 : band === 'LOW' ? 2500 : 0,
+    totalScore: pricedDomains >= 3 ? 8200 : pricedDomains >= 2 ? 7600 : pricedDomains === 1 ? 2500 : 0,
   };
 }

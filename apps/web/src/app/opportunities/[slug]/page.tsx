@@ -128,7 +128,7 @@ export default async function OpportunityWorkspacePage({
             slug={opportunity.slug}
             title={opportunity.title}
             canGo={canGo}
-            canExport={canGo}
+            canExport={true}
             blockReason={blockReason}
           />
         </div>
@@ -418,21 +418,13 @@ export default async function OpportunityWorkspacePage({
               </div>
 
               <div className="pt-4 border-t border-slate-100">
-                {canGo ? (
-                  <Link
-                    href={`/opportunities/${opportunity.slug}/report`}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold transition-colors text-xs"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>{isZh ? '打开完整研究报告' : 'Open the report'}</span>
-                  </Link>
-                ) : (
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    {isZh
-                      ? '包含六大章节的研究报告仅在正式发布 BUILD NOW 或 EARLY BET 后开放导出。'
-                      : 'The six-section report is exported only after a published BUILD NOW or EARLY BET.'}
-                  </p>
-                )}
+                <Link
+                  href={`/opportunities/${opportunity.slug}/report`}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold transition-colors text-xs"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>{isZh ? '打开完整深度研究报告' : 'Open Deep Research Report'}</span>
+                </Link>
               </div>
             </div>
           </div>

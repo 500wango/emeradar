@@ -6,12 +6,22 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signatureHeader = request.headers.get('stripe-signature');
 
-  if (secret && signatureHeader) {
-    const isValid = StripeService.verifyWebhookSignature(rawBody, signatureHeader, secret);
-    if (!isValid) {
-      console.warn('[Stripe Webhook] Invalid signature received.');
-      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
-    }
+  // Fail-closed webhook verification:
+  // Secret must be configured, signature header must be present and valid.
+  if (!secret) {
+    console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET is not configured.');
+    return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
+  }
+
+  if (!signatureHeader) {
+    console.warn('[Stripe Webhook] Missing stripe-signature header.');
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
+  }
+
+  const isValid = StripeService.verifyWebhookSignature(rawBody, signatureHeader, secret);
+  if (!isValid) {
+    console.warn('[Stripe Webhook] Invalid signature received.');
+    return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
   }
 
   try {

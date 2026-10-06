@@ -141,6 +141,25 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 
+  it('evaluates BUILD_NOW verdict when M is verified with >=2 paid domains and subscriptions even if band is MEDIUM', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 6500,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 30,
+    });
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.verdict, 'BUILD_NOW');
+  });
+
   it('immediately yields PASS when strong negative commercial signal exists (bypassing debounce)', () => {
     const res = evaluateVerdict({
       dBand: 'HIGH',

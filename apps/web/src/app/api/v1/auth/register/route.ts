@@ -1,11 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const ip = getClientIp(request);
+    const body = await request.json().catch(() => ({}));
     const { email, password, displayName } = body;
+
+    // Strict rate limiting on registration to stop mass script abuse
+    const ipLimit = checkRateLimit({
+      key: `register_ip_${ip}`,
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+
+    if (!ipLimit.success) {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Too Many Registrations',
+          status: 429,
+          detail: 'Too many registration attempts from this network. Please try again later.',
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(ipLimit.retryAfterSeconds) },
+        }
+      );
+    }
 
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       return NextResponse.json(
@@ -19,13 +43,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!password || typeof password !== 'string' || password.length < 6) {
+    if (!password || typeof password !== 'string' || password.length < 8) {
       return NextResponse.json(
         {
           type: 'about:blank',
           title: 'Weak Password',
           status: 400,
-          detail: 'Password must be at least 6 characters long.',
+          detail: 'Password must be at least 8 characters long.',
         },
         { status: 400 }
       );
