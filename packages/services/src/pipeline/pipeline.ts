@@ -2,7 +2,10 @@ import { query, transaction, getClient } from '@emeradar/db';
 import {
   generateDailyLedger,
   GENESIS_PREV_HASH,
-  VerdictRowData,
+  calculateFeaturesHash,
+  isV2Row,
+  DailyLedgerRecord,
+  VerdictRowDataV2,
 } from '@emeradar/ledger';
 import {
   AutocompleteCollector,
@@ -151,8 +154,10 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   const prevRowHash = prevCkpRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
   const prevCheckpointHash = prevCkpRes.rows[0]?.checkpoint_hash || prevRowHash;
 
-  const ledgerRows = publishable.map((item) => {
-    const rowData: VerdictRowData = {
+  const ledgerRows: DailyLedgerRecord[] = publishable.map((item) => {
+    // v2：除三轴与裁决外，把去抖前的原始裁决、标志与规则轨迹一并封存。
+    // 没有它，下一期的去抖拿不到 prev.rawVerdict，升档条件恒假（见 observe-opportunity）。
+    const rowData: VerdictRowDataV2 = {
       opportunityId: item.opportunityId,
       obsDate,
       scoringConfigVersion: SCORING_CONFIG_VERSION,
@@ -164,8 +169,16 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       confidence: item.output.confidence,
       inputSnapshotIds: [`snp_${item.opportunityId}_${obsDate}`],
       citedEvidenceIds: [],
+      rawVerdict: item.output.rawVerdict,
+      flags: item.output.flags,
+      explanation: item.output.explanation,
+      featuresHash: calculateFeaturesHash(item.featureMetrics),
+      // 档位入账，窗口收窄检测才有逐日真值可比（不再读当前卡片快照）。
+      dBand: item.output.dBand,
+      mBand: item.output.mBand,
+      wBand: item.output.wBand,
     };
-    return { opportunityId: item.opportunityId, data: rowData };
+    return { opportunityId: item.opportunityId, data: rowData, hashVersion: 2 as const };
   });
 
   const dailyLedger =
@@ -228,13 +241,17 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 
     if (dailyLedger) {
       for (const row of dailyLedger.hashedRows) {
+        const v2 = isV2Row(row.data) ? row.data : null;
         await client.query(
           `INSERT INTO verdicts (
             id, opportunity_id, obs_date, scoring_config_version,
-            verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
-            confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
+            verdict, raw_verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
+            confidence, input_snapshot_ids, cited_evidence_ids,
+            flags, explanation, features_hash, hash_version,
+            d_band, m_band, w_band,
+            prev_hash, row_hash
           ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
           )`,
           [
             `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
@@ -242,6 +259,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             obsDate,
             row.data.scoringConfigVersion,
             row.data.verdict,
+            v2 ? v2.rawVerdict : null,
             row.data.lifecycle,
             row.data.dBasisPoints,
             row.data.mBasisPoints,
@@ -249,6 +267,14 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             row.data.confidence,
             row.data.inputSnapshotIds,
             row.data.citedEvidenceIds,
+            // v1 行保持 NULL：空数组会与"本期确实没有任何标志"混为一谈。
+            v2 ? v2.flags : null,
+            v2 ? JSON.stringify(v2.explanation) : null,
+            v2 ? v2.featuresHash : null,
+            row.hashVersion,
+            v2 ? v2.dBand : null,
+            v2 ? v2.mBand : null,
+            v2 ? v2.wBand : null,
             row.prevHash,
             row.rowHash,
           ]

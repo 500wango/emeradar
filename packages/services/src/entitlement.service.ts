@@ -22,9 +22,38 @@ export interface UserEntitlementsInfo {
   liveScanDailyLimit: number;
   liveScansUsedToday: number;
   remainingLiveScansToday: number;
+  /**
+   * When the paid period next renews, or `null` when nothing is billed.
+   *
+   * Null covers both the free plan and a legacy account whose entitlement is
+   * retained on `users.tier` with no subscription row (13 §3.1 / 24 §6). The
+   * settings page needs the distinction: it must not tell such an account that
+   * a billing cycle renews automatically.
+   */
+  renewsAt: string | null;
 }
 
 export class EntitlementService {
+  /**
+   * The one way to resolve a user's plan, shared by every quota read here.
+   *
+   * Two details are load-bearing and were previously inconsistent between the
+   * display path and the enforcement paths, which let a user be shown one quota
+   * and blocked by another:
+   *
+   *   - `TRIALING` counts. A subscription in its trial period grants its plan's
+   *     entitlements, and the reserve* methods always treated it that way; the
+   *     read side did not, so the UI reported FREE while the API allowed PRO.
+   *   - `u.tier` is the fallback when there is no subscription row. It is the
+   *     legacy path kept for pre-existing paid accounts (13 §3.1 / 24 §6), and
+   *     it must apply on the read side too, or such an account is told it has
+   *     PRO/TEAM limits that enforcement does not honour.
+   */
+  private static entitlementPlanJoin(): string {
+    return `LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
+       LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')`;
+  }
+
   /**
    * Get user's current plan and remaining entitlements
    */
@@ -35,13 +64,15 @@ export class EntitlementService {
       status: string;
       tier: string;
       plan_code: string;
+      current_period_end: Date | null;
       entitlements: any;
     }>(
+      // Every quota read in this service resolves the plan the same way; see
+      // `entitlementPlanJoin` for why the join and the COALESCE must not drift.
       `SELECT u.id, u.role, u.status, u.tier,
-              COALESCE(s.plan_code, u.tier, 'FREE') as plan_code, p.entitlements
+              COALESCE(s.plan_code, u.tier, 'FREE') as plan_code, s.current_period_end, p.entitlements
        FROM users u
-       LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status = 'ACTIVE'
-       LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')
+       ${EntitlementService.entitlementPlanJoin()}
        WHERE u.id = $1`,
       [userId]
     );
@@ -142,6 +173,12 @@ export class EntitlementService {
       liveScanDailyLimit: scanLimit,
       liveScansUsedToday: scansUsedToday,
       remainingLiveScansToday: remainingScansToday,
+      // Only a live subscription bills; a legacy tier entitlement must report
+      // no renewal date rather than borrow the absence of one as "never".
+      renewsAt:
+        accountActive && row.current_period_end
+          ? row.current_period_end.toISOString()
+          : null,
     };
   }
 
@@ -154,8 +191,7 @@ export class EntitlementService {
       const entRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
         `SELECT u.role, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
          FROM users u
-         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
-         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')
+         ${EntitlementService.entitlementPlanJoin()}
          WHERE u.id = $1 AND u.status = 'ACTIVE'`,
         [userId]
       );
@@ -223,8 +259,9 @@ export class EntitlementService {
     return transaction(async (client) => {
       const entRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
         `SELECT u.role, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
-         FROM users u LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
-         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE') WHERE u.id = $1 AND u.status = 'ACTIVE'`, [userId]);
+         FROM users u
+         ${EntitlementService.entitlementPlanJoin()}
+         WHERE u.id = $1 AND u.status = 'ACTIVE'`, [userId]);
       if (entRes.rows.length === 0) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
       const ent = entRes.rows[0];
       const exportLimit = ent.role === 'ADMIN' ? -1 : (ent.entitlements?.export_reports_monthly ?? 1);
@@ -314,10 +351,9 @@ export class EntitlementService {
   static async reserveLiveScanQuota(userId: string): Promise<{ remaining: number; limit: number; used: number }> {
     return transaction(async (client) => {
       const userRes = await client.query<{ role: string; tier: string; plan_code: string; entitlements: any }>(
-        `SELECT u.role, u.tier, COALESCE(s.plan_code, 'FREE') AS plan_code, p.entitlements
+        `SELECT u.role, u.tier, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
          FROM users u
-         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE', 'TRIALING')
-         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, 'FREE')
+         ${EntitlementService.entitlementPlanJoin()}
          WHERE u.id = $1 AND u.status = 'ACTIVE'`,
         [userId]
       );

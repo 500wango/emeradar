@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n, Locale } from '@/lib/i18n';
+import { planLabelKey, resolvePlanCode } from '@/lib/plan-display';
 import type { ApiKeyItem, UserEntitlementsInfo } from '@emeradar/services';
 import {
   User,
@@ -249,10 +250,15 @@ function SettingsContent() {
     .slice(0, 2)
     .toUpperCase();
 
+  // Until the entitlements request lands, name the plan from the session payload;
+  // afterwards use the subscription-aware read so this card cannot disagree with
+  // the quota gauges rendered directly beneath it.
+  const currentPlan = entitlements ? resolvePlanCode(entitlements) : user.tier;
+
   const tierBadgeColor =
-    user.tier === 'TEAM'
+    currentPlan === 'TEAM'
       ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-      : user.tier === 'PRO'
+      : currentPlan === 'PRO'
       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
       : 'bg-slate-100 text-slate-700 border-slate-200';
 
@@ -270,7 +276,7 @@ function SettingsContent() {
                 {user.displayName || user.email.split('@')[0]}
               </h1>
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${tierBadgeColor}`}>
-                {user.tier} TIER
+                {t(planLabelKey(currentPlan))}
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                 {user.role}
@@ -451,7 +457,7 @@ function SettingsContent() {
           <div className="space-y-6">
             <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md">
               <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{t('settings.currentPlanCard')}</span>
-              <h4 className="text-2xl font-extrabold mt-1">{user.tier} TIER</h4>
+              <h4 className="text-2xl font-extrabold mt-1">{t(planLabelKey(currentPlan))}</h4>
               <p className="text-xs text-slate-300 mt-2">
                 {isZh
                   ? '实时 SERP 薄弱点指标、商业佐证与机会智能打分。'
@@ -819,16 +825,20 @@ function SettingsContent() {
                   {isZh ? '当前订阅状态' : 'Subscription Status'}
                 </span>
                 <h3 className="text-2xl font-extrabold text-slate-900 mt-1">
-                  {user.tier === 'TEAM'
-                    ? (isZh ? '历史套餐' : 'Legacy Plan')
-                    : user.tier === 'PRO'
-                    ? (isZh ? 'Builder Pro 专业方案' : 'Builder Pro Plan')
-                    : (isZh ? 'Free Starter 免费方案' : 'Free Starter Plan')}
+                  {t(planLabelKey(currentPlan))}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {isZh
-                    ? '计费周期自动续费。您可随时升级、降级或终止订阅。'
-                    : 'Billing cycle renews automatically. You can upgrade, downgrade, or cancel at any time.'}
+                  {entitlements?.renewsAt
+                    ? isZh
+                      ? `计费周期将于 ${entitlements.renewsAt.slice(0, 10)} 自动续费。您可随时升级、降级或终止订阅。`
+                      : `Billing renews automatically on ${entitlements.renewsAt.slice(0, 10)}. You can upgrade, downgrade, or cancel at any time.`
+                    : currentPlan === 'FREE'
+                    ? isZh
+                      ? '免费方案不产生任何计费。升级后可随时降级或终止订阅。'
+                      : 'The free plan bills nothing. You can downgrade or cancel at any time after upgrading.'
+                    : isZh
+                    ? '此套餐为保留的历史权益，不会产生新的计费。升级至 Builder Pro 可继续获得后续更新。'
+                    : 'This plan is a retained historical entitlement and generates no new billing. Upgrade to Builder Pro to keep receiving updates.'}
                 </p>
               </div>
 

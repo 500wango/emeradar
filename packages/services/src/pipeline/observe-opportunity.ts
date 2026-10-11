@@ -1,9 +1,11 @@
 import { query, transaction } from '@emeradar/db';
 import {
   bandM,
+  buildPrevScoringState,
   calculateOpportunityScore,
   CommercialSummary,
 } from '@emeradar/scoring';
+import { Lifecycle, Verdict } from '@emeradar/core';
 import {
   AutocompleteCollector,
   CostLedgerService,
@@ -49,6 +51,8 @@ export interface ObservedOpportunity {
   topIdea: string;
   publishable: boolean;
   previousVerdict: string | null;
+  /** 封存的特征快照，账本以其 JCS 指纹写入 features_hash（06 §3）。 */
+  featureMetrics: Record<string, unknown>;
 }
 
 export async function observeOpportunity(
@@ -404,10 +408,15 @@ export async function observeOpportunity(
   const transactionalRatio = commercialRatio;
   const toolModifierRatio = Math.min(1, toolModifier / queryCount);
 
-  const prevRes = await query<{ verdict: string; lifecycle: string; obs_date: string; w_band: string }>(
-    `SELECT v.verdict, v.lifecycle, v.obs_date::text,
-            COALESCE(c.w_band, 'INSUFFICIENT') AS w_band
-     FROM verdicts v LEFT JOIN opportunity_cards c ON c.opportunity_id = v.opportunity_id
+  // 只取去抖真正需要的字段。这里原先是 JOIN opportunity_cards 取 w_band，
+  // 但那个值从未被使用（窗口历史一律走下面的 historyRes），JOIN 纯属多余。
+  const prevRes = await query<{
+    verdict: string;
+    raw_verdict: string | null;
+    lifecycle: string;
+  }>(
+    `SELECT v.verdict, v.raw_verdict, v.lifecycle
+     FROM verdicts v
      WHERE v.opportunity_id = $1 AND v.obs_date < $2
      ORDER BY v.obs_date DESC LIMIT 1`,
     [opp.id, obsDate]
@@ -417,19 +426,40 @@ export async function observeOpportunity(
   const independentSourceCount = (acOutcome.status === 'OK' ? 1 : 0) +
     (recentSerp ? 1 : 0) + (independentPricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
 
-  const historyRes = await query<{ verdict: string; lifecycle: string; w_band: string }>(
-    `SELECT v.verdict, v.lifecycle, COALESCE(c.w_band, 'INSUFFICIENT') AS w_band
-     FROM verdicts v LEFT JOIN opportunity_cards c ON c.opportunity_id = v.opportunity_id
+  // 逐日档位取自账本自身，不再 JOIN opportunity_cards：后者是"当前"快照，
+  // 每个历史行都会 JOIN 到同一个值，w_band 序列因此是一条水平线，
+  // "窗口正在收窄"永远检测不出来。v1 行为 NULL，由下面的 filter 剔除。
+  const historyRes = await query<{ verdict: string; lifecycle: string; w_band: string | null }>(
+    `SELECT v.verdict, v.lifecycle, v.w_band
+     FROM verdicts v
      WHERE v.opportunity_id = $1 AND v.obs_date < $2
      ORDER BY v.obs_date DESC LIMIT 30`,
     [opp.id, obsDate]
   );
-  const daysInCurrentVerdict = prev
-    ? historyRes.rows.findIndex((row) => row.verdict !== prev.verdict) < 0
-      ? historyRes.rows.length + 1
-      : Math.max(1, historyRes.rows.findIndex((row) => row.verdict !== prev.verdict) + 1)
-    : 0;
-  const wBandHistory = historyRes.rows.map((row) => row.w_band).reverse().slice(-10) as any[];
+
+  const historyRows = historyRes.rows;
+
+  // 相同取值的前缀长度即"已持续天数"。rows[0] 就是 prev 本身，所以从 0 数到
+  // 第一个不同值即可 —— 旧实现写的是 `findIndex(...) + 1`，对 rows[0] 也加了
+  // 一天，使该值恒 >= 2，去抖的"连续两天"确认实际上退化成"昨天出现过即可"。
+  const streakLength = (pick: (row: (typeof historyRows)[number]) => string): number => {
+    if (historyRows.length === 0) return 0;
+    const head = pick(historyRows[0]);
+    const idx = historyRows.findIndex((row) => pick(row) !== head);
+    return idx < 0 ? historyRows.length : idx;
+  };
+
+  const daysInCurrentVerdict = prev ? streakLength((row) => row.verdict) : 0;
+  // lifecycle 有它自己的 60 天判据（lifecycle.ts §6），用 verdict 的天数顶替
+  // 会让"长期未变"的判断失真。
+  const daysInCurrentLifecycle = prev ? streakLength((row) => row.lifecycle) : 0;
+
+  // 最新在后（与 verdict.ts 的读取约定一致）。只有封存了真实档位的行才入选。
+  const wBandHistory = historyRows
+    .map((row) => row.w_band)
+    .filter((band): band is string => band !== null)
+    .reverse()
+    .slice(-10) as any[];
 
   const claimsRes = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ABANDONED'`,
@@ -500,14 +530,17 @@ export async function observeOpportunity(
       wBand: 'INSUFFICIENT',
     },
     prev: prev
-      ? {
-          verdict: prev.verdict as any,
-          rawVerdict: prev.verdict as any,
-          lifecycle: prev.lifecycle as any,
+      ? buildPrevScoringState({
+          verdict: prev.verdict as Verdict,
+          // 去抖必须看到上一期的**原始**裁决。此前这里填的是发布值，令
+          // verdict.ts 的 `prev.rawVerdict === raw` 在升/降档分支里恒假，
+          // 裁决从此冻结在首次发布值上。存量行缺该列时由 map 内部保守回退。
+          rawVerdict: (prev.raw_verdict ?? null) as Verdict | null,
+          lifecycle: prev.lifecycle as Lifecycle,
           daysInCurrentVerdict,
-          daysInCurrentLifecycle: daysInCurrentVerdict,
+          daysInCurrentLifecycle,
           wBandHistory,
-        }
+        })
       : undefined,
   });
 
@@ -538,44 +571,43 @@ export async function observeOpportunity(
     output.mBand = commercial.band;
   }
 
+  // 封存特征快照。既写入 opportunity_snapshots.metrics，也作为账本 features_hash 的
+  // 指纹来源 —— 后者记录"当时据以判断的输入"，而不是对输出的复述。
+  const featureMetrics = {
+    d_score: output.dScore,
+    m_score: output.mScore,
+    w_score: output.wScore,
+    d_band: output.dBand,
+    m_band: output.mBand,
+    w_band: output.wBand,
+    confidence: output.confidence,
+    history_days: historyDays,
+    serp_history_days: serpHistoryDays,
+    autocomplete_recent_days: autocompleteRecentDays,
+    autocomplete_prior_days: autocompletePriorDays,
+    autocomplete_coverage: autocompleteCoverage,
+    autocomplete_expansion_growth: autocompleteGrowth,
+    independent_source_count: independentSourceCount,
+    search_intent: searchIntent,
+    recommended_product_shape: recommendedProductShape,
+    site_strategy: siteStrategy,
+    intent_evidence: {
+      source: 'autocomplete_and_serp_observations',
+      informational_ratio: informationalRatio,
+      commercial_ratio: commercialRatio,
+      transactional_ratio: transactionalRatio,
+      tool_modifier_ratio: toolModifierRatio,
+      observed_date: obsDate,
+    },
+  };
+
   await query(
     `INSERT INTO opportunity_snapshots (id, opportunity_id, obs_date, metrics)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (opportunity_id, obs_date) DO UPDATE SET
        metrics = EXCLUDED.metrics,
        sealed_at = NOW()`,
-    [
-      `snp_${opp.id}_${obsDate}`,
-      opp.id,
-      obsDate,
-      JSON.stringify({
-        d_score: output.dScore,
-        m_score: output.mScore,
-        w_score: output.wScore,
-        d_band: output.dBand,
-        m_band: output.mBand,
-        w_band: output.wBand,
-        confidence: output.confidence,
-        history_days: historyDays,
-        serp_history_days: serpHistoryDays,
-        autocomplete_recent_days: autocompleteRecentDays,
-        autocomplete_prior_days: autocompletePriorDays,
-        autocomplete_coverage: autocompleteCoverage,
-        autocomplete_expansion_growth: autocompleteGrowth,
-        independent_source_count: independentSourceCount,
-        search_intent: searchIntent,
-        recommended_product_shape: recommendedProductShape,
-        site_strategy: siteStrategy,
-        intent_evidence: {
-          source: 'autocomplete_and_serp_observations',
-          informational_ratio: informationalRatio,
-          commercial_ratio: commercialRatio,
-          transactional_ratio: transactionalRatio,
-          tool_modifier_ratio: toolModifierRatio,
-          observed_date: obsDate,
-        },
-      }),
-    ]
+    [`snp_${opp.id}_${obsDate}`, opp.id, obsDate, JSON.stringify(featureMetrics)]
   );
 
   await query(
@@ -586,14 +618,7 @@ export async function observeOpportunity(
          intent_evidence = $5,
          updated_at = NOW()
      WHERE opportunity_id = $1`,
-    [opp.id, searchIntent, recommendedProductShape, siteStrategy, JSON.stringify({
-      source: 'autocomplete_and_serp_observations',
-      informational_ratio: informationalRatio,
-      commercial_ratio: commercialRatio,
-      transactional_ratio: transactionalRatio,
-      tool_modifier_ratio: toolModifierRatio,
-      observed_date: obsDate,
-    })]
+    [opp.id, searchIntent, recommendedProductShape, siteStrategy, JSON.stringify(featureMetrics.intent_evidence)]
   );
 
   const whyNowSummary = `Autocomplete history ${historyDays}/14 days (recent coverage ${autocompleteRecentDays}/7). Organic SERP days ${serpHistoryDays}/14. Independent sources ${independentSourceCount}. Domains with observed pricing or checkout: ${independentPricedDomains}.`;
@@ -611,6 +636,7 @@ export async function observeOpportunity(
       : 'No build shape yet. A recommendation waits for a published BUILD NOW or EARLY BET.',
     publishable,
     previousVerdict: prev?.verdict ?? null,
+    featureMetrics,
   };
 }
 

@@ -9,6 +9,8 @@ import {
   Section6KillCriteria,
   SectionGoalSimulator,
   VeteranVerdict,
+  VerdictBasis,
+  BasisState,
 } from './types';
 import { ScoringOutput } from '@emeradar/scoring';
 import { Locale } from '@emeradar/core';
@@ -81,6 +83,13 @@ export interface ReportGenerationInput {
     whyNow?: string;
     topIdea?: string;
   };
+  /**
+   * 判定依据的留存状态，由调用方依据账本行判定。缺省按最保守的
+   * NOT_RETAINED 处理：报告不能把"账本没记"说成"没有负面信号"。
+   */
+  basisState?: BasisState;
+  hashVersion?: number;
+  featuresHash?: string | null;
 }
 
 export function generateOpportunityReport(
@@ -224,6 +233,33 @@ export function generateOpportunityReport(
         ],
   };
 
+  // 判定依据：来自账本封存的原始裁决、标志与规则轨迹。
+  // state 是权威 —— 它决定是否展示理由。NOT_RETAINED 时即使调用方传了占位
+  // explanation，也一律不展示：让用户以为账本记下了这些内容，比留空更糟。
+  const basisState: BasisState = input.basisState ?? 'NOT_RETAINED';
+  const hasReasons = basisState === 'RECORDED' && Boolean(input.scoring.explanation);
+  const hasFlags = hasReasons || basisState === 'FLAGS_ONLY';
+  const rulesTriggered = hasReasons ? input.scoring.explanation.rulesTriggered : [];
+  const decisionBasis: VerdictBasis = {
+    state: basisState,
+    publishedVerdict: input.scoring.verdict,
+    rawVerdict: hasReasons ? input.scoring.rawVerdict : undefined,
+    // 补偿路径：需求爆发 + 窗口全开补偿了"商业验证仅中等"的证据。必须与标准
+    // BUILD_NOW 区分开，否则用户看到「M=中 却立即构建」无从理解。
+    isCompensated: rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'),
+    rulesTriggered,
+    flags: hasFlags ? scoringFlags : [],
+    reasons: hasReasons
+      ? {
+          dReason: input.scoring.explanation.dReason,
+          mReason: input.scoring.explanation.mReason,
+          wReason: input.scoring.explanation.wReason,
+          verdictReason: input.scoring.explanation.verdictReason,
+        }
+      : undefined,
+    hashVersion: input.hashVersion,
+  };
+
   const dPct = (input.scoring.dScore / 100).toFixed(1);
   const mPct = (input.scoring.mScore / 100).toFixed(1);
   const wPct = (input.scoring.wScore / 100).toFixed(1);
@@ -284,6 +320,7 @@ export function generateOpportunityReport(
         ? '【建议加入雷达关注 (WATCH)】当前商业或搜索信号尚处于演进阶段，建议放入雷达监控列表，待进一步数据沉淀后再投入开发资源。'
         : 'Recommendation: WATCH. Monitor radar alerts for further commercial validation before committing build resources.',
     veteranVerdict,
+    decisionBasis,
   };
 
   const localizedShape = getLocalizedOpportunityText(
@@ -446,6 +483,10 @@ export function generateOpportunityReport(
               ? '自动负面信号筛查：本次观测未记录到强负面商业信号或政策红线。'
               : 'Automated negative-signal screen: no strong negative commercial signal or policy red line was recorded for this observation.',
           ],
+      // 标志与留存状态一并带出：存量记录没有标志，"未筛查"与"筛查通过"
+      // 是两件事，渲染层据此区分。
+      flags: hasFlags ? scoringFlags : [],
+      state: basisState,
     },
   };
 

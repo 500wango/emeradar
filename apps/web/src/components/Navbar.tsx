@@ -20,6 +20,7 @@ import {
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
+import { planLabelKey } from '@/lib/plan-display';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 export function Navbar() {
@@ -55,22 +56,16 @@ export function Navbar() {
         .toUpperCase()
     : 'EM';
 
-  const tierBadgeConfig = {
-    TEAM: {
-      label: t('nav.legacyPlan'),
-      classes: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200',
-    },
-    PRO: {
-      label: t('nav.builderPro'),
-      classes: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
-    },
-    FREE: {
-      label: t('nav.freeStarter'),
-      classes: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200',
-    },
+  // Colour stays per-tier; the wording comes from the shared mapping so a legacy
+  // TEAM account reads "Legacy plan" here too instead of the raw enum.
+  const tierBadgeClasses: Record<string, string> = {
+    TEAM: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200',
+    PRO: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+    FREE: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200',
   };
-
-  const currentTierConfig = user ? tierBadgeConfig[user.tier] : tierBadgeConfig.PRO;
+  const currentTier = user?.tier ?? 'PRO';
+  const currentTierClasses = tierBadgeClasses[currentTier] ?? tierBadgeClasses.FREE;
+  const currentTierLabel = t(planLabelKey(currentTier));
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
@@ -263,9 +258,9 @@ export function Navbar() {
                           ) : (
                             <>
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${currentTierConfig.classes}`}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${currentTierClasses}`}
                               >
-                                {user.tier}
+                                {currentTierLabel}
                               </span>
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
                                 {user.role}

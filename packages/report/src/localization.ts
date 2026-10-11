@@ -270,6 +270,72 @@ export function formatVerdictDescription(
   }
 }
 
+/**
+ * 评分标志的人类可读说明。
+ * 标志是审计线索而非装饰：报告展示它们，是为了让用户看到系统当时究竟看到了什么，
+ * 包括不利的那些。未知标志回退为去下划线的原文，绝不静默丢弃。
+ */
+export function formatScoringFlag(flag: string, locale: Locale = 'en-US'): string {
+  if (locale === 'zh-CN') {
+    switch (flag) {
+      case 'M_NEGATIVE':
+        return '商业轴强负面信号（官方免费替代、定价下线或付费转免费）';
+      case 'CROWDED_LOCKED':
+        return '赛道拥挤且头部排位已被锁定，新进入者难以切入';
+      case 'FAST_TRACK':
+        return '快速通道：历史样本虽短，信号强度已足以放行';
+      case 'LOW_CONFIDENCE':
+        return '本次观测数据置信度偏低，结论稳定性弱于常规';
+      case 'PARTIAL_DATA':
+        return '三轴中存在证据不足的维度，判定建立在部分数据之上';
+      case 'BASELINE_PERIOD':
+        return '仍处于历史基线积累期，尚未形成足够的时间序列';
+      case 'W_DROPPING':
+        return '竞争窗口正在收窄（此前已给出可建裁决）';
+      case 'D_INSUFFICIENT':
+        return '需求轴证据不足，未达到公开发布门槛';
+      case 'SERP_HISTORY_BELOW_BASELINE':
+        return 'SERP 观测历史短于发布门槛的要求';
+      case 'NO_RECENT_ORGANIC_SERP':
+        return '缺少近期自然搜索排名快照';
+      case 'M_INFERRED_ONLY':
+        return '商业轴仅由间接推断得出，未直接观测到定价或收款';
+      case 'CRITICAL_SOURCE_FAILURE':
+        return '关键数据源采集失败，本期观测不完整';
+      default:
+        return flag.replace(/_/g, ' ');
+    }
+  }
+  switch (flag) {
+    case 'M_NEGATIVE':
+      return 'Strong negative commercial signal (free first-party replacement, withdrawn pricing, or paid-to-free migration)';
+    case 'CROWDED_LOCKED':
+      return 'Niche crowded and head positions locked by incumbents';
+    case 'FAST_TRACK':
+      return 'Fast track: signal strength justified publication despite a short history';
+    case 'LOW_CONFIDENCE':
+      return 'Low observation confidence; the conclusion is less stable than usual';
+    case 'PARTIAL_DATA':
+      return 'One or more axes rest on insufficient evidence';
+    case 'BASELINE_PERIOD':
+      return 'Still accumulating the historical baseline; no long time series yet';
+    case 'W_DROPPING':
+      return 'Competitive window is narrowing (a build verdict was previously issued)';
+    case 'D_INSUFFICIENT':
+      return 'Demand evidence below the publication threshold';
+    case 'SERP_HISTORY_BELOW_BASELINE':
+      return 'SERP observation history shorter than the publication gate requires';
+    case 'NO_RECENT_ORGANIC_SERP':
+      return 'No recent organic SERP snapshot available';
+    case 'M_INFERRED_ONLY':
+      return 'Commercial axis inferred only; no pricing or checkout observed directly';
+    case 'CRITICAL_SOURCE_FAILURE':
+      return 'A critical data source failed; this observation cycle is incomplete';
+    default:
+      return flag.replace(/_/g, ' ');
+  }
+}
+
 export function formatLifecycle(
   lifecycle: Lifecycle,
   locale: Locale = 'en-US'

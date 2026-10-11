@@ -1,9 +1,11 @@
 import { query } from '@emeradar/db';
 import {
   MerkleTree,
-  calculateRowHash,
   calculateCheckpointHash,
   GENESIS_PREV_HASH,
+  verifyRowHash,
+  buildRowHashInput,
+  LedgerRowRecord,
 } from '@emeradar/ledger';
 
 export class TrackRecordService {
@@ -136,15 +138,12 @@ export class TrackRecordService {
     const storedCheckpointHash = checkpointRow.rows[0]?.checkpoint_hash ?? null;
 
     // Fetch verdicts for that date sorted by opportunity_id
-    const verdictsRes = await query<{
-      opportunity_id: string; obs_date: string; scoring_config_version: string;
-      verdict: any; lifecycle: any; d_basis_points: number; m_basis_points: number;
-      w_basis_points: number; confidence: any; input_snapshot_ids: string[];
-      cited_evidence_ids: string[]; prev_hash: string; row_hash: string;
-    }>(
+    const verdictsRes = await query<LedgerRowRecord>(
       `SELECT opportunity_id, obs_date::text, scoring_config_version, verdict, lifecycle,
               d_basis_points, m_basis_points, w_basis_points, confidence,
-              input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
+              input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash,
+              raw_verdict, flags, explanation, features_hash, hash_version,
+              d_band, m_band, w_band
        FROM verdicts WHERE obs_date = $1 ORDER BY opportunity_id COLLATE "C" ASC`,
       [obsDate]
     );
@@ -153,21 +152,14 @@ export class TrackRecordService {
     const rowHashes: string[] = [];
     let rowsValid = true;
     for (const row of verdictsRes.rows) {
-      const data = {
-        opportunityId: row.opportunity_id,
-        obsDate: row.obs_date,
-        scoringConfigVersion: row.scoring_config_version,
-        verdict: row.verdict,
-        lifecycle: row.lifecycle,
-        dBasisPoints: row.d_basis_points,
-        mBasisPoints: row.m_basis_points,
-        wBasisPoints: row.w_basis_points,
-        confidence: row.confidence,
-        inputSnapshotIds: row.input_snapshot_ids || [],
-        citedEvidenceIds: row.cited_evidence_ids || [],
-      };
-      const calculated = calculateRowHash(previousHash, data);
-      rowsValid = rowsValid && row.prev_hash === previousHash && row.row_hash === calculated;
+      // 版本由 hash_version 列决定，字段集必须与写入时一致。v2 行把依据字段
+      // 纳入了哈希，若仍按 v1 的 11 个字段重算，账本一旦出现 v2 行，这一天的
+      // 公开验证就会整体报失败 —— 而公开可验证正是账本存在的理由。
+      // 残缺的 v2 行由 verifyRowHash 判为"验不过"而非抛异常（见 isCompleteV2Row）。
+      const { data, hashVersion } = buildRowHashInput(row);
+
+      rowsValid =
+        rowsValid && row.prev_hash === previousHash && verifyRowHash(previousHash, data, row.row_hash, hashVersion);
       rowHashes.push(row.row_hash);
       previousHash = row.row_hash;
     }

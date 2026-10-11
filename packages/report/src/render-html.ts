@@ -1,4 +1,9 @@
-import { OpportunityReportData } from './types';
+import {
+  OpportunityReportData,
+  VerdictBasis,
+  Section4CommercialValidation,
+} from './types';
+import { Locale } from '@emeradar/core';
 import {
   formatVerdict,
   formatArchetype,
@@ -10,6 +15,7 @@ import {
   formatIndieEntrantDensity,
   formatShadowChannel,
   formatPresence,
+  formatScoringFlag,
 } from './localization';
 
 function esc(value: unknown): string {
@@ -20,6 +26,143 @@ function esc(value: unknown): string {
     '"': '&quot;',
     "'": '&#39;',
   }[ch]!));
+}
+
+/**
+ * 「判定依据」面板。与 Markdown 渲染同源：结论可复核，依据缺失时如实说明。
+ */
+function renderDecisionBasisHtml(basis: VerdictBasis | undefined, locale: Locale): string {
+  const isZh = locale === 'zh-CN';
+  const heading = `<h3>🧭 ${isZh ? '判定依据（账本留存）' : 'Decision Basis (Ledger Record)'}</h3>`;
+  const state = basis?.state ?? 'NOT_RETAINED';
+
+  if (!basis || state === 'NOT_RETAINED') {
+    return `${heading}
+  <div class="callout callout-note">
+    ${
+      isZh
+        ? '此记录早于「判定依据留存」功能：账本只封存了裁决结果，没有留下当时的规则轨迹与评分标志。结论本身仍然有效，但无法回溯"为什么是它"。自账本 v2 起，此后每一期判定都可复核。'
+        : 'This record predates decision-basis retention: the ledger sealed the verdict but not the rule trace or scoring flags behind it. The conclusion still stands, but "why this verdict" cannot be reconstructed. Every verdict from ledger v2 onward is fully auditable.'
+    }
+  </div>`;
+  }
+
+  const parts: string[] = [heading];
+
+  if (basis.isCompensated) {
+    parts.push(`  <div class="callout" style="background-color: #fef3c7; border-left: 4px solid #d97706; color: #92400e;">
+    <strong>⚠️ ${isZh ? '这是一条补偿判定' : 'This is a compensated verdict'}</strong><br>
+    ${
+      isZh
+        ? '需求爆发（D=高）叠加竞争窗口全开（W=高）时，系统允许商业验证仅到中等（M=中）就给出「立即构建」。标准规则要求 M 必须为高 —— 请把它读作"值得抢先卡位、但变现方式仍需你自己验证"的机会。'
+        : 'With demand spiking (D=HIGH) and the window fully open (W=HIGH), the system permits BUILD_NOW at only MEDIUM commercial validation. The standard rule requires M=HIGH — read it as "worth racing to own, but monetization still needs your own validation".'
+    }
+  </div>`);
+  }
+
+  const rawDiffers = basis.rawVerdict && basis.rawVerdict !== basis.publishedVerdict;
+  parts.push(`  <ul>
+    <li><strong>${isZh ? '封存裁决' : 'Sealed verdict'}</strong>：<code>${esc(basis.publishedVerdict)}</code></li>
+    ${
+      rawDiffers
+        ? `<li><strong>${isZh ? '去抖前原始值' : 'Raw pre-debounce verdict'}</strong>：<code>${esc(
+            basis.rawVerdict
+          )}</code>（${isZh ? '本期的发布值被去抖规则压住' : 'the published value was held back by debounce'}）</li>`
+        : ''
+    }
+    ${
+      basis.rulesTriggered.length > 0
+        ? `<li><strong>${isZh ? '命中规则' : 'Rules triggered'}</strong>：${basis.rulesTriggered
+            .map((r) => `<code>${esc(r)}</code>`)
+            .join(' ')}</li>`
+        : ''
+    }
+  </ul>`);
+
+  if (basis.flags.length > 0) {
+    parts.push(`  <ul style="margin-top: 0;">
+    ${basis.flags
+      .map((f) => `<li><code>${esc(f)}</code> — ${esc(formatScoringFlag(f, locale))}</li>`)
+      .join('')}
+  </ul>`);
+  } else {
+    parts.push(
+      `  <p style="font-size: 13px; color: #64748b;">${isZh ? '本期没有命中任何评分标志。' : 'No scoring flags were triggered this cycle.'}</p>`
+    );
+  }
+
+  if (basis.reasons) {
+    parts.push(`  <table>
+    <thead><tr><th>${isZh ? '维度' : 'Axis'}</th><th>${isZh ? '判定理由' : 'Reason'}</th></tr></thead>
+    <tbody>
+      <tr><td>${isZh ? '搜索需求 (D)' : 'Demand (D)'}</td><td>${esc(basis.reasons.dReason)}</td></tr>
+      <tr><td>${isZh ? '商业验证 (M)' : 'Commercial (M)'}</td><td>${esc(basis.reasons.mReason)}</td></tr>
+      <tr><td>${isZh ? '竞争窗口 (W)' : 'Window (W)'}</td><td>${esc(basis.reasons.wReason)}</td></tr>
+      <tr><td>${isZh ? '裁决' : 'Verdict'}</td><td>${esc(basis.reasons.verdictReason)}</td></tr>
+    </tbody>
+  </table>`);
+  }
+
+  if (basis.hashVersion !== undefined) {
+    parts.push(
+      `  <p style="font-size: 12px; color: #64748b;">${isZh ? '账本哈希版本' : 'Ledger hash version'}：<code>v${basis.hashVersion}</code>${
+        basis.hashVersion >= 2
+          ? isZh
+            ? ' —— 本行参与可复核的哈希链。'
+            : ' — this row participates in the verifiable hash chain.'
+          : ''
+      }</p>`
+    );
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * 负面信号筛查面板；与 Markdown 渲染同源。
+ */
+function renderNegativeSignalHtml(
+  check: Section4CommercialValidation['negativeSignalCheck'],
+  locale: Locale
+): string {
+  const isZh = locale === 'zh-CN';
+  const parts: string[] = [
+    `  <div class="callout ${check.passed ? 'callout-note' : 'callout-important'}">
+    <strong>${
+      check.passed
+        ? isZh
+          ? '✅ 负面信号筛查通过'
+          : '✅ Negative signal screen passed'
+        : isZh
+          ? '⚠️ 负面信号筛查存在告警'
+          : '⚠️ Negative signal screen raised warnings'
+    }</strong>`,
+  ];
+
+  for (const finding of check.findings ?? []) {
+    parts.push(`    <div style="margin-top: 4px;">• ${esc(finding)}</div>`);
+  }
+
+  const flags = check.flags ?? [];
+  if (flags.length > 0) {
+    parts.push(
+      `    <div style="margin-top: 8px; font-size: 13px;"><strong>${isZh ? '本期评分标志' : 'Scoring flags this cycle'}：</strong></div>`,
+      ...flags.map(
+        (f) => `    <div style="font-size: 13px;">• <code>${esc(f)}</code> — ${esc(formatScoringFlag(f, locale))}</div>`
+      )
+    );
+  } else if (check.state === 'NOT_RETAINED') {
+    parts.push(
+      `    <div style="margin-top: 8px; font-size: 13px; color: #64748b;">${
+        isZh
+          ? '（此记录早于评分标志留存功能，本次无标志可展示。）'
+          : '(This record predates flag retention; no flags are available to display.)'
+      }</div>`
+    );
+  }
+
+  parts.push('  </div>');
+  return parts.join('\n');
 }
 
 export function renderReportToHtml(report: OpportunityReportData): string {
@@ -227,6 +370,8 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     <strong>${isZh ? '落地行动建议：' : 'Actionable Recommendation:'}</strong> ${esc(section1.decisionRecommendation)}
   </div>
 
+  ${renderDecisionBasisHtml(section1.decisionBasis, metadata.locale)}
+
   <h2>${isZh ? '2. 搜索需求与查询词图谱分析' : '2. Search Demand & Query Clustering'}</h2>
   <p><strong>${isZh ? '种子查询词：' : 'Primary Query:'}</strong> <code>${esc(section2.primaryQuery)}</code> (${isZh ? '动量增速' : 'Velocity'}: ${section2.queryVelocity}x)</p>
   <p><strong>${isZh ? '搜索意图：' : 'Search Intent:'}</strong> ${esc(formatSearchIntent(section2.searchIntent, isZh ? 'zh-CN' : 'en-US'))} &nbsp; <strong>${isZh ? '建议落地形态：' : 'Recommended Shape:'}</strong> ${esc(section2.recommendedProductShape)}</p>
@@ -317,6 +462,11 @@ export function renderReportToHtml(report: OpportunityReportData): string {
   }
 
   <h2>${isZh ? '4. 商业验证与变现天花板评估' : '4. Commercial Validation & Monetization'}</h2>
+  <p><strong>${isZh ? '已交叉验证证据数' : 'Total Corroborating Signals'}：</strong>${section4.evidenceCount.total}${
+    isZh
+      ? ` 条（${section4.evidenceCount.observed} 条直接抓取观测，${section4.evidenceCount.selfReported} 条竞品公开声明）`
+      : ` (${section4.evidenceCount.observed} directly observed, ${section4.evidenceCount.selfReported} self-reported)`
+  }</p>
   <table>
     <thead>
       <tr>
@@ -336,6 +486,8 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     </tbody>
   </table>
   <p>${esc(section4.monetizationHeadroom)}</p>
+
+  ${renderNegativeSignalHtml(section4.negativeSignalCheck, metadata.locale)}
 
   <h2>${isZh ? '5. 落地执行蓝图与 14 天冲刺计划' : '5. Execution Blueprint & 14-Day Sprint'}</h2>
   <p><strong>${isZh ? '推荐技术栈：' : 'Stack:'}</strong> ${esc(section5.recommendedStack.frontend)} &bull; ${esc(section5.recommendedStack.database)}</p>

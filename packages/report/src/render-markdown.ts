@@ -1,4 +1,9 @@
-import { OpportunityReportData } from './types';
+import {
+  OpportunityReportData,
+  VerdictBasis,
+  Section4CommercialValidation,
+} from './types';
+import { Locale } from '@emeradar/core';
 import {
   formatVerdict,
   formatLifecycle,
@@ -14,7 +19,105 @@ import {
   formatIndieEntrantDensity,
   formatShadowChannel,
   formatPresence,
+  formatScoringFlag,
 } from './localization';
+
+/**
+ * 「判定依据」区块。
+ * 存在的意义是让结论可复核：用户看到 BUILD_NOW 时应当立刻知道系统命中了哪些规则、
+ * 哪些标志。依据缺失时不编造，而是如实说明这一期账本没有留存。
+ */
+function renderDecisionBasisMarkdown(
+  basis: VerdictBasis | undefined,
+  locale: Locale
+): string {
+  const isZh = locale === 'zh-CN';
+  const heading = isZh ? '### 🧭 判定依据（账本留存）' : '### 🧭 Decision Basis (Ledger Record)';
+  const state = basis?.state ?? 'NOT_RETAINED';
+
+  if (!basis || state === 'NOT_RETAINED') {
+    return `${heading}
+
+> [!NOTE]
+> ${
+      isZh
+        ? '此记录早于「判定依据留存」功能：账本只封存了裁决结果，没有留下当时的规则轨迹与评分标志。结论本身仍然有效（它引用的快照与哈希都在），但无法回溯"为什么是它"。自账本 v2 起，此后每一期判定都可复核。'
+        : 'This record predates decision-basis retention: the ledger sealed the verdict but not the rule trace or scoring flags behind it. The conclusion still stands (its snapshot and hash are on file), but "why this verdict" cannot be reconstructed. Every verdict from ledger v2 onward is fully auditable.'
+    }`;
+  }
+
+  const lines: string[] = [heading, ''];
+
+  if (basis.isCompensated) {
+    lines.push(
+      '> [!WARNING]',
+      `> ${
+        isZh
+          ? '**这是一条补偿判定**：需求爆发（D=高）叠加竞争窗口全开（W=高）时，系统允许商业验证仅到中等（M=中）就给出「立即构建」。标准规则要求 M 必须为高。请把它读作"值得抢先卡位、但变现方式仍需你自己验证"的机会。'
+          : '**This is a compensated verdict**: with demand spiking (D=HIGH) and the window fully open (W=HIGH), the system permits BUILD_NOW at only MEDIUM commercial validation. The standard rule requires M=HIGH. Read it as "worth racing to own, but monetization still needs your own validation".'
+      }`,
+      ''
+    );
+  }
+
+  lines.push(`- **${isZh ? '封存裁决' : 'Sealed verdict'}**：\`${basis.publishedVerdict}\``);
+
+  if (basis.rawVerdict && basis.rawVerdict !== basis.publishedVerdict) {
+    lines.push(
+      `- **${isZh ? '去抖前原始值' : 'Raw pre-debounce verdict'}**：\`${basis.rawVerdict}\`（${
+        isZh ? '本期的发布值被去抖规则压住' : 'the published value was held back by debounce'
+      }）`
+    );
+  }
+
+  if (basis.rulesTriggered.length > 0) {
+    lines.push(
+      `- **${isZh ? '命中规则' : 'Rules triggered'}**：${basis.rulesTriggered
+        .map((r) => `\`${r}\``)
+        .join(isZh ? '、' : ', ')}`
+    );
+  }
+
+  if (basis.flags.length > 0) {
+    lines.push(
+      `- **${isZh ? '评分标志' : 'Scoring flags'}**：`,
+      ...basis.flags.map((f) => `  - \`${f}\` — ${formatScoringFlag(f, locale)}`)
+    );
+  } else {
+    lines.push(
+      `- **${isZh ? '评分标志' : 'Scoring flags'}**：${
+        isZh ? '本期没有命中任何标志' : 'none triggered this cycle'
+      }`
+    );
+  }
+
+  if (basis.reasons) {
+    lines.push(
+      '',
+      `| ${isZh ? '维度' : 'Axis'} | ${isZh ? '判定理由' : 'Reason'} |`,
+      '|:---|:---|',
+      `| ${isZh ? '搜索需求 (D)' : 'Demand (D)'} | ${escapeMarkdown(basis.reasons.dReason)} |`,
+      `| ${isZh ? '商业验证 (M)' : 'Commercial (M)'} | ${escapeMarkdown(basis.reasons.mReason)} |`,
+      `| ${isZh ? '竞争窗口 (W)' : 'Window (W)'} | ${escapeMarkdown(basis.reasons.wReason)} |`,
+      `| ${isZh ? '裁决' : 'Verdict'} | ${escapeMarkdown(basis.reasons.verdictReason)} |`
+    );
+  }
+
+  if (basis.hashVersion !== undefined) {
+    lines.push(
+      '',
+      `> ${isZh ? '账本哈希版本' : 'Ledger hash version'}：\`v${basis.hashVersion}\`${
+        basis.hashVersion >= 2
+          ? isZh
+            ? ' —— 本行参与可复核的哈希链。'
+            : ' — this row participates in the verifiable hash chain.'
+          : ''
+      }`
+    );
+  }
+
+  return lines.join('\n');
+}
 
 /**
  * Neutralises Markdown control characters in values that originate outside this
@@ -30,6 +133,55 @@ export function escapeMarkdown(value: unknown): string {
     // noise to prices and version numbers.
     .replace(/([`*_{}[\]()#+!|>])/g, '\\$1')
     .replace(/[\r\n]+/g, ' ');
+}
+
+/**
+ * 负面信号筛查区块。
+ * findings 与 flags 此前被渲染层丢弃，只剩一个 ✅/⚠️ —— 那等于让报告"说了结论、
+ * 藏了证据"。这里把筛查依据一并铺开。
+ */
+function renderNegativeSignalMarkdown(
+  check: Section4CommercialValidation['negativeSignalCheck'],
+  locale: Locale
+): string {
+  const isZh = locale === 'zh-CN';
+  const lines = [
+    '> [!NOTE]',
+    `> **${isZh ? '负面政策与合规风险排查' : 'Negative Signal Verification'}**：${
+      check.passed
+        ? isZh
+          ? '✅ 已通过 — 未检测到侵犯注册商标、平台封禁或灾难性政策红线。'
+          : '✅ Passed — No catastrophic platform or policy hazards detected.'
+        : isZh
+          ? '⚠️ 警告 — 存在需关注的政策潜在风险。'
+          : '⚠️ Warning — Signals require review.'
+    }`,
+  ];
+
+  for (const finding of check.findings ?? []) {
+    lines.push(`> - ${escapeMarkdown(finding)}`);
+  }
+
+  const flags = check.flags ?? [];
+  if (flags.length > 0) {
+    lines.push(
+      `> **${isZh ? '本期评分标志' : 'Scoring flags this cycle'}**：`,
+      ...flags.map((f) => `> - \`${f}\` — ${formatScoringFlag(f, locale)}`)
+    );
+  }
+
+  // 存量记录没有标志。沉默会被读成"筛查干净"，所以把"没记"明确写出来。
+  if (check.state === 'NOT_RETAINED') {
+    lines.push(
+      `> ${
+        isZh
+          ? '（此记录早于评分标志留存功能，本次无标志可展示。）'
+          : '(This record predates flag retention; no flags are available to display.)'
+      }`
+    );
+  }
+
+  return lines.join('\n');
 }
 
 export function renderReportToMarkdown(report: OpportunityReportData): string {
@@ -86,6 +238,8 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 
 > [!IMPORTANT]
 > **行动落地建议**：${section1.decisionRecommendation}
+
+${renderDecisionBasisMarkdown(section1.decisionBasis, metadata.locale)}
 
 ---
 
@@ -161,8 +315,7 @@ ${section4.paidCompetitors.map((c) => `| **${escapeMarkdown(c.domain)}** | ${for
 **变现空间与商业天花板评估**：  
 ${section4.monetizationHeadroom}
 
-> [!NOTE]
-> **负面政策与合规风险排查**：${section4.negativeSignalCheck.passed ? '✅ 已通过 — 未检测到侵犯注册商标、平台封禁或灾难性政策红线。' : '⚠️ 警告 — 存在需关注的政策潜在风险。'}
+${renderNegativeSignalMarkdown(section4.negativeSignalCheck, 'zh-CN')}
 
 ---
 
@@ -312,6 +465,8 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 > [!IMPORTANT]
 > **Actionable Recommendation**: ${section1.decisionRecommendation}
 
+${renderDecisionBasisMarkdown(section1.decisionBasis, metadata.locale)}
+
 ---
 
 ## 2. 🔍 Search Demand & Query Clustering
@@ -386,8 +541,7 @@ ${section4.paidCompetitors.map((c) => `| **${escapeMarkdown(c.domain)}** | ${esc
 **Monetization Headroom**:  
 ${section4.monetizationHeadroom}
 
-> [!NOTE]
-> **Negative Signal Verification**: ${section4.negativeSignalCheck.passed ? '✅ Passed — No catastrophic platform or policy hazards detected.' : '⚠️ Warning — Signals require review.'}
+${renderNegativeSignalMarkdown(section4.negativeSignalCheck, 'en-US')}
 
 ---
 

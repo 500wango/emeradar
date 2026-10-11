@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MerkleTree } from './merkle';
-import { calculateRowHash, VerdictRowData } from './row-hash';
+import { calculateRowHash, isV2Row, HashVersion, VerdictRowData } from './row-hash';
 
 export interface DailyLedgerSummary {
   obsDate: string; // YYYY-MM-DD
@@ -25,14 +25,27 @@ export function calculateCheckpointHash(
   return hash.digest('hex');
 }
 
+export interface DailyLedgerRecord {
+  opportunityId: string;
+  data: VerdictRowData;
+  /** 省略时由数据形状推断（带 rawVerdict 即 v2）。 */
+  hashVersion?: HashVersion;
+}
+
 export function generateDailyLedger(
   obsDate: string,
-  records: { opportunityId: string; data: VerdictRowData }[],
+  records: DailyLedgerRecord[],
   prevCheckpointHash: string,
   prevRowHash: string
 ): {
   summary: DailyLedgerSummary;
-  hashedRows: { opportunityId: string; prevHash: string; rowHash: string; data: VerdictRowData }[];
+  hashedRows: {
+    opportunityId: string;
+    prevHash: string;
+    rowHash: string;
+    hashVersion: HashVersion;
+    data: VerdictRowData;
+  }[];
   tree: MerkleTree;
 } {
   // 1. Sort records by opportunityId ascending per spec §4.2.
@@ -48,15 +61,18 @@ export function generateDailyLedger(
     opportunityId: string;
     prevHash: string;
     rowHash: string;
+    hashVersion: HashVersion;
     data: VerdictRowData;
   }[] = [];
 
   for (const item of sorted) {
+    const hashVersion = item.hashVersion ?? (isV2Row(item.data) ? 2 : 1);
     const rowHash = calculateRowHash(currentPrevHash, item.data);
     hashedRows.push({
       opportunityId: item.opportunityId,
       prevHash: currentPrevHash,
       rowHash,
+      hashVersion,
       data: item.data,
     });
     currentPrevHash = rowHash;

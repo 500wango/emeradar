@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { FeedCardItem } from '@emeradar/services';
+import { formatScoringFlag } from '@emeradar/report';
 import { useI18n } from '@/lib/i18n';
 
 interface FeedClientProps {
@@ -96,6 +97,16 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
     const translated = t(key);
     return translated !== key ? translated : arch;
   };
+
+  /** 枚举一律走 i18n：界面上不出现裸的 EARLY_WINDOW / S。 */
+  const getEnumLabel = (group: string, value: string) => {
+    const key = `common.${group}.${value}`;
+    const translated = t(key);
+    return translated !== key ? translated : value;
+  };
+
+  const getLifecycleLabel = (lifecycle: string) => getEnumLabel('lifecycles', lifecycle);
+  const getExecutionClassLabel = (cls: string) => getEnumLabel('executionClasses', cls);
 
   const getBandLabel = (band: string) => {
     switch (band) {
@@ -248,6 +259,8 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
             const isBuildNow = opp.verdict === 'BUILD_NOW';
             const isEarlyBet = opp.verdict === 'EARLY_BET';
             const isClosing = opp.verdict === 'WINDOW_CLOSING';
+            const flags = opp.flags ?? [];
+            const isCompensated = (opp.rulesTriggered ?? []).includes('RULE_BUILD_NOW_COMPENSATED');
 
             return (
               <div
@@ -272,13 +285,13 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
                         {getVerdictLabel(opp.verdict)}
                       </span>
                       <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                        {opp.lifecycle}
+                        {getLifecycleLabel(opp.lifecycle)}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
                       <span className="px-2 py-0.5 rounded bg-slate-100">
-                        {t('common.action')}: {opp.executionClass}
+                        {t('common.action')}: {getExecutionClassLabel(opp.executionClass)}
                       </span>
                       <span>&bull;</span>
                       <span className="truncate max-w-[140px]">{getArchetypeLabel(opp.recommendedArchetype)}</span>
@@ -372,6 +385,42 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
                       <div className="text-sm font-bold text-amber-700 mt-1">{getBandLabel(opp.wBand)}</div>
                     </div>
                   </div>
+
+                  {/* 为何是这个结论：判定依据不该只活在报告里。
+                      未留存时只在 build 类裁决上提示，避免每张卡片都刷一段免责声明。 */}
+                  {(!opp.basisRetained ? isBuildNow || isEarlyBet : isCompensated || flags.length > 0) && (
+                    <div className="mb-5 text-xs">
+                      {!opp.basisRetained ? (
+                        <p className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 leading-relaxed">
+                          {t('report.decisionBasisNotRetained')}
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {isCompensated && (
+                            <p className="p-2.5 rounded-lg bg-amber-50 border-l-4 border-amber-500 text-amber-900 leading-relaxed">
+                              <strong className="block mb-0.5">
+                                ⚠️ {t('report.decisionBasisCompensatedTitle')}
+                              </strong>
+                              {t('report.decisionBasisCompensatedDesc')}
+                            </p>
+                          )}
+                          {flags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {flags.map((flag) => (
+                                <span
+                                  key={flag}
+                                  title={formatScoringFlag(flag, isZh ? 'zh-CN' : 'en-US')}
+                                  className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200 font-mono text-[10px] cursor-help"
+                                >
+                                  {flag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Card Actions */}

@@ -8,4 +8,5 @@ export * from './confidence';
 export * from './verdict';
 export * from './lifecycle';
 export * from './recommendation';
+export * from './prev-state';
 export * from './engine';

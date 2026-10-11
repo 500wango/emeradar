@@ -4,6 +4,7 @@ import {
   generateOpportunityReport,
   renderReportToMarkdown,
   renderReportToHtml,
+  deriveBasisState,
 } from '../src';
 
 describe('Opportunity Report Unit Tests', () => {
@@ -238,5 +239,182 @@ describe('Opportunity Report Unit Tests', () => {
     assert.ok(htmlEn.includes('Window (W)'));
     assert.ok(htmlEn.includes('Indie Competition & Defense Moat Audit'));
     assert.strictEqual(/[\u4e00-\u9fa5]/.test(htmlEn), false);
+  });
+});
+
+describe('Decision basis (why this verdict)', () => {
+  const scoring = {
+    verdict: 'BUILD_NOW' as const,
+    rawVerdict: 'BUILD_NOW' as const,
+    lifecycle: 'EARLY_WINDOW' as const,
+    confidence: 'HIGH' as const,
+    confidenceScore: 0.85,
+    dScore: 8400,
+    mScore: 6500,
+    wScore: 8100,
+    dBand: 'HIGH' as const,
+    mBand: 'MEDIUM' as const,
+    wBand: 'HIGH' as const,
+    flags: [] as string[],
+    explanation: {
+      dReason: 'Demand breakout confirmed over 45 observation days.',
+      mReason: 'Two independent paid competitors; pricing partly decorative.',
+      wReason: 'SERP weakness above the penetration threshold.',
+      verdictReason: 'Breakout demand compensates for developing commercial proof.',
+      rulesTriggered: ['RULE_BUILD_NOW_COMPENSATED'],
+    },
+    recommendedArchetype: 'LIGHTWEIGHT_TOOL' as const,
+    executionClass: 'S' as const,
+  };
+
+  const base = {
+    reportId: 'rpt_basis_01',
+    opportunity: {
+      id: 'opp_basis',
+      title: 'Basis Fixture Opportunity',
+      slug: 'basis-fixture',
+      marketCountry: 'US',
+      researchLanguage: 'en-US',
+    },
+    obsDate: '2026-10-11',
+    primaryQuery: 'basis fixture query',
+  };
+
+  it('defaults to NOT_RETAINED and withholds reasons rather than inventing them', () => {
+    const report = generateOpportunityReport({ ...base, scoring });
+    assert.strictEqual(report.section1.decisionBasis.state, 'NOT_RETAINED');
+    assert.strictEqual(report.section1.decisionBasis.reasons, undefined);
+    assert.strictEqual(report.section1.decisionBasis.isCompensated, false);
+    assert.deepStrictEqual(report.section1.decisionBasis.flags, []);
+    // A placeholder explanation is still supplied to satisfy ScoringOutput, so this
+    // asserts the state — not the presence of the field — is what suppresses it.
+    assert.ok(scoring.explanation.dReason.length > 0);
+
+    const markdown = renderReportToMarkdown(report);
+    const html = renderReportToHtml(report);
+    assert.ok(markdown.includes('predates decision-basis retention'));
+    assert.ok(html.includes('predates decision-basis retention'));
+    assert.ok(!markdown.includes(scoring.explanation.dReason));
+    assert.ok(!html.includes(scoring.explanation.dReason));
+  });
+
+  it('carries the recorded explanation, rules and compensation marker through to both renderers', () => {
+    const report = generateOpportunityReport({ ...base, scoring, basisState: 'RECORDED', hashVersion: 2 });
+
+    const basis = report.section1.decisionBasis;
+    assert.strictEqual(basis.state, 'RECORDED');
+    assert.strictEqual(basis.isCompensated, true);
+    assert.strictEqual(basis.hashVersion, 2);
+    assert.deepStrictEqual(basis.rulesTriggered, ['RULE_BUILD_NOW_COMPENSATED']);
+    assert.strictEqual(basis.reasons?.mReason, scoring.explanation.mReason);
+    assert.strictEqual(basis.reasons?.verdictReason, scoring.explanation.verdictReason);
+
+    for (const rendered of [renderReportToMarkdown(report), renderReportToHtml(report)]) {
+      assert.ok(rendered.includes('compensated verdict'));
+      assert.ok(rendered.includes(scoring.explanation.mReason));
+      assert.ok(rendered.includes('RULE_BUILD_NOW_COMPENSATED'));
+      assert.ok(rendered.includes('v2'));
+    }
+  });
+
+  it('does not mark a standard BUILD_NOW as compensated', () => {
+    const report = generateOpportunityReport({
+      ...base,
+      basisState: 'RECORDED',
+      scoring: {
+        ...scoring,
+        explanation: { ...scoring.explanation, rulesTriggered: ['RULE_BUILD_NOW'] },
+      },
+    });
+    assert.strictEqual(report.section1.decisionBasis.state, 'RECORDED');
+    assert.strictEqual(report.section1.decisionBasis.isCompensated, false);
+    assert.ok(!renderReportToMarkdown(report).includes('compensated verdict'));
+  });
+
+  it('surfaces flags without reasons in the FLAGS_ONLY state', () => {
+    const report = generateOpportunityReport({
+      ...base,
+      scoring: { ...scoring, flags: ['M_NEGATIVE', 'LOW_CONFIDENCE'] },
+      basisState: 'FLAGS_ONLY',
+    });
+    const basis = report.section1.decisionBasis;
+    assert.strictEqual(basis.state, 'FLAGS_ONLY');
+    assert.deepStrictEqual(basis.flags, ['M_NEGATIVE', 'LOW_CONFIDENCE']);
+    assert.strictEqual(basis.reasons, undefined);
+    assert.strictEqual(basis.isCompensated, false);
+  });
+
+  it('drives the negative-signal screen from the sealed flags, not from a constant', () => {
+    const clean = generateOpportunityReport({ ...base, scoring, basisState: 'RECORDED' });
+    assert.strictEqual(clean.section4.negativeSignalCheck.passed, true);
+    assert.deepStrictEqual(clean.section4.negativeSignalCheck.flags, []);
+
+    const flagged = generateOpportunityReport({
+      ...base,
+      scoring: { ...scoring, flags: ['M_NEGATIVE'] },
+      basisState: 'RECORDED',
+    });
+    assert.strictEqual(flagged.section4.negativeSignalCheck.passed, false);
+    assert.deepStrictEqual(flagged.section4.negativeSignalCheck.flags, ['M_NEGATIVE']);
+    assert.ok((flagged.section4.negativeSignalCheck.findings ?? []).length > 0);
+    assert.ok(renderReportToMarkdown(flagged).includes('M_NEGATIVE'));
+    assert.ok(renderReportToHtml(flagged).includes('M_NEGATIVE'));
+  });
+
+  it('distinguishes an unscreened legacy record from a clean screen', () => {
+    const legacy = generateOpportunityReport({ ...base, scoring });
+    assert.strictEqual(legacy.section4.negativeSignalCheck.state, 'NOT_RETAINED');
+    const rendered = renderReportToMarkdown(legacy);
+    assert.ok(rendered.includes('predates flag retention'));
+  });
+
+  it('localizes the decision basis and flag explanations into Chinese', () => {
+    const report = generateOpportunityReport({
+      ...base,
+      scoring: { ...scoring, flags: ['M_NEGATIVE'] },
+      basisState: 'RECORDED',
+      locale: 'zh-CN' as const,
+    });
+    const markdown = renderReportToMarkdown(report);
+    assert.ok(markdown.includes('判定依据（账本留存）'));
+    assert.ok(markdown.includes('这是一条补偿判定'));
+    // Flags are audited in the user's own language, not as bare enum codes.
+    assert.ok(markdown.includes('商业轴强负面信号'));
+    assert.ok(markdown.includes('M_NEGATIVE'));
+  });
+});
+
+describe('deriveBasisState', () => {
+  const explanation = { dReason: 'd', mReason: 'm', wReason: 'w', verdictReason: 'v', rulesTriggered: [] };
+
+  it('treats a missing ledger row as not retained', () => {
+    assert.strictEqual(deriveBasisState(null), 'NOT_RETAINED');
+    assert.strictEqual(deriveBasisState(undefined), 'NOT_RETAINED');
+  });
+
+  it('treats a v1 row with no explanation and no flags as not retained', () => {
+    assert.strictEqual(deriveBasisState({ hash_version: 1, explanation: null, flags: null }), 'NOT_RETAINED');
+    assert.strictEqual(deriveBasisState({ hash_version: 1, explanation: null, flags: [] }), 'NOT_RETAINED');
+  });
+
+  it('defaults a row without hash_version to v1 rather than assuming retention', () => {
+    assert.strictEqual(deriveBasisState({ explanation: explanation }), 'NOT_RETAINED');
+  });
+
+  it('reports RECORDED only when a v2 row carries an explanation', () => {
+    assert.strictEqual(deriveBasisState({ hash_version: 2, explanation, flags: [] }), 'RECORDED');
+    // An empty flags array alongside a real explanation is a clean cycle, not a gap.
+    assert.strictEqual(deriveBasisState({ hash_version: 2, explanation, flags: null }), 'RECORDED');
+  });
+
+  it('keeps flags visible when the trace is missing', () => {
+    assert.strictEqual(
+      deriveBasisState({ hash_version: 2, explanation: null, flags: ['M_NEGATIVE'] }),
+      'FLAGS_ONLY'
+    );
+  });
+
+  it('does not read an empty flags array as retention', () => {
+    assert.strictEqual(deriveBasisState({ hash_version: 2, explanation: null, flags: [] }), 'NOT_RETAINED');
   });
 });

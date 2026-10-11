@@ -16,6 +16,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { planLabelKey, resolvePlanCode } from '@/lib/plan-display';
 import type { UserEntitlementsInfo } from '@emeradar/services';
 
 interface PricingClientProps {
@@ -31,7 +32,9 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [noticeBanner, setNoticeBanner] = useState<string | null>(null);
 
-  const isPro = entitlements?.tier === 'PRO';
+  // The plan named here must be the one the quotas below were computed from.
+  const planCode = resolvePlanCode(entitlements);
+  const isPro = planCode === 'PRO';
   const isFree = !isPro;
 
   const p = dictionary.pricing;
@@ -64,8 +67,8 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     } else if (feature === 'opportunity-detail') {
       setNoticeBanner(
         isZh
-          ? '🔒 商业机会决策工作台（包含 9 维需求分析、Top 10 弱站穿透分析与真实结账证据）仅向 Builder Pro 及 Scale Team 会员开放。'
-          : '🔒 Full opportunity decision workspace is available for Builder Pro and Scale Team members.'
+          ? '🔒 商业机会决策工作台（包含 9 维需求分析、Top 10 弱站穿透分析与真实结账证据）仅向 Builder Pro 会员开放。'
+          : '🔒 Full opportunity decision workspace is available for Builder Pro members.'
       );
     }
   }, [isZh]);
@@ -181,11 +184,11 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                   {p.currentPlan}
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                  {entitlements.tier}
+                  {t(planLabelKey(planCode))}
                 </span>
               </div>
               <div className="text-lg font-bold text-slate-900 mt-1">
-                {t('pricing.workspaceTier', { tier: entitlements.tier })}
+                {t('pricing.workspaceTier', { tier: t(planLabelKey(planCode)) })}
               </div>
             </div>
             <Link

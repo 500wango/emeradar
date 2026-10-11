@@ -26,12 +26,46 @@ export interface OpportunityReportMetadata {
     confidence: Confidence;
     confidenceScore: number;
   };
+  /** 以下三项来自账本；早于依据留存功能的存量报告没有它们。 */
+  rawVerdict?: Verdict;
+  hashVersion?: number;
+  featuresHash?: string | null;
 }
 
 export interface VeteranVerdict {
   headline: string;
   penetrationAngle: 'HOMEPAGE_DIRECT' | 'ALTERNATIVE_INTERCEPT' | 'AGGREGATOR_PAGE' | 'LONGTAIL_CLUSTER';
   structuralReasons: string[];
+}
+
+/**
+ * 判定依据的留存状态。
+ * - RECORDED：账本封存了完整的规则轨迹。
+ * - FLAGS_ONLY：只有标志、没有轨迹（防御性分支）。
+ * - NOT_RETAINED：早于依据留存功能的存量记录 —— 界面必须如实说明，不能留空或补造。
+ */
+export type BasisState = 'RECORDED' | 'FLAGS_ONLY' | 'NOT_RETAINED';
+
+export interface VerdictBasis {
+  state: BasisState;
+  publishedVerdict: Verdict;
+  /** 去抖前的原始裁决。与 publishedVerdict 不同即说明本期发布值被去抖压住。 */
+  rawVerdict?: Verdict;
+  /**
+   * 由特征补偿规则（RULE_BUILD_NOW_COMPENSATED）产生的 BUILD_NOW：需求爆发 +
+   * 窗口全开补偿了"商业验证仅中等"的证据，门槛低于标准 BUILD_NOW。
+   * 界面必须能区分二者，否则用户看到「M=中 却立即构建」无从理解。
+   */
+  isCompensated: boolean;
+  rulesTriggered: string[];
+  flags: string[];
+  reasons?: {
+    dReason: string;
+    mReason: string;
+    wReason: string;
+    verdictReason: string;
+  };
+  hashVersion?: number;
 }
 
 export interface Section1ExecutiveSummary {
@@ -41,6 +75,7 @@ export interface Section1ExecutiveSummary {
   keyRisks: string[];
   decisionRecommendation: string;
   veteranVerdict: VeteranVerdict;
+  decisionBasis: VerdictBasis;
 }
 
 export interface Section2DemandBreakdown {
@@ -107,6 +142,9 @@ export interface Section4CommercialValidation {
   negativeSignalCheck: {
     passed: boolean;
     findings?: string[];
+    /** 本期命中的评分标志；人类可读文案由渲染层本地化。 */
+    flags?: string[];
+    state?: BasisState;
   };
 }
 

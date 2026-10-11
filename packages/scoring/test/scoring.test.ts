@@ -8,6 +8,7 @@ import {
   evaluateVerdict,
   evaluateLifecycle,
   calculateOpportunityScore,
+  buildPrevScoringState,
   FullOpportunityScoreInput,
 } from '../src';
 
@@ -567,5 +568,158 @@ describe('Scoring Engine Unit Tests', () => {
       { newQueries: 900, growth: 900, expansion: 900, attention: 900 }
     );
     assert.ok(clamped.basisPoints <= 10000, `expected <= 10000, got ${clamped.basisPoints}`);
+  });
+});
+
+describe('Verdict debounce and ledger prev-state (05 §5)', () => {
+  const strongBuildAxes = {
+    dBand: 'HIGH' as const,
+    mSummary: {
+      band: 'HIGH' as const,
+      independentDomainsCount: 3,
+      hasSubscriptionPlans: true,
+      hasOneTimePlans: false,
+      hasStrongNegative: false,
+      totalScore: 7800,
+    },
+    wBand: 'HIGH' as const,
+    confidence: 'HIGH' as const,
+    historyDays: 45,
+  };
+
+  const weakAxes = {
+    dBand: 'MEDIUM' as const,
+    mSummary: {
+      band: 'LOW' as const,
+      independentDomainsCount: 0,
+      hasSubscriptionPlans: false,
+      hasOneTimePlans: false,
+      hasStrongNegative: false,
+      totalScore: 1200,
+    },
+    wBand: 'MEDIUM' as const,
+    confidence: 'MEDIUM' as const,
+    historyDays: 45,
+  };
+
+  it('upgrades to BUILD_NOW once the raw verdict has held for two days', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'WATCH',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 2,
+      daysInCurrentLifecycle: 2,
+      wBandHistory: [],
+    });
+    const res = evaluateVerdict({ ...strongBuildAxes, prev });
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.verdict, 'BUILD_NOW');
+    assert.ok(res.rulesTriggered.includes('DEBOUNCE_UPGRADE_CONFIRMED'));
+  });
+
+  it('holds the previous verdict while an upgrade is still unconfirmed', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'WATCH',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 1,
+      daysInCurrentLifecycle: 1,
+      wBandHistory: [],
+    });
+    const res = evaluateVerdict({ ...strongBuildAxes, prev });
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.verdict, 'WATCH');
+    assert.ok(res.rulesTriggered.includes('DEBOUNCE_UPGRADE_PENDING'));
+  });
+
+  it('never upgrades when prev.rawVerdict is the published value (the defect this fix removed)', () => {
+    // observe-opportunity.ts used to write `rawVerdict: prev.verdict`, which made the
+    // upgrade test at verdict.ts:219 unsatisfiable: the branch requires prev.verdict
+    // !== raw, yet confirmation requires prev.rawVerdict === raw. This case pins that
+    // shape so a regression is caught here rather than in production data.
+    const prev = {
+      ...buildPrevScoringState({
+        verdict: 'WATCH',
+        rawVerdict: null,
+        lifecycle: 'EARLY_WINDOW',
+        daysInCurrentVerdict: 5,
+        daysInCurrentLifecycle: 5,
+        wBandHistory: [],
+      }),
+      rawVerdict: 'WATCH' as const,
+    };
+    const res = evaluateVerdict({ ...strongBuildAxes, prev });
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.verdict, 'WATCH');
+    assert.ok(!res.rulesTriggered.includes('DEBOUNCE_UPGRADE_CONFIRMED'));
+  });
+
+  it('falls back to the published verdict for ledger rows predating raw_verdict', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'WATCH',
+      rawVerdict: null,
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 3,
+      daysInCurrentLifecycle: 3,
+      wBandHistory: [],
+    });
+    assert.strictEqual(prev.rawVerdict, 'WATCH');
+    assert.strictEqual(prev.daysInCurrentVerdict, 3);
+    assert.strictEqual(prev.daysInCurrentLifecycle, 3);
+  });
+
+  it('confirms a downgrade once the raw verdict has held for two days', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'BUILD_NOW',
+      rawVerdict: 'WATCH',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 2,
+      daysInCurrentLifecycle: 2,
+      wBandHistory: [],
+    });
+    const res = evaluateVerdict({ ...weakAxes, prev });
+    assert.strictEqual(res.rawVerdict, 'WATCH');
+    assert.strictEqual(res.verdict, 'WATCH');
+    assert.ok(res.rulesTriggered.includes('DEBOUNCE_DOWNGRADE_CONFIRMED'));
+  });
+
+  it('holds BUILD_NOW while a downgrade is still unconfirmed', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'BUILD_NOW',
+      rawVerdict: 'WATCH',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 1,
+      daysInCurrentLifecycle: 1,
+      wBandHistory: [],
+    });
+    const res = evaluateVerdict({ ...weakAxes, prev });
+    assert.strictEqual(res.rawVerdict, 'WATCH');
+    assert.strictEqual(res.verdict, 'BUILD_NOW');
+    assert.ok(res.rulesTriggered.includes('DEBOUNCE_DOWNGRADE_PENDING'));
+  });
+
+  it('upgrades through the compensated rule when demand and window compensate for medium M', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'WATCH',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 2,
+      daysInCurrentLifecycle: 2,
+      wBandHistory: [],
+    });
+    const res = evaluateVerdict({
+      ...strongBuildAxes,
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 6500,
+      },
+      prev,
+    });
+    assert.ok(res.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
+    assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 });

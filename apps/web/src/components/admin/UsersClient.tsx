@@ -266,7 +266,7 @@ export function UsersClient({
         <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4">
           <div className="text-[11px] font-semibold text-blue-400 uppercase tracking-wider">付费会员</div>
           <div className="text-2xl font-black text-blue-400 mt-1">{stats.paidUsers}</div>
-          <div className="text-[11px] text-slate-500 mt-1">PRO 或 TEAM 商业订阅</div>
+          <div className="text-[11px] text-slate-500 mt-1">PRO 订阅（含历史 TEAM）</div>
         </div>
 
         <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4">
@@ -322,7 +322,7 @@ export function UsersClient({
             <option value="">全部套餐</option>
             <option value="FREE">免费版 (FREE)</option>
             <option value="PRO">专业版 (PRO)</option>
-            <option value="TEAM">团队版 (TEAM)</option>
+            <option value="TEAM">TEAM（历史兼容）</option>
           </select>
 
           {/* Status Filter */}
@@ -661,7 +661,7 @@ export function UsersClient({
                     >
                       <option value="FREE">FREE (免费版)</option>
                       <option value="PRO">PRO (专业版)</option>
-                      <option value="TEAM">TEAM (团队版)</option>
+                      <option value="TEAM">TEAM（历史兼容）</option>
                     </select>
                   </div>
                 </div>
@@ -797,7 +797,7 @@ export function UsersClient({
               {[
                 { value: 'FREE', label: 'FREE (免费版)', desc: '查看基础雷达、1个追踪项目' },
                 { value: 'PRO', label: 'PRO (专业版)', desc: '解锁高置信深度报告、5个项目、无限实时扫描' },
-                { value: 'TEAM', label: 'TEAM (团队版)', desc: '团队协同席位、无限项目、优先支持与数据导出' },
+                { value: 'TEAM', label: 'TEAM（历史兼容）', desc: '团队版已下线：仅用于存量账号，不提供团队协同席位' },
               ].map((t) => (
                 <label
                   key={t.value}

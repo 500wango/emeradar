@@ -407,6 +407,43 @@ CREATE TABLE IF NOT EXISTS verdicts (
   UNIQUE (opportunity_id, obs_date)
 );
 
+-- 判定依据留存（06 §3 写入规则、03 §9 权威列）。存量行一律保持 NULL，绝不回填：
+-- verdicts 是 append-only，回填既被触发器拒绝，也违背"记账不可事后重写"的设计本意。
+--
+-- flags 必须可空且不给默认值：'{}' 同时是"本期确实没有任何标志"的合法值，若给存量行
+-- 填上 '{}'，界面会把"旧记录"读成"干净记录"。NULL 才是"早于该功能"的哨兵。
+-- 判定遗留行的统一口径见 report.service / pipeline：hash_version = 1 OR explanation IS NULL。
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS raw_verdict TEXT;
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS flags TEXT[];
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS explanation JSONB;
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS features_hash CHAR(64);
+-- hash_version: 1 = 原 11 字段集（存量行），2 = 11 字段 + 依据字段。默认 1 使存量行零改写。
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS hash_version SMALLINT NOT NULL DEFAULT 1;
+-- 三轴档位。必须封存，不能从 opportunity_cards 现读：那是"当前"快照，拿它当历史
+-- 会让 w_band 的时序永远是一条水平线，W_DROPPING 与窗口收窄的降级路径永不触发。
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS d_band TEXT;
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS m_band TEXT;
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS w_band TEXT;
+
+-- v2 行必须携带依据。NOT VALID 只约束此后写入的行，不扫描也不改写存量行。
+--
+-- 先 DROP 再 ADD 而非 IF NOT EXISTS：约束的定义本身会演进（band 三列是后补的），
+-- 沿用 IF NOT EXISTS 会让本地已建的旧定义静默留任。此刻没有任何 v2 行存在
+-- （v2 写入路径尚未跑过），所以重建约束不会扫描到不合规的行。
+ALTER TABLE verdicts DROP CONSTRAINT IF EXISTS verdicts_v2_requires_basis;
+ALTER TABLE verdicts ADD CONSTRAINT verdicts_v2_requires_basis
+  CHECK (
+    hash_version = 1
+    OR (
+      raw_verdict IS NOT NULL
+      AND explanation IS NOT NULL
+      AND d_band IS NOT NULL
+      AND m_band IS NOT NULL
+      AND w_band IS NOT NULL
+    )
+  )
+  NOT VALID;
+
 CREATE TABLE IF NOT EXISTS prediction_episodes (
   id TEXT PRIMARY KEY,                         -- eps_
   verdict_id TEXT NOT NULL REFERENCES verdicts(id) ON DELETE CASCADE,

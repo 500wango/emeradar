@@ -13,6 +13,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
+import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
 import { CommercialProofPanel } from '@/components/CommercialProofPanel';
 import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
@@ -42,9 +43,33 @@ export default async function OpportunityWorkspacePage({
     notFound();
   }
 
-  const { isZh } = await getServerI18n();
+  const { isZh, t, locale } = await getServerI18n();
 
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
+
+  // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
+  const label = (group: string, value: string | null | undefined) => {
+    if (!value) return '';
+    const key = `common.${group}.${value}`;
+    const translated = t(key);
+    return translated !== key ? translated : value;
+  };
+  const bandLabel = (band: string) => label('bands', band);
+  const verdictLabel = (verdict: string) => label('verdicts', verdict);
+  const archetypeLabel = (arch: string) => label('archetypes', arch);
+  const executionClassLabel = (cls: string) => label('executionClasses', cls);
+  const confidenceLabel = (c: string) => label('confidenceLevels', c);
+
+  // 判定依据：latestVerdict 是账本里的那一行，不是卡片投影。
+  // 留存口径与报告/卡片共用 deriveBasisState，避免三处各判各的。
+  const basisRetained = deriveBasisState(latestVerdict) !== 'NOT_RETAINED';
+  const basisRules: string[] = Array.isArray(latestVerdict?.explanation?.rulesTriggered)
+    ? latestVerdict.explanation.rulesTriggered
+    : [];
+  const basisFlags: string[] = Array.isArray(latestVerdict?.flags) ? latestVerdict.flags : [];
+  const basisCompensated = basisRules.includes('RULE_BUILD_NOW_COMPENSATED');
+  const basisRawVerdict: string | null = latestVerdict?.raw_verdict ?? null;
+  const basisRawDiffers = basisRetained && basisRawVerdict && basisRawVerdict !== latestVerdict?.verdict;
 
   const isBuildNow = opportunity.verdict === 'BUILD_NOW';
   const isEarlyBet = opportunity.verdict === 'EARLY_BET';
@@ -99,10 +124,10 @@ export default async function OpportunityWorkspacePage({
                     : 'bg-amber-100 text-amber-800 border border-amber-200'
                 }`}
               >
-                {opportunity.verdict}
+                {verdictLabel(opportunity.verdict)}
               </span>
               <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                {opportunity.lifecycle}
+                {label('lifecycles', opportunity.lifecycle)}
               </span>
               <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
                 {opportunity.market_country} ({opportunity.research_language})
@@ -142,7 +167,7 @@ export default async function OpportunityWorkspacePage({
               <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
               <span>{isZh ? '需求评分 (D)' : 'Demand Score (D)'}</span>
             </div>
-            <div className="text-2xl font-bold text-blue-600 mt-1">{opportunity.d_band}</div>
+            <div className="text-2xl font-bold text-blue-600 mt-1">{bandLabel(opportunity.d_band)}</div>
             <div className="text-[11px] text-slate-500 mt-1">{isZh ? '需求等级' : 'Demand band'}</div>
           </div>
 
@@ -151,7 +176,7 @@ export default async function OpportunityWorkspacePage({
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
               <span>{isZh ? '商业验证 (M)' : 'Commercial (M)'}</span>
             </div>
-            <div className="text-2xl font-bold text-emerald-600 mt-1">{opportunity.m_band}</div>
+            <div className="text-2xl font-bold text-emerald-600 mt-1">{bandLabel(opportunity.m_band)}</div>
             <div className="text-[11px] text-slate-500 mt-1">{isZh ? '商业等级' : 'Commercial band'}</div>
           </div>
 
@@ -160,7 +185,7 @@ export default async function OpportunityWorkspacePage({
               <Zap className="w-3.5 h-3.5 text-amber-600" />
               <span>{isZh ? '进入窗口 (W)' : 'Window (W)'}</span>
             </div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{opportunity.w_band}</div>
+            <div className="text-2xl font-bold text-amber-600 mt-1">{bandLabel(opportunity.w_band)}</div>
             <div className="text-[11px] text-slate-500 mt-1">{isZh ? '窗口等级' : 'Window band'}</div>
           </div>
 
@@ -170,13 +195,117 @@ export default async function OpportunityWorkspacePage({
               <span>{isZh ? '证据置信度' : 'Evidence Level'}</span>
             </div>
             <div className="text-2xl font-bold text-indigo-600 mt-1">
-              {opportunity.confidence}
+              {confidenceLabel(opportunity.confidence)}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
               {opportunity.confidence === 'LOW' ? (isZh ? '历史周期不足' : 'Not enough history') : (isZh ? '置信度充足' : 'Evidence confidence')}
             </div>
           </div>
         </div>
+
+        {/* 判定依据：把"为什么是它"和结论摆在一起，而不是只给一个标签 */}
+        {latestVerdict && (
+          <div className="mt-6 pt-5 border-t border-slate-100">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <h2 className="text-sm font-bold text-slate-900">
+                🧭 {t('report.decisionBasisTitle')}
+              </h2>
+              {basisRetained && basisCompensated && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  ⚠️ {t('report.decisionBasisCompensatedTitle')}
+                </span>
+              )}
+            </div>
+
+            {!basisRetained ? (
+              <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-4">
+                {t('report.decisionBasisNotRetained')}
+              </p>
+            ) : (
+              <div className="text-xs text-slate-700 space-y-3">
+                {basisCompensated && (
+                  <p className="p-3 rounded-lg bg-amber-50 border-l-4 border-amber-500 text-amber-900 leading-relaxed">
+                    {t('report.decisionBasisCompensatedDesc')}
+                  </p>
+                )}
+
+                <ul className="space-y-1">
+                  <li>
+                    <strong>{t('report.sealedVerdict')}</strong>：
+                    <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                      {verdictLabel(latestVerdict.verdict)}
+                    </span>
+                  </li>
+                  {basisRawDiffers && (
+                    <li>
+                      <strong>{t('report.rawVerdict')}</strong>：
+                      <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                        {verdictLabel(basisRawVerdict)}
+                      </span>
+                      <span className="text-slate-500"> （{t('report.rawVerdictNote')}）</span>
+                    </li>
+                  )}
+                  {basisRules.length > 0 && (
+                    <li>
+                      <strong>{t('report.rulesTriggered')}</strong>：
+                      {basisRules.map((rule) => (
+                        <span key={rule} className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                          {rule}
+                        </span>
+                      ))}
+                    </li>
+                  )}
+                </ul>
+
+                <div>
+                  <strong>{t('report.scoringFlags')}</strong>
+                  {basisFlags.length > 0 ? (
+                    <ul className="mt-1 space-y-1">
+                      {basisFlags.map((flag) => (
+                        <li key={flag} className="flex items-start gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-mono shrink-0">
+                            {flag}
+                          </span>
+                          <span className="text-slate-600">{formatScoringFlag(flag, locale)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-slate-500"> {t('report.noFlags')}</span>
+                  )}
+                </div>
+
+                {latestVerdict.explanation && (
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <tbody className="align-top">
+                        {[
+                          [t('report.axisD'), latestVerdict.explanation.dReason],
+                          [t('report.axisM'), latestVerdict.explanation.mReason],
+                          [t('report.axisW'), latestVerdict.explanation.wReason],
+                          [t('report.axisVerdict'), latestVerdict.explanation.verdictReason],
+                        ].map(([axis, reason], index) => (
+                          <tr key={String(axis)} className={index > 0 ? 'border-t border-slate-200' : ''}>
+                            <td className="py-2 px-3 font-semibold text-slate-500 bg-slate-50/60 whitespace-nowrap align-top w-32">
+                              {axis}
+                            </td>
+                            <td className="py-2 px-3 leading-relaxed text-slate-700">{reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="text-[11px] text-slate-500">
+                  {t('report.hashVersion')}：
+                  <code className="font-mono">v{latestVerdict.hash_version}</code>
+                  {Number(latestVerdict.hash_version) >= 2 ? ` —— ${t('report.hashVersionChained')}` : ''}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-6 pt-5 border-t border-slate-100">
           <div className="flex items-center justify-between gap-3 mb-3">
@@ -390,14 +519,14 @@ export default async function OpportunityWorkspacePage({
               <div>
                 <span className="text-slate-400 block mb-1">{isZh ? '推荐构建类型' : 'Recommended Archetype'}</span>
                 <span className="font-bold text-base text-slate-900">
-                  {opportunity.recommended_archetype}
+                  {archetypeLabel(opportunity.recommended_archetype)}
                 </span>
               </div>
 
               <div>
                 <span className="text-slate-400 block mb-1">{isZh ? '开发时间预算' : 'Development Time Budget'}</span>
                 <span className="font-bold text-sm text-slate-900">
-                  Class {opportunity.execution_class} &bull; &lt; 14 {isZh ? '天冲刺' : 'Days Sprint'}
+                  {executionClassLabel(opportunity.execution_class)} &bull; {isZh ? '14 天冲刺' : '14-day sprint'}
                 </span>
               </div>
 

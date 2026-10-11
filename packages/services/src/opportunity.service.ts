@@ -1,5 +1,6 @@
 import { query } from '@emeradar/db';
 import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
+import { deriveBasisState } from '@emeradar/report';
 
 export interface FeedCardFilterOptions {
   verdict?: Verdict;
@@ -46,6 +47,17 @@ export interface FeedCardItem {
   claimsCount?: number;
   maxClaims?: number;
   isCrowdedLocked?: boolean;
+  /**
+   * 判定依据是否已留存于账本（v2 起）。false 表示这是早于该功能的存量记录，
+   * 界面必须如实说明，而不是把"账本没记"显示成"没有负面信号"。
+   */
+  basisRetained?: boolean;
+  /** 去抖前的原始裁决；依据未留存时为 undefined。 */
+  rawVerdict?: Verdict;
+  /** 本期命中的评分标志；未留存时为 undefined —— 与"本期确实没有标志"（空数组）不是一回事。 */
+  flags?: string[];
+  /** 账本规则轨迹，用于识别补偿判定（RULE_BUILD_NOW_COMPENSATED）。 */
+  rulesTriggered?: string[];
 }
 
 export interface FeedResponse {
@@ -271,9 +283,20 @@ export class OpportunityService {
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
         COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
-        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND pr.status != 'ABANDONED'), 0)::int AS claims_count
+        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND pr.status != 'ABANDONED'), 0)::int AS claims_count,
+        lv.raw_verdict,
+        lv.flags,
+        lv.hash_version,
+        lv.explanation->'rulesTriggered' AS rules_triggered
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
+       LEFT JOIN LATERAL (
+         SELECT v.raw_verdict, v.flags, v.explanation, v.hash_version
+         FROM verdicts v
+         WHERE v.opportunity_id = c.opportunity_id
+         ORDER BY v.obs_date DESC
+         LIMIT 1
+       ) lv ON TRUE
        WHERE ${whereClause}
        ORDER BY c.d_basis_points DESC
        LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
@@ -311,6 +334,11 @@ export class OpportunityService {
       claimsCount: r.claims_count ?? 0,
       maxClaims: 5,
       isCrowdedLocked: (r.claims_count ?? 0) >= 5,
+      // 判定依据：与报告共用同一套留存口径，避免两处对"什么算留存"各执一词。
+      basisRetained: deriveBasisState(r) !== 'NOT_RETAINED',
+      rawVerdict: (r.raw_verdict as Verdict | null) ?? undefined,
+      flags: (r.flags as string[] | null) ?? undefined,
+      rulesTriggered: Array.isArray(r.rules_triggered) ? (r.rules_triggered as string[]) : undefined,
     }));
 
     // Zero-state relaxed count fallback if 0 items found
@@ -604,6 +632,7 @@ export class OpportunityService {
     const verdictRes = await query<any>(
       `SELECT id, obs_date, scoring_config_version, verdict, lifecycle,
               d_basis_points, m_basis_points, w_basis_points, confidence,
+              raw_verdict, flags, explanation, features_hash, hash_version,
               prev_hash, row_hash, created_at
        FROM verdicts
        WHERE opportunity_id = $1

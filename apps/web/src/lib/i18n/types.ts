@@ -71,6 +71,18 @@ export interface TranslationDictionary {
       M: string;
       L: string;
     };
+    confidenceLevels: {
+      HIGH: string;
+      MEDIUM: string;
+      LOW: string;
+    };
+    lifecycles: {
+      EARLY_WINDOW: string;
+      FORMING: string;
+      CONTESTED: string;
+      MATURE: string;
+      DEAD: string;
+    };
     bands: {
       HIGH: string;
       MEDIUM: string;
@@ -685,5 +697,27 @@ export interface TranslationDictionary {
     readyTitle: string;
     readyDesc: string;
     createProject: string;
+    decisionBasisTitle: string;
+    decisionBasisNotRetained: string;
+    decisionBasisCompensatedTitle: string;
+    decisionBasisCompensatedDesc: string;
+    sealedVerdict: string;
+    rawVerdict: string;
+    rawVerdictNote: string;
+    rulesTriggered: string;
+    scoringFlags: string;
+    noFlags: string;
+    hashVersion: string;
+    hashVersionChained: string;
+    axisD: string;
+    axisM: string;
+    axisW: string;
+    axisVerdict: string;
+    axisReasonHeader: string;
+    evidenceCount: string;
+    negativeCheckTitle: string;
+    negativeCheckPassed: string;
+    negativeCheckWarning: string;
+    negativeCheckNotRetained: string;
   };
 }

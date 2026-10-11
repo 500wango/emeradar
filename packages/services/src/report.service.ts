@@ -1,10 +1,12 @@
 import { query } from '@emeradar/db';
-import { EmeradarError, ErrorCode, Locale } from '@emeradar/core';
+import { EmeradarError, ErrorCode, Locale, Verdict } from '@emeradar/core';
 import {
   generateOpportunityReport,
   renderReportToMarkdown,
   renderReportToHtml,
   OpportunityReportData,
+  BasisState,
+  deriveBasisState,
 } from '@emeradar/report';
 import { EntitlementService } from './entitlement.service';
 
@@ -121,8 +123,24 @@ export class ReportService {
 
     // 2b. Reports must cite a sealed verdict. If none exists, refuse: the verdicts
     //    table is append-only and may only be written by the daily pipeline (S6).
-    const verdictRes = await query<{ id: string; obs_date: string }>(
-      `SELECT id, obs_date::text FROM verdicts WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
+    const verdictRes = await query<{
+      id: string;
+      obs_date: string;
+      verdict: string;
+      raw_verdict: string | null;
+      flags: string[] | null;
+      explanation: {
+        dReason: string;
+        mReason: string;
+        wReason: string;
+        verdictReason: string;
+        rulesTriggered: string[];
+      } | null;
+      hash_version: number;
+      features_hash: string | null;
+    }>(
+      `SELECT id, obs_date::text, verdict, raw_verdict, flags, explanation, hash_version, features_hash
+       FROM verdicts WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
       [opp.id]
     );
     if (verdictRes.rows.length === 0) {
@@ -132,7 +150,14 @@ export class ReportService {
         409
       );
     }
-    const verdictId = verdictRes.rows[0].id;
+    const ledgerRow = verdictRes.rows[0];
+    const verdictId = ledgerRow.id;
+
+    // 判定依据的留存状态：账本封存了什么，报告就说什么。
+    // 存量记录必须显式标为"未留存"，绝不能把"账本没记"渲染成"没有负面信号"。
+    const recordedExplanation = ledgerRow.explanation ?? null;
+    const recordedFlags = ledgerRow.flags ?? null;
+    const basisState: BasisState = deriveBasisState(ledgerRow);
 
     // 3. Reserve quota via Hold & Release
     const reservation = await EntitlementService.reserveReportGenerationQuota(userId, opp.id);
@@ -193,8 +218,10 @@ export class ReportService {
           researchLanguage: opp.research_language,
         },
         scoring: {
-          verdict: opp.verdict,
-          rawVerdict: opp.verdict,
+          // 引用账本封存的那一条裁决，而不是卡片上的投影：报告是对预测的存证。
+          verdict: ledgerRow.verdict as Verdict,
+          // 去抖前的真实原始值。存量行为 NULL，回退到发布值（不伪造）。
+          rawVerdict: (ledgerRow.raw_verdict as Verdict | null) ?? (ledgerRow.verdict as Verdict),
           lifecycle: opp.lifecycle || 'EARLY_WINDOW',
           confidence,
           confidenceScore: 0,
@@ -204,8 +231,12 @@ export class ReportService {
           dBand,
           mBand,
           wBand,
-          flags: [],
-          explanation: {
+          // 真实标志取代原先的恒空数组：硬编码 [] 让 M_NEGATIVE 永不触发，
+          // 而 generator 明写负面结论 "never from a constant"。
+          flags: recordedFlags ?? [],
+          explanation: recordedExplanation ?? {
+            // 占位文本。basisState 为 NOT_RETAINED 时 generator 不会把它当作
+            // 账本记录展示，只用于满足 ScoringOutput 的形状要求。
             dReason: `Demand band on file: ${dBand}.`,
             mReason:
               mScore > 0
@@ -218,6 +249,9 @@ export class ReportService {
           recommendedArchetype: opp.recommended_archetype || 'LIGHTWEIGHT_TOOL',
           executionClass: opp.execution_class || 'S',
         },
+        basisState,
+        hashVersion: ledgerRow.hash_version,
+        featuresHash: ledgerRow.features_hash,
         obsDate: snapshotObsDate,
         locale,
         primaryQuery: opp.primary_query || opp.title,

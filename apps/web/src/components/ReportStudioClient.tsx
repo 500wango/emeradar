@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import {
   OpportunityReportData,
+  VerdictBasis,
+  Section4CommercialValidation,
   formatVerdict,
   formatArchetype,
   formatExecutionClass,
@@ -31,6 +33,7 @@ import {
   formatIndieEntrantDensity,
   formatShadowChannel,
   formatPresence,
+  formatScoringFlag,
 } from '@emeradar/report';
 import { useI18n } from '@/lib/i18n';
 import { GoalSimulator } from './GoalSimulator';
@@ -391,6 +394,8 @@ export function ReportStudioClient({
             <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-900">
               <strong>{t('report.recommendation')}</strong> {section1.decisionRecommendation}
             </div>
+
+            <DecisionBasisPanel basis={section1.decisionBasis} />
           </div>
 
           {/* §2 Demand Breakdown */}
@@ -587,9 +592,19 @@ export function ReportStudioClient({
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
+            <p className="text-xs text-slate-600 leading-relaxed mb-4">
               {section4.monetizationHeadroom}
             </p>
+
+            <div className="mb-4 text-xs text-slate-600">
+              <strong className="text-slate-900">{t('report.evidenceCount')}</strong>{' '}
+              {section4.evidenceCount.total}
+              {isZh
+                ? ` 条（${section4.evidenceCount.observed} 条直接抓取观测，${section4.evidenceCount.selfReported} 条竞品公开声明）`
+                : ` (${section4.evidenceCount.observed} directly observed, ${section4.evidenceCount.selfReported} self-reported)`}
+            </div>
+
+            <NegativeSignalPanel check={section4.negativeSignalCheck} />
           </div>
 
           {/* §5 14-Day Sprint Blueprint */}
@@ -665,6 +680,175 @@ export function ReportStudioClient({
             </Link>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 「判定依据」面板。
+ * 报告过去只给结论、不给理由；这个面板把账本封存的规则轨迹与评分标志摊开，
+ * 并在依据缺失时如实说明，而不是留空让人误以为"没有任何问题"。
+ */
+function DecisionBasisPanel({ basis }: { basis?: VerdictBasis }) {
+  const { t, isZh } = useI18n();
+  const locale = isZh ? 'zh-CN' : 'en-US';
+  const state = basis?.state ?? 'NOT_RETAINED';
+
+  const heading = (
+    <div className="font-bold text-xs text-slate-900 mb-2">
+      🧭 {t('report.decisionBasisTitle')}
+    </div>
+  );
+
+  if (!basis || state === 'NOT_RETAINED') {
+    return (
+      <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed">
+        {heading}
+        {t('report.decisionBasisNotRetained')}
+      </div>
+    );
+  }
+
+  const rawDiffers = basis.rawVerdict && basis.rawVerdict !== basis.publishedVerdict;
+
+  return (
+    <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
+      {heading}
+
+      {basis.isCompensated && (
+        <div className="mb-3 p-3 rounded-lg bg-amber-50 border-l-4 border-amber-500 text-amber-900 leading-relaxed">
+          <strong className="block mb-1">⚠️ {t('report.decisionBasisCompensatedTitle')}</strong>
+          {t('report.decisionBasisCompensatedDesc')}
+        </div>
+      )}
+
+      <ul className="space-y-1 mb-3">
+        <li>
+          <strong>{t('report.sealedVerdict')}</strong>：
+          <code className="px-1.5 py-0.5 rounded bg-slate-200 font-mono">{basis.publishedVerdict}</code>
+        </li>
+        {rawDiffers && (
+          <li>
+            <strong>{t('report.rawVerdict')}</strong>：
+            <code className="px-1.5 py-0.5 rounded bg-slate-200 font-mono">{basis.rawVerdict}</code>
+            <span className="text-slate-500"> （{t('report.rawVerdictNote')}）</span>
+          </li>
+        )}
+        {basis.rulesTriggered.length > 0 && (
+          <li>
+            <strong>{t('report.rulesTriggered')}</strong>：
+            {basis.rulesTriggered.map((r) => (
+              <code key={r} className="ml-1 px-1.5 py-0.5 rounded bg-slate-200 font-mono">
+                {r}
+              </code>
+            ))}
+          </li>
+        )}
+      </ul>
+
+      <div className="mb-3">
+        <strong>{t('report.scoringFlags')}</strong>
+        {basis.flags.length > 0 ? (
+          <ul className="mt-1 space-y-1">
+            {basis.flags.map((f) => (
+              <li key={f} className="flex items-start gap-1.5">
+                <code className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-mono shrink-0">
+                  {f}
+                </code>
+                <span className="text-slate-600">{formatScoringFlag(f, locale)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <span className="text-slate-500"> {t('report.noFlags')}</span>
+        )}
+      </div>
+
+      {basis.reasons && (
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="py-1 pr-3 font-semibold w-28">{t('report.axisReasonHeader')}</th>
+              <th className="py-1 font-semibold" />
+            </tr>
+          </thead>
+          <tbody className="align-top text-slate-700">
+            <tr className="border-t border-slate-200">
+              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">{t('report.axisD')}</td>
+              <td className="py-1.5 leading-relaxed">{basis.reasons.dReason}</td>
+            </tr>
+            <tr className="border-t border-slate-200">
+              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">{t('report.axisM')}</td>
+              <td className="py-1.5 leading-relaxed">{basis.reasons.mReason}</td>
+            </tr>
+            <tr className="border-t border-slate-200">
+              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">{t('report.axisW')}</td>
+              <td className="py-1.5 leading-relaxed">{basis.reasons.wReason}</td>
+            </tr>
+            <tr className="border-t border-slate-200">
+              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">{t('report.axisVerdict')}</td>
+              <td className="py-1.5 leading-relaxed">{basis.reasons.verdictReason}</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
+      {basis.hashVersion !== undefined && (
+        <div className="mt-3 text-[11px] text-slate-500">
+          {t('report.hashVersion')}：<code className="font-mono">v{basis.hashVersion}</code>
+          {basis.hashVersion >= 2 ? ` —— ${t('report.hashVersionChained')}` : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 负面信号筛查面板。
+ * 原先只在报告里显示一个 ✅/⚠️，findings 与 flags 都被丢弃 —— 那等于"说了结论、藏了证据"。
+ */
+function NegativeSignalPanel({
+  check,
+}: {
+  check: Section4CommercialValidation['negativeSignalCheck'];
+}) {
+  const { t, isZh } = useI18n();
+  const locale = isZh ? 'zh-CN' : 'en-US';
+  const flags = check.flags ?? [];
+
+  return (
+    <div
+      className={`p-4 rounded-xl border text-xs leading-relaxed ${
+        check.passed
+          ? 'bg-emerald-50 border-emerald-100 text-emerald-900'
+          : 'bg-amber-50 border-amber-200 text-amber-900'
+      }`}
+    >
+      <strong className="block mb-1.5">
+        🛡️ {t('report.negativeCheckTitle')} ——{' '}
+        {check.passed ? t('report.negativeCheckPassed') : t('report.negativeCheckWarning')}
+      </strong>
+
+      <ul className="space-y-1 list-disc list-inside opacity-90">
+        {(check.findings ?? []).map((f, i) => (
+          <li key={i}>{f}</li>
+        ))}
+      </ul>
+
+      {flags.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {flags.map((f) => (
+            <li key={f} className="flex items-start gap-1.5">
+              <code className="px-1.5 py-0.5 rounded bg-white/70 font-mono shrink-0">{f}</code>
+              <span className="opacity-90">{formatScoringFlag(f, locale)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {check.state === 'NOT_RETAINED' && (
+        <div className="mt-2 opacity-70">{t('report.negativeCheckNotRetained')}</div>
       )}
     </div>
   );
