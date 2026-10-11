@@ -46,7 +46,16 @@ export class PublicPublicationService {
 
   static async publishOpportunity(opportunityId: string, locale = 'en-US'): Promise<PublicationDecision> {
     const decision = await this.evaluateOpportunity(opportunityId);
-    const row = await query<any>(`SELECT slug, title, primary_query, why_now_summary, top_idea FROM opportunity_cards WHERE opportunity_id = $1`, [opportunityId]);
+    // `title` lives on opportunities, not on the card; the previous single-table
+    // read referenced a column that has never existed there, so every
+    // projection threw and was swallowed by the caller's catch.
+    const row = await query<any>(
+      `SELECT c.slug, o.title, c.primary_query, c.why_now_summary, c.top_idea
+       FROM opportunity_cards c
+       JOIN opportunities o ON o.id = c.opportunity_id
+       WHERE c.opportunity_id = $1`,
+      [opportunityId]
+    );
     if (!row.rows[0]) return decision;
     const card = row.rows[0];
     const status = decision.eligible ? 'PUBLISHED' : 'DRAFT';
