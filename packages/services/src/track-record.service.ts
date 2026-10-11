@@ -1,17 +1,32 @@
 import { query } from '@emeradar/db';
-import { MerkleTree, calculateRowHash, GENESIS_PREV_HASH } from '@emeradar/ledger';
+import {
+  MerkleTree,
+  calculateRowHash,
+  calculateCheckpointHash,
+  GENESIS_PREV_HASH,
+} from '@emeradar/ledger';
 
 export class TrackRecordService {
   /**
    * Get public track record summary, historical episodes, and checkpoints
    */
+  /** Public embargo before a prediction is disclosed on the marketing site. */
+  static readonly PUBLIC_DELAY_DAYS = 45;
+
   static async getPublicTrackRecord(): Promise<any> {
-    // 1. Overall stats from prediction_episodes
+    // 1. Overall stats from prediction_episodes.
+    //    Public disclosure is limited to published opportunities that have
+    //    cleared the same 45-day embargo used by public_pages, and is bounded
+    //    so an unauthenticated request can never scan the whole ledger.
     const episodesRes = await query<any>(
       `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug
        FROM prediction_episodes e
        JOIN opportunities o ON o.id = e.opportunity_id
-       ORDER BY e.predicted_at DESC`
+       WHERE o.status = 'TRACKED'
+         AND e.predicted_at <= (NOW() - ($1 || ' days')::interval)::date
+       ORDER BY e.predicted_at DESC
+       LIMIT 500`,
+      [String(TrackRecordService.PUBLIC_DELAY_DAYS)]
     );
 
     const episodes = episodesRes.rows;
@@ -25,9 +40,8 @@ export class TrackRecordService {
     // 2. Cohort Hit-Rate Matrix (grouped by predicted_at month)
     const cohortMap = new Map<string, any[]>();
     for (const ep of episodes) {
-      const month = ep.predicted_at
-        ? new Date(ep.predicted_at).toISOString().slice(0, 7)
-        : '2025-01';
+      if (!ep.predicted_at) continue;
+      const month = new Date(ep.predicted_at).toISOString().slice(0, 7);
       if (!cohortMap.has(month)) cohortMap.set(month, []);
       cohortMap.get(month)!.push(ep);
     }
@@ -61,13 +75,19 @@ export class TrackRecordService {
        LIMIT 30`
     );
 
+    // Number of opportunities currently under observation, independent of the
+    // embargoed episode list above.
+    const watchlistRes = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM opportunities WHERE status = 'TRACKED'`
+    );
+
     return {
       stats: {
         totalPredictions: episodes.length,
         evaluatedEpisodes: evaluated.length,
         hitsCount: hits,
         hitRate30d: hitRate30d === null ? null : `${hitRate30d}%`,
-        activeWatchlistCount: episodes.length,
+        activeWatchlistCount: Number(watchlistRes.rows[0]?.count ?? 0),
       },
       episodes,
       cohorts,
@@ -100,14 +120,20 @@ export class TrackRecordService {
     const storedRoot = ckpRes.rows[0].merkle_root;
     const expectedCount = Number(ckpRes.rows[0].total_records);
 
-    const previousCheckpointRes = await query<{ final_row_hash: string }>(
-      `SELECT final_row_hash
+    const previousCheckpointRes = await query<{ final_row_hash: string; checkpoint_hash: string | null }>(
+      `SELECT final_row_hash, checkpoint_hash
        FROM ledger_checkpoints
        WHERE obs_date < $1
        ORDER BY obs_date DESC
        LIMIT 1`,
       [obsDate]
     );
+
+    const checkpointRow = await query<{ checkpoint_hash: string | null }>(
+      `SELECT checkpoint_hash FROM ledger_checkpoints WHERE obs_date = $1`,
+      [obsDate]
+    );
+    const storedCheckpointHash = checkpointRow.rows[0]?.checkpoint_hash ?? null;
 
     // Fetch verdicts for that date sorted by opportunity_id
     const verdictsRes = await query<{
@@ -119,7 +145,7 @@ export class TrackRecordService {
       `SELECT opportunity_id, obs_date::text, scoring_config_version, verdict, lifecycle,
               d_basis_points, m_basis_points, w_basis_points, confidence,
               input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
-       FROM verdicts WHERE obs_date = $1 ORDER BY opportunity_id ASC`,
+       FROM verdicts WHERE obs_date = $1 ORDER BY opportunity_id COLLATE "C" ASC`,
       [obsDate]
     );
 
@@ -148,8 +174,27 @@ export class TrackRecordService {
     const tree = new MerkleTree(rowHashes);
     const calculatedRoot = tree.getRoot();
 
+    // The checkpoint hash chains each day to the previous day's checkpoint, so a
+    // rewritten-but-internally-consistent day still fails against its successor.
+    const expectedCheckpointHash =
+      storedCheckpointHash === null
+        ? null
+        : calculateCheckpointHash(
+            previousCheckpointRes.rows[0]?.checkpoint_hash || previousHash,
+            obsDate,
+            rowHashes.length,
+            calculatedRoot
+          );
+    const checkpointValid =
+      expectedCheckpointHash === null ||
+      expectedCheckpointHash.toLowerCase() === storedCheckpointHash!.toLowerCase();
+
     return {
-      verified: rowsValid && expectedCount === rowHashes.length && storedRoot.toLowerCase() === calculatedRoot.toLowerCase(),
+      verified:
+        rowsValid &&
+        checkpointValid &&
+        expectedCount === rowHashes.length &&
+        storedRoot.toLowerCase() === calculatedRoot.toLowerCase(),
       obsDate,
       storedMerkleRoot: storedRoot,
       calculatedMerkleRoot: calculatedRoot,

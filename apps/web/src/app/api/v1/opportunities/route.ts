@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EntitlementService, OpportunityService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
+import { internalErrorResponse } from '@/lib/api-errors';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
@@ -40,9 +41,6 @@ export async function GET(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Internal Server Error', status: 500, detail: error.message },
-      { status: 500 }
-    );
+    return internalErrorResponse(error, 'opportunities');
   }
 }

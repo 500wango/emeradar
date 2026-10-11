@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { adminUserCreateSchema, parseInput } from '@emeradar/core';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function GET(req: NextRequest) {
-  const session = await getAdminSession();
+  // The user directory carries personal data; ANALYST (research role) has no
+  // operational need for it, so the listing is ADMIN-only.
+  const session = await getAdminSession({ requireAdmin: true });
   if (!session) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
@@ -19,9 +23,8 @@ export async function GET(req: NextRequest) {
   try {
     const res = await AdminService.listUsers({ search, role, tier, status, limit, offset });
     return NextResponse.json(res);
-  } catch (err: any) {
-    console.error('[admin/users/list] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/users/list');
   }
 }
 
@@ -32,11 +35,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
-    const { email, password, displayName, role, tier } = body;
-    if (!email) {
-      return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
-    }
+    const { email, password, displayName, role, tier } = parseInput(
+      adminUserCreateSchema,
+      await req.json().catch(() => ({}))
+    );
 
     const res = await AdminService.createUserByAdmin(session.user.id, {
       email,
@@ -46,8 +48,7 @@ export async function POST(req: NextRequest) {
       tier,
     });
     return NextResponse.json(res, { status: 201 });
-  } catch (err: any) {
-    console.error('[admin/users/create] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: err.status || 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/users/create');
   }
 }

@@ -35,7 +35,6 @@ export class ExecutiveSummaryGenerator {
     runId: string;
   }> {
     const promptId = 'prm_sum_001';
-    const model = 'claude-haiku-4-5-20251001';
     const inputHash = createHash('sha256')
       .update(JSON.stringify(bundle))
       .digest('hex');
@@ -46,39 +45,32 @@ export class ExecutiveSummaryGenerator {
     // 2. Validate citations and render placeholders (08 §6.3)
     const validationResult = validateAndRenderBundle(bundle, rawStatements);
 
-    // 3. Record in llm_runs for auditability (08 §1.6)
+    // 3. Auditability (08 §1.6).
+    //    This generator is a deterministic template engine: no model is called,
+    //    no tokens are consumed and no money is spent. Recording a model id,
+    //    token counts and a cost here would put fabricated spend in the ledger
+    //    and fabricated runs in the audit trail, so the trace is written with
+    //    zeroed, explicitly-labelled usage instead.
     const runRes = await query<{ id: string }>(
       `INSERT INTO llm_runs (
-        prompt_id, model, input_hash, output, 
+        prompt_id, model, input_hash, output,
         input_tokens, output_tokens, cost_usd, citation_valid, latency_ms
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
       [
         promptId,
-        model,
+        'deterministic-template',
         inputHash,
         JSON.stringify(validationResult.statements),
-        450,
-        180,
-        0.0012,
+        0,
+        0,
+        0,
         validationResult.citationValid,
-        120,
+        0,
       ]
     );
 
     const runId = runRes.rows[0]?.id || `run_${Date.now()}`;
-
-    // 4. Record cost in cost_ledger
-    await query(
-      `INSERT INTO cost_ledger (source_id, opportunity_id, cost_usd, category)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        'src_llm',
-        opts.opportunityId || null,
-        0.0012,
-        'LLM',
-      ]
-    );
 
     return {
       bundle: { statements: validationResult.statements },

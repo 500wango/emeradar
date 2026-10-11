@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function GET() {
   const session = await getAdminSession();
@@ -11,8 +12,7 @@ export async function GET() {
   try {
     const overview = await AdminService.getPipelineOverview();
     return NextResponse.json(overview);
-  } catch (err: any) {
-    console.error('[admin/overview] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/overview');
   }
 }

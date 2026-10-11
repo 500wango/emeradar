@@ -640,6 +640,7 @@ function SettingsContent() {
                 autoComplete="off"
                 type="text"
                 placeholder={t('settings.keyLabelPlaceholder')}
+                maxLength={60}
                 value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)}
                 className="px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"

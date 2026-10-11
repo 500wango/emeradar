@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
-import { CommercialStage } from '@emeradar/core';
+import { CommercialStage, isPrivateAddress, readBodyWithLimit } from '@emeradar/core';
 import {
   Collector,
   CollectOutcome,
@@ -48,22 +48,14 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       throw new Error('Target URL must be a public HTTP(S) URL without credentials or a custom port');
     }
     const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host === '::1') {
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
       throw new Error('Target URL must resolve to a public host');
     }
     const addresses = await lookup(host, { all: true, verbatim: true });
-    if (!addresses.length || addresses.some(({ address }) => this.isPrivateAddress(address))) {
+    if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {
       throw new Error('Target URL must resolve to a public address');
     }
     return parsed;
-  }
-
-  private isPrivateAddress(address: string): boolean {
-    const value = address.toLowerCase();
-    if (value === '::1' || value === '0.0.0.0' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb')) return true;
-    if (value.includes(':')) return value.startsWith('::ffff:') ? this.isPrivateAddress(value.slice(7)) : false;
-    const parts = value.split('.').map(Number);
-    return parts.length === 4 && (parts[0] === 10 || parts[0] === 127 || parts[0] === 0 || (parts[0] === 169 && parts[1] === 254) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || (parts[0] === 192 && parts[1] === 168) || parts[0] >= 224);
   }
 
   private async fetchPublicHtml(url: string, maxRedirects = 3): Promise<string> {
@@ -76,7 +68,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       return this.fetchPublicHtml(new URL(location, parsed).toString(), maxRedirects - 1);
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.text();
+    return readBodyWithLimit(res);
   }
 
   async plan(
@@ -239,7 +231,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
       if (!res.ok) return true; // Default allow if 404 or unavailable
 
-      const text = await res.text();
+      const text = await readBodyWithLimit(res, 256 * 1024);
       const lines = text.split('\n');
       let appliesToUs = false;
 
@@ -335,7 +327,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
           signal: AbortSignal.timeout(8000),
         });
         if (res.ok) {
-          return await res.text();
+          return await readBodyWithLimit(res);
         }
       } catch {
         // Fall through

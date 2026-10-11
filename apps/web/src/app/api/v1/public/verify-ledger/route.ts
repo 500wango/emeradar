@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TrackRecordService } from '@emeradar/services';
+import { AppError } from '@emeradar/core';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,11 +14,13 @@ export async function GET(request: NextRequest) {
       ...verification,
     });
   } catch (error: any) {
+    if (error instanceof AppError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
+    // Never echo a raw driver/runtime message from a public endpoint.
+    console.error('[public/verify-ledger] Error:', error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
-      },
+      { success: false, error: 'No checkpoint could be verified for the requested date.' },
       { status: 400 }
     );
   }

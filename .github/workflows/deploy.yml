@@ -9,7 +9,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Reuses the CI workflow (lint/typecheck + unit tests) as a mandatory gate.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -17,8 +22,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          # Prefer the documented name; keep the existing typo as a migration fallback.
-          key: ${{ secrets.VPS_SSH_KEY || secrets.VPS_SSH_KE }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           command_timeout: 30m
           script: |

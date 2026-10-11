@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { BuildArchetype } from '@emeradar/core';
 import { useI18n } from '@/lib/i18n';
+import { safeExternalUrl } from '@/lib/format';
 
 interface SerpResultItem {
   rank: number;
@@ -99,7 +100,7 @@ export function UserPainPointsPanel({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
-                      href={item.url}
+                      href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5"
@@ -145,7 +146,7 @@ export function UserPainPointsPanel({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
-                      href={item.url}
+                      href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5 font-mono"
@@ -191,7 +192,7 @@ export function UserPainPointsPanel({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
-                      href={item.url}
+                      href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5"

@@ -61,6 +61,7 @@ export function UsersClient({
   const [newTier, setNewTier] = useState<'FREE' | 'PRO' | 'TEAM'>('FREE');
   const [newPassword, setNewPassword] = useState('');
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -97,7 +98,7 @@ export function UsersClient({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || '操作失败');
+        throw new Error('update-failed');
       }
 
       setUsers((prev) => prev.map((u) => (u.id === userId ? data : u)));
@@ -105,7 +106,8 @@ export function UsersClient({
       fetchUsers(); // Refresh stats
       return true;
     } catch (err: any) {
-      setMessage({ text: err.message || '更新失败', type: 'error' });
+      console.error('更新用户信息失败:', err);
+      setMessage({ text: '更新用户信息失败，请稍后重试', type: 'error' });
       return false;
     }
   };
@@ -129,7 +131,7 @@ export function UsersClient({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || '创建用户失败');
+        throw new Error('create-failed');
       }
 
       setTemporaryPasswordResult(data.temporaryPassword);
@@ -142,7 +144,8 @@ export function UsersClient({
       setNewPassword('');
       fetchUsers();
     } catch (err: any) {
-      setMessage({ text: err.message || '创建失败', type: 'error' });
+      console.error('创建用户失败:', err);
+      setMessage({ text: '创建用户失败，请稍后重试', type: 'error' });
     } finally {
       setCreateSubmitting(false);
     }
@@ -150,6 +153,8 @@ export function UsersClient({
 
   const handleResetPassword = async () => {
     if (!resetPwdUser) return;
+    if (resetPending) return;
+    setResetPending(true);
     setMessage(null);
     try {
       const res = await fetch(`/api/v1/admin/users/${resetPwdUser.id}/reset-password`, {
@@ -160,13 +165,16 @@ export function UsersClient({
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || '重置密码失败');
+        throw new Error('reset-failed');
       }
 
       setTemporaryPasswordResult(data.temporaryPassword);
       setMessage({ text: `已成功为 ${resetPwdUser.email} 重置密码！`, type: 'success' });
     } catch (err: any) {
-      setMessage({ text: err.message || '重置失败', type: 'error' });
+      console.error('重置用户密码失败:', err);
+      setMessage({ text: '重置密码失败，请稍后重试', type: 'error' });
+    } finally {
+      setResetPending(false);
     }
   };
 
@@ -603,6 +611,7 @@ export function UsersClient({
                     autoComplete="email"
                     type="email"
                     required
+                    maxLength={254}
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
                     placeholder="user@example.com"
@@ -616,6 +625,7 @@ export function UsersClient({
                     id="admin-new-display-name"
                     name="displayName"
                     type="text"
+                    maxLength={80}
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
                     placeholder="例如: Alex Builder"
@@ -922,9 +932,10 @@ export function UsersClient({
                   <button
                     type="button"
                     onClick={handleResetPassword}
-                    className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold"
+                    disabled={resetPending}
+                    className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    确认重置
+                    {resetPending ? '重置中...' : '确认重置'}
                   </button>
                 </div>
               </div>

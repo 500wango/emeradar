@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AlertService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, alertRuleSchema, parseInput } from '@emeradar/core';
+import { internalErrorResponse } from '@/lib/api-errors';
 import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
@@ -17,10 +18,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Error', status: 500, detail: error.message },
-      { status: 500 }
-    );
+    return internalErrorResponse(error, 'alerts');
   }
 }
 
@@ -33,14 +31,8 @@ export async function POST(request: NextRequest) {
     const verificationError = requireVerifiedEmail(auth);
     if (verificationError) return verificationError;
     const userId = auth.user.id;
-    const body = await request.json();
-
-    if (!body.opportunityId || !body.ruleType) {
-      return NextResponse.json(
-        { type: 'about:blank', title: 'Validation Error', status: 400, detail: 'opportunityId and ruleType are required' },
-        { status: 400 }
-      );
-    }
+    // `opportunityId` and `ruleType` are both required by the schema.
+    const body = parseInput(alertRuleSchema, await request.json().catch(() => ({})));
 
     const rule = await AlertService.createAlertRule(userId, {
       opportunityId: body.opportunityId,
@@ -53,10 +45,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Alert Error', status: 500, detail: error.message },
-      { status: 500 }
-    );
+    return internalErrorResponse(error, 'alerts');
   }
 }
 
@@ -72,6 +61,6 @@ export async function DELETE(request: NextRequest) {
     return new NextResponse(null, { status: 204 });
   } catch (error: any) {
     if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
-    return NextResponse.json({ type: 'about:blank', title: 'Alert Error', status: 500, detail: error.message }, { status: 500 });
+    return internalErrorResponse(error, 'alerts');
   }
 }

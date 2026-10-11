@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { StripeService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, checkoutSchema, parseInput, z } from '@emeradar/core';
 import { getAuthUser, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
@@ -18,8 +18,13 @@ export async function POST(request: NextRequest) {
     const verificationError = requireVerifiedEmail(auth);
     if (verificationError) return verificationError;
 
-    const body = await request.json().catch(() => ({}));
-    const { planCode, billingCycle = 'yearly', returnUrl } = body;
+    // TEAM intent must still reach the design-partner check below, so the body is
+    // validated for shape here and the plan gate stays explicit.
+    const parsed = parseInput(
+      checkoutSchema.extend({ planCode: z.union([z.literal('PRO'), z.literal('TEAM'), z.string().max(40)]) }),
+      await request.json().catch(() => ({}))
+    );
+    const { planCode, billingCycle, returnUrl } = parsed;
 
     if (planCode !== 'PRO' && planCode !== 'TEAM') {
       return NextResponse.json(
@@ -70,12 +75,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Checkout Error',
         status: error.status || 500,
-        detail: error.message || 'An error occurred while creating checkout session.',
+        detail: 'An error occurred while creating checkout session.',
       },
       { status: error.status || 500 }
     );

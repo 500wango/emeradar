@@ -63,10 +63,12 @@ export function CandidatesClient({ initialItems, total: initialTotal }: Candidat
         );
       } else {
         const err = await res.json();
-        alert(`操作失败: ${err.error || '未知错误'}`);
+        console.error('候选审核操作失败:', err);
+        alert('操作失败，请稍后重试');
       }
     } catch (err: any) {
-      alert(`网络错误: ${err.message}`);
+      console.error('候选审核操作发生网络错误:', err);
+      alert('网络错误，请稍后重试');
     } finally {
       setProcessingId(null);
     }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { parseInput, pipelineTriggerSchema } from '@emeradar/core';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function POST(req: NextRequest) {
   const session = await getAdminSession({ requireAdmin: true });
@@ -9,16 +11,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
-    const { task } = body;
-    if (!task || !['discover', 'generate-intents', 'validate-intents', 'run-daily'].includes(task)) {
-      return NextResponse.json({ error: 'Invalid or missing task name' }, { status: 400 });
-    }
+    const { task } = parseInput(pipelineTriggerSchema, await req.json().catch(() => ({})));
 
-    const result = await AdminService.triggerTask(task);
+    const result = await AdminService.triggerTask(task, session.user.id);
     return NextResponse.json(result);
-  } catch (err: any) {
-    console.error('[admin/pipeline/trigger] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/pipeline/trigger');
   }
 }

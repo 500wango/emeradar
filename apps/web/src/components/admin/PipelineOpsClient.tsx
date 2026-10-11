@@ -16,6 +16,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { AdminPipelineOverview } from '@emeradar/services';
+import { safeExternalUrl } from '@/lib/format';
 
 interface PipelineOpsClientProps {
   initialOverview: AdminPipelineOverview;
@@ -460,7 +461,7 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                     <td className="py-3 text-right">
                       {item.sourceUrl ? (
                         <a
-                          href={item.sourceUrl}
+                          href={safeExternalUrl(item.sourceUrl) ?? '#'}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline font-mono"

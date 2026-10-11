@@ -1,14 +1,10 @@
 x-app-environment: &app-environment
   NODE_ENV: production
   DATABASE_URL: postgresql://emeradar_app:${EMERADAR_DB_PASSWORD:?Set a hex EMERADAR_DB_PASSWORD in .env}@postgres:5432/emeradar
-  NEXTAUTH_URL: ${NEXTAUTH_URL:-https://emeradar.com}
-  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env}
+  APP_ORIGIN: ${APP_ORIGIN:-https://emeradar.com}
   NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://emeradar.com}
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set STRIPE_SECRET_KEY in .env}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Set STRIPE_WEBHOOK_SECRET in .env}
   SERP_API_KEY: ${SERP_API_KEY:-}
   BRAVE_API_KEY: ${BRAVE_API_KEY:-}
   AISA_API_KEY: ${AISA_API_KEY:-}
@@ -16,6 +12,12 @@ x-app-environment: &app-environment
   BROWSERLESS_API_KEY: ${BROWSERLESS_API_KEY:-}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GSC_REDIRECT_URI: ${GSC_REDIRECT_URI:-}
+  GSC_TOKEN_ENCRYPTION_KEY: ${GSC_TOKEN_ENCRYPTION_KEY:-}
+  DISCOVERY_RSS_FEEDS: ${DISCOVERY_RSS_FEEDS:-}
+  DISCOVERY_VALIDATION_BUDGET_USD: ${DISCOVERY_VALIDATION_BUDGET_USD:-}
 
 services:
   postgres:
@@ -37,6 +39,10 @@ services:
     restart: unless-stopped
     mem_limit: 512m
     shm_size: 128mb
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    security_opt: ["no-new-privileges:true"]
 
   web:
     build:
@@ -57,6 +63,11 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
 
   caddy:
     image: caddy:2-alpine
@@ -73,6 +84,9 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.25
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
   worker:
     profiles: [jobs]
@@ -85,6 +99,11 @@ services:
         condition: service_healthy
     mem_limit: 768m
     cpus: 0.75
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
 
   migrate:
     profiles: [migrate]
@@ -98,6 +117,11 @@ services:
     entrypoint: ["pnpm", "db:migrate"]
     mem_limit: 768m
     cpus: 0.75
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
 
 volumes:
   postgres_data:

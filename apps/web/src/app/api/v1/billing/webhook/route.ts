@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { StripeService } from '@emeradar/services';
 
+/** Maps a Stripe subscription status onto our local subscription status. */
+function mapSubscriptionStatus(stripeStatus: string | undefined): 'ACTIVE' | 'PAST_DUE' | 'CANCELED' {
+  switch (stripeStatus) {
+    case 'active':
+    case 'trialing':
+      return 'ACTIVE';
+    case 'canceled':
+    case 'unpaid':
+    case 'incomplete_expired':
+      return 'CANCELED';
+    default:
+      // past_due / incomplete keep a grace period rather than cutting access off.
+      return 'PAST_DUE';
+  }
+}
+
+function toIsoOrNull(epochSeconds: unknown): string | null {
+  return typeof epochSeconds === 'number' && Number.isFinite(epochSeconds)
+    ? new Date(epochSeconds * 1000).toISOString()
+    : null;
+}
+
 export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   const rawBody = await request.text();
@@ -24,45 +46,130 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
   }
 
+  let event: { id?: string; type?: string; data?: { object?: any } };
   try {
-    const event = JSON.parse(rawBody);
+    event = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'Malformed webhook payload' }, { status: 400 });
+  }
 
-    switch (event.type) {
+  const eventId = typeof event.id === 'string' ? event.id : '';
+  const eventType = typeof event.type === 'string' ? event.type : '';
+  const object = event.data?.object ?? {};
+
+  // Idempotency: claim the event id before processing. A duplicate delivery is
+  // acknowledged without re-applying its effects.
+  const claimed = await StripeService.markWebhookEventProcessed(eventId, eventType);
+  if (!claimed) {
+    console.log(`[Stripe Webhook] Duplicate event ${eventId} (${eventType}) ignored.`);
+    return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+  }
+
+  try {
+    switch (eventType) {
       case 'checkout.session.completed': {
-        const session = event.data?.object;
-        const userId = session?.metadata?.userId || session?.client_reference_id;
-        const planCode = (session?.metadata?.planCode as 'PRO' | 'TEAM') || 'PRO';
-        const billingCycle = session?.metadata?.billingCycle === 'lifetime'
+        const userId = object?.metadata?.userId || object?.client_reference_id;
+        const planCode = (object?.metadata?.planCode as 'PRO' | 'TEAM') || 'PRO';
+        const billingCycle = object?.metadata?.billingCycle === 'lifetime'
           ? 'lifetime'
-          : session?.metadata?.billingCycle === 'yearly'
+          : object?.metadata?.billingCycle === 'yearly'
           ? 'yearly'
           : 'monthly';
 
-        if (userId) {
-          await StripeService.activateSubscription(userId, planCode, billingCycle);
-          console.log(`[Stripe Webhook] Successfully activated subscription for user ${userId} to ${planCode}`);
+        // For payment-mode (lifetime) checkouts "completed" can fire before the
+        // funds settle, so require a paid payment_status.
+        const paid = object?.payment_status === 'paid' || object?.payment_status === undefined;
+        if (userId && paid) {
+          await StripeService.activateSubscription(userId, planCode, billingCycle, {
+            stripeCustomerId: typeof object?.customer === 'string' ? object.customer : null,
+            stripeSubscriptionId: typeof object?.subscription === 'string' ? object.subscription : null,
+          });
+          console.log(`[Stripe Webhook] Activated subscription for user ${userId} (${planCode}).`);
         }
         break;
       }
 
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const status = mapSubscriptionStatus(object?.status);
+        await StripeService.updateSubscriptionState(
+          object?.id,
+          status,
+          toIsoOrNull(object?.current_period_end)
+        );
+        break;
+      }
+
       case 'customer.subscription.deleted': {
-        const sub = event.data?.object;
-        const userId = sub?.metadata?.userId;
+        const userId =
+          (await StripeService.resolveUserIdFromStripeObject(object)) ||
+          (typeof object?.metadata?.userId === 'string' ? object.metadata.userId : null);
         if (userId) {
           await StripeService.deactivateSubscription(userId);
-          console.log(`[Stripe Webhook] Subscription canceled, downgraded user ${userId} to FREE`);
+          console.log(`[Stripe Webhook] Subscription canceled, downgraded user ${userId} to FREE.`);
+        } else {
+          console.warn('[Stripe Webhook] subscription.deleted could not be attributed to a user.');
+        }
+        break;
+      }
+
+      case 'invoice.paid': {
+        await StripeService.updateSubscriptionState(
+          object?.subscription,
+          'ACTIVE',
+          toIsoOrNull(object?.lines?.data?.[0]?.period?.end)
+        );
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const userId = await StripeService.updateSubscriptionState(object?.subscription, 'PAST_DUE');
+        if (userId) {
+          console.warn(`[Stripe Webhook] Payment failed for user ${userId}; subscription marked PAST_DUE.`);
+        }
+        break;
+      }
+
+      case 'charge.dispute.created': {
+        const userId = await StripeService.resolveUserIdFromStripeObject(object);
+        if (userId) {
+          await StripeService.suspendForDispute(userId);
+          console.warn(`[Stripe Webhook] Chargeback opened; user ${userId} suspended.`);
+        } else {
+          console.warn('[Stripe Webhook] dispute.created could not be attributed to a user.');
+        }
+        break;
+      }
+
+      case 'charge.dispute.closed': {
+        // Lost disputes stay suspended; won disputes are left to manual review.
+        const userId = await StripeService.resolveUserIdFromStripeObject(object);
+        console.warn(`[Stripe Webhook] Dispute closed (${object?.status}) for user ${userId ?? 'unknown'}.`);
+        break;
+      }
+
+      case 'charge.refunded': {
+        const userId = await StripeService.resolveUserIdFromStripeObject(object);
+        if (userId) {
+          await StripeService.deactivateSubscription(userId);
+          console.log(`[Stripe Webhook] Refund issued; user ${userId} downgraded to FREE.`);
+        } else {
+          console.warn('[Stripe Webhook] charge.refunded could not be attributed to a user.');
         }
         break;
       }
 
       default:
-        // Other events ignored but acknowledged
+        // Other events are acknowledged but intentionally ignored.
         break;
     }
 
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: any) {
+    // Release the claim so Stripe's retry can reprocess this event.
+    await StripeService.releaseWebhookEvent(eventId).catch(() => undefined);
     console.error('[Stripe Webhook] Processing error:', err);
-    return NextResponse.json({ error: err.message || 'Webhook processing error' }, { status: 500 });
+    // Never echo internal error details to the (unauthenticated) caller.
+    return NextResponse.json({ error: 'Webhook processing error' }, { status: 500 });
   }
 }

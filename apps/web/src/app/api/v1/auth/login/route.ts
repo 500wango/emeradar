@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
-import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { AppError, loginSchema, parseInput } from '@emeradar/core';
+import { checkRateLimit, getClientIp, peekRateLimit, resetRateLimit } from '@/lib/rate-limit';
+
+const EMAIL_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_MAX_FAILURES = 5;
 
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    const body = await request.json().catch(() => ({}));
-    const { email, password } = body;
+    const { email, password } = parseInput(loginSchema, await request.json().catch(() => ({})));
 
-    // Rate limiting: max 10 requests per minute per IP, max 5 failed attempts per 15 min per account
+    // Coarse per-IP throttle: every attempt counts.
     const ipLimit = await checkRateLimit({
       key: `login_ip_${ip}`,
       limit: 15,
@@ -31,48 +33,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (email && typeof email === 'string') {
-      const emailLimit = await checkRateLimit({
-        key: `login_email_${email.toLowerCase().trim()}`,
-        limit: 5,
-        windowMs: 15 * 60 * 1000,
-      });
+    // The schema already trims and lower-cases the email, so the throttle key
+    // needs no further normalisation.
+    const emailKey = `login_email_${email}`;
 
-      if (!emailLimit.success) {
-        return NextResponse.json(
-          {
-            type: 'about:blank',
-            title: 'Account Temporarily Locked',
-            status: 429,
-            detail: 'Too many consecutive failed login attempts for this account. Please wait 15 minutes before trying again.',
-          },
-          {
-            status: 429,
-            headers: { 'Retry-After': String(emailLimit.retryAfterSeconds) },
-          }
-        );
-      }
-    }
+    // Per-account throttle counts FAILED attempts only. We peek first so a
+    // successful login never consumes the allowance, then increment on failure.
+    const emailLimit = await peekRateLimit({
+      key: emailKey,
+      limit: EMAIL_MAX_FAILURES,
+      windowMs: EMAIL_WINDOW_MS,
+    });
 
-    if (!email || typeof email !== 'string') {
+    if (!emailLimit.success) {
       return NextResponse.json(
         {
           type: 'about:blank',
-          title: 'Missing Email',
-          status: 400,
-          detail: 'Email address is required.',
+          title: 'Account Temporarily Locked',
+          status: 429,
+          detail: 'Too many consecutive failed login attempts for this account. Please wait 15 minutes before trying again.',
         },
-        { status: 400 }
+        {
+          status: 429,
+          headers: { 'Retry-After': String(emailLimit.retryAfterSeconds) },
+        }
       );
     }
 
-    const { user, sessionToken } = await AuthService.login({
-      email,
-      password,
-    });
+    let sessionToken: string;
+    try {
+      const { sessionToken: token } = await AuthService.login({ email, password });
+      sessionToken = token;
+    } catch (err) {
+      // Record the failed attempt against the account bucket.
+      await checkRateLimit({ key: emailKey, limit: EMAIL_MAX_FAILURES, windowMs: EMAIL_WINDOW_MS });
+      throw err;
+    }
+
+    // A successful login clears the account's failure history.
+    await resetRateLimit(emailKey);
 
     const response = NextResponse.json({
-      user,
+      user: (await AuthService.getSessionUser(sessionToken))?.user ?? null,
       message: 'Login successful.',
     });
 
@@ -89,14 +91,18 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    // Anything that is not an AppError is a server fault (database down, bug).
+    // Reporting it as 401 would make an outage look like a wrong password and
+    // keep it out of the 5xx alerts.
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
-        title: 'Authentication Error',
-        status: error.status || 401,
-        detail: error.message || 'Invalid credentials or account inactive.',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'An unexpected internal error occurred.',
       },
-      { status: error.status || 401 }
+      { status: 500 }
     );
   }
 }

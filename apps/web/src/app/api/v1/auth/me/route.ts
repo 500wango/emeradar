@@ -23,12 +23,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(sessionData);
   } catch (error: any) {
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Auth Check Error',
         status: 500,
-        detail: error.message || 'Internal error checking session.',
+        detail: 'Internal error checking session.',
       },
       { status: 500 }
     );

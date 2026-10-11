@@ -33,6 +33,11 @@ export interface ReportGenerationInput {
   scoring: ScoringOutput;
   obsDate: string;
   locale?: Locale;
+  /**
+   * Report build time. Passed in so a regenerated report for the same sealed
+   * snapshot is byte-identical; defaults to now for interactive callers.
+   */
+  generatedAt?: string;
   primaryQuery: string;
   searchIntent?: Section2DemandBreakdown['searchIntent'];
   jobToBeDone?: string;
@@ -83,6 +88,27 @@ export function generateOpportunityReport(
 ): OpportunityReportData {
   const locale = input.locale || 'en-US';
   const isZh = locale === 'zh-CN';
+
+  // Negative-signal truth comes from the sealed scoring output, never from a
+  // constant: a report must not certify a screen that produced warnings.
+  const scoringFlags = input.scoring.flags ?? [];
+  const hasNegativeSignal =
+    scoringFlags.includes('M_NEGATIVE') || input.scoring.mBand === 'INSUFFICIENT';
+  const negativeFindings: string[] = [];
+  if (scoringFlags.includes('M_NEGATIVE')) {
+    negativeFindings.push(
+      isZh
+        ? '商业轴记录了强负面信号（如官方免费替代、定价下线或付费转免费）。'
+        : 'The commercial axis recorded a strong negative signal (e.g. a free first-party replacement, withdrawn pricing, or paid-to-free migration).'
+    );
+  }
+  if (input.scoring.mBand === 'INSUFFICIENT') {
+    negativeFindings.push(
+      isZh
+        ? '商业轴证据不足，未能完成负面信号排查。'
+        : 'Commercial evidence was insufficient to complete a negative-signal screen.'
+    );
+  }
   const oppIdOrSlug = input.opportunity.id || input.opportunity.slug;
 
   const title = getLocalizedOpportunityText(
@@ -99,7 +125,7 @@ export function generateOpportunityReport(
     title,
     slug: input.opportunity.slug,
     locale,
-    generatedAt: new Date().toISOString(),
+    generatedAt: input.generatedAt || new Date().toISOString(),
     obsDate: input.obsDate,
     verdict: input.scoring.verdict,
     lifecycle: input.scoring.lifecycle,
@@ -409,13 +435,17 @@ export function generateOpportunityReport(
         : isZh
         ? '细分赛道目前主要以免费轻量工具为主，具备极高的流量吸附能力，建议先以免费版本积累自然搜索权重，后续通过高级功能或按量模式变现。'
         : 'Niche currently dominated by free tools. Recommend capturing organic equity before introducing paid tiers or premium features.',
+    // Driven by the scoring flags for this sealed observation. The report may
+    // only claim a clean screen when the automated checks actually ran clean.
     negativeSignalCheck: {
-      passed: true,
-      findings: [
-        isZh
-          ? '已完成合规排查：未检测到侵犯注册商标、平台封禁或灾难性政策红线风险。'
-          : 'Verified: No catastrophic trademark, platform banning, or policy hazards detected.',
-      ],
+      passed: !hasNegativeSignal,
+      findings: negativeFindings.length
+        ? negativeFindings
+        : [
+            isZh
+              ? '自动负面信号筛查：本次观测未记录到强负面商业信号或政策红线。'
+              : 'Automated negative-signal screen: no strong negative commercial signal or policy red line was recorded for this observation.',
+          ],
     },
   };
 

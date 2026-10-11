@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { parseInput, resetPasswordSchema } from '@emeradar/core';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function POST(
   req: NextRequest,
@@ -13,16 +15,11 @@ export async function POST(
 
   const { id } = await params;
   try {
-    const body = await req.json().catch(() => ({}));
-    const { password } = body;
+    const { password } = parseInput(resetPasswordSchema, await req.json().catch(() => ({})));
 
     const res = await AdminService.resetUserPassword(session.user.id, id, password);
     return NextResponse.json(res);
-  } catch (err: any) {
-    console.error('[admin/users/reset-password] Error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error' },
-      { status: err.status || 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 'admin/users/reset-password');
   }
 }

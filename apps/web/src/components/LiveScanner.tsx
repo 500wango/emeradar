@@ -73,6 +73,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
           type="text"
           autoComplete="off"
           spellCheck={false}
+          maxLength={120}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={isScanning}

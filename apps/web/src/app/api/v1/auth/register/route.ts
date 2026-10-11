@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, parseInput, registerSchema } from '@emeradar/core';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { sendTransactionalEmail } from '@/lib/email-delivery';
 
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    const body = await request.json().catch(() => ({}));
-    const { email, password, displayName } = body;
+    const { email, password, displayName } = parseInput(
+      registerSchema,
+      await request.json().catch(() => ({}))
+    );
 
     // Strict rate limiting on registration to stop mass script abuse
     const ipLimit = await checkRateLimit({
@@ -32,34 +34,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return NextResponse.json(
-        {
-          type: 'about:blank',
-          title: 'Invalid Email',
-          status: 400,
-          detail: 'A valid email address is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!password || typeof password !== 'string' || password.length < 8) {
-      return NextResponse.json(
-        {
-          type: 'about:blank',
-          title: 'Weak Password',
-          status: 400,
-          detail: 'Password must be at least 8 characters long.',
-        },
-        { status: 400 }
-      );
-    }
-
+    // Email shape and password length are enforced by `registerSchema`.
     const { user, sessionToken } = await AuthService.register({
       email,
       password,
-      displayName: displayName?.trim() || undefined,
+      displayName,
     });
 
     const verification = await AuthService.requestEmailVerification(user.id);
@@ -90,12 +69,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Registration Error',
         status: error.status || 500,
-        detail: error.message || 'An unexpected error occurred during registration.',
+        detail: 'An unexpected error occurred during registration.',
       },
       { status: error.status || 500 }
     );

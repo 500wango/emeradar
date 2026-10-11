@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
 import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
+import { AppError, apiKeyCreateSchema, parseInput } from '@emeradar/core';
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,15 +27,19 @@ export async function GET(request: NextRequest) {
 
     const keys = await AuthService.listApiKeys(auth.user.id);
     return NextResponse.json({ keys });
-  } catch (error: any) {
+  } catch (error) {
+    if (error instanceof AppError) {
+      return NextResponse.json(error.toRFC9457(), { status: error.status });
+    }
+    console.error('[user/api-keys] Error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'API Keys Fetch Error',
-        status: error.status || 500,
-        detail: error.message,
+        status: 500,
+        detail: 'The API keys could not be loaded.',
       },
-      { status: error.status || 500 }
+      { status: 500 }
     );
   }
 }
@@ -73,7 +78,7 @@ export async function POST(request: NextRequest) {
     const verificationError = requireVerifiedEmail(auth);
     if (verificationError) return verificationError;
 
-    const body = await request.json().catch(() => ({}));
+    const body = parseInput(apiKeyCreateSchema, await request.json().catch(() => ({})));
     const label = body.label?.trim() || 'Default Production Key';
     const allowedScopes = new Set([
       'opportunities:read', 'opportunities:write', 'reports:read', 'reports:export',
@@ -94,13 +99,14 @@ export async function POST(request: NextRequest) {
       rawSecretKey: result.rawSecretKey,
       message: 'API Key generated. Copy this secret key now as you will not be able to view it again.',
     });
-  } catch (error: any) {
+  } catch (error) {
+    console.error('[user/api-keys] Error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'API Key Generation Error',
         status: 500,
-        detail: error.message,
+        detail: 'The API key could not be generated.',
       },
       { status: 500 }
     );

@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Lock, Sparkles } from 'lucide-react';
-import { AuthService, OpportunityService, ReportService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, ReportService } from '@emeradar/services';
 import { ReportStudioClient } from '@/components/ReportStudioClient';
 import { getServerLocale } from '@/lib/i18n/server';
 
@@ -19,9 +19,17 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
   if (!session) redirect(`/login?next=${encodeURIComponent(`/opportunities/${slug}/report`)}`);
   const userId = session.user.id;
 
+  // Aligned with the opportunity detail page (`opportunities/[slug]/page.tsx`):
+  // the workspace and its report share the exact same paid gate. For FREE users
+  // `opportunityDetailFull` is false, so they are redirected here exactly as they
+  // are on the detail page (the free monthly report quota is only reachable for
+  // users who already have full detail access).
+  const ent = await EntitlementService.getUserEntitlements(session.user.id);
+  if (!ent.opportunityDetailFull) redirect('/pricing?feature=opportunity-detail');
+
   let detail: any;
   try {
-    detail = await OpportunityService.getOpportunityDetail(slug);
+    detail = await OpportunityService.getOpportunityDetail(slug, { minAgeDays: ent.feedDelayDays });
   } catch {
     notFound();
   }
@@ -94,6 +102,7 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
     }
 
     if (err.code === 'PRECONDITION_FAILED' || err.status === 409) {
+      console.error(`[OpportunityReportPage] Evidence gate not met for ${slug}:`, err?.detail || err?.message || err);
       return (
         <div className="max-w-2xl mx-auto px-4 py-16">
           <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 shadow-lg text-center relative overflow-hidden">
@@ -110,9 +119,9 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
             </h2>
 
             <p className="text-sm text-slate-600 max-w-md mx-auto mb-8 leading-relaxed">
-              {err.message || (isZh
+              {isZh
                 ? '报告只对已发布的 BUILD NOW 或 EARLY BET 决策开放。升级套餐不会绕过证据门槛；请先关注该机会，等待发布。'
-                : 'Reports are available only for published BUILD NOW or EARLY BET decisions. A paid plan does not bypass the evidence gate; watch this opportunity until it is published.')}
+                : 'Reports are available only for published BUILD NOW or EARLY BET decisions. A paid plan does not bypass the evidence gate; watch this opportunity until it is published.'}
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -141,9 +150,9 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
             {isZh ? '深度研究报告加载失败' : 'Report Unavailable'}
           </h2>
           <p className="text-sm text-slate-600 max-w-md mx-auto mb-6 leading-relaxed">
-            {err.detail || err.message || (isZh
+            {isZh
               ? '生成研报时发生异常，请稍后刷新重试或联系客服。'
-              : 'Failed to generate report. Please try again later.')}
+              : 'Failed to generate report. Please try again later.'}
           </p>
           <div className="flex items-center justify-center gap-3">
             <Link

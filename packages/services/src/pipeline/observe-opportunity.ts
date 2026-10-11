@@ -86,6 +86,12 @@ export async function observeOpportunity(
     language: opp.research_language,
   });
 
+  // Spend is recorded for every billable outcome, not only successes: a 429 or a
+  // timeout still costs the provider call.
+  if (acOutcome.status !== 'SKIPPED' && acOutcome.cost) {
+    await CostLedgerService.recordCost(acOutcome.cost);
+  }
+
   if (acOutcome.status === 'OK') {
     const snap = acOutcome.snapshots[0];
     if (snap) {
@@ -133,6 +139,29 @@ export async function observeOpportunity(
      WHERE query_id = $1 AND observed_date > $2::date - 14 AND observed_date <= $2::date`,
     [primary.id, obsDate]
   );
+  // Decay signal for the lifecycle DEAD transition (05 §4): trailing 7-day
+  // observation volume against the strongest 7-day window inside 90 days.
+  const decayRes = await query<{ active_7d: number; peak_7d: number }>(
+    `WITH daily AS (
+       SELECT observed_date, SUM(cardinality(suggestions))::float AS total
+       FROM autocomplete_observations
+       WHERE query_id = $1 AND observed_date > $2::date - 90 AND observed_date <= $2::date
+       GROUP BY observed_date
+     )
+     SELECT
+       (SELECT COALESCE(SUM(total), 0) FROM daily WHERE observed_date > $2::date - 7)::float AS active_7d,
+       (SELECT COALESCE(MAX(window_total), 0) FROM (
+          SELECT (SELECT COALESCE(SUM(d2.total), 0) FROM daily d2
+                   WHERE d2.observed_date > d1.observed_date - 7
+                     AND d2.observed_date <= d1.observed_date) AS window_total
+          FROM daily d1
+        ) windows)::float AS peak_7d`,
+    [primary.id, obsDate]
+  );
+  const active7d = decayRes.rows[0]?.active_7d ?? 0;
+  const peak7d = decayRes.rows[0]?.peak_7d ?? 0;
+  const activityRatio90d = peak7d > 0 ? active7d / peak7d : undefined;
+
   const trend = trendRes.rows[0];
   const autocompleteRecentDays = trend?.recent_days ?? 0;
   const autocompletePriorDays = trend?.prior_days ?? 0;
@@ -149,6 +178,12 @@ export async function observeOpportunity(
     researchLanguage: opp.research_language,
   });
 
+  // A billable provider call costs money whether or not it returned data, so the
+  // first attempt is recorded before any retry replaces the outcome object.
+  if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
+    await CostLedgerService.recordCost(serpOutcome.cost);
+  }
+
   // Collector retry with backoff if retryable failure occurs
   if (serpOutcome.status === 'FAILED' && serpOutcome.retryable) {
     console.warn(`[pipeline:collector] Retrying SERP collection for query "${primary.query_text}" (${serpOutcome.message})...`);
@@ -160,6 +195,9 @@ export async function observeOpportunity(
       marketCountry: opp.market_country,
       researchLanguage: opp.research_language,
     });
+    if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
+      await CostLedgerService.recordCost(serpOutcome.cost);
+    }
   }
 
   if (serpOutcome.status !== 'OK') {
@@ -246,6 +284,7 @@ export async function observeOpportunity(
     hasStrongNegative: commercialBanding.hasStrongNegative,
     negativeReasons: commercialBanding.negativeReasons,
     persistenceDaysNeeded: commercialBanding.persistenceDaysNeeded,
+    inferredOnly: commercialBanding.inferredOnly,
     bandReason: commercialBanding.reason,
   };
   const independentPricedDomains = commercial.independentPricedDomains ?? 0;
@@ -442,6 +481,9 @@ export async function observeOpportunity(
     claimsCount,
     maxClaims,
     isCrowdedLocked,
+    // A failed collection this cycle is not evidence about the market (05 §5.0).
+    criticalSourceFailure: serpOutcome.status !== 'OK' || acOutcome.status !== 'OK',
+    activityRatio90d,
     recommendation: {
       queryTypes: {
         informationalRatio,
@@ -476,7 +518,8 @@ export async function observeOpportunity(
     recentSerp &&
     output.dBand !== 'INSUFFICIENT' &&
     output.wBand !== 'INSUFFICIENT' &&
-    output.confidence !== 'LOW';
+    output.confidence !== 'LOW' &&
+    !commercial.inferredOnly;
 
   const searchIntent = toolModifierRatio > informationalRatio && toolModifierRatio > commercialRatio
     ? 'TRANSACTIONAL'

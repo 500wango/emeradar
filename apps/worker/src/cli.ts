@@ -7,6 +7,7 @@ import {
   assessCommercialOpportunities,
   renderCommercialAssessment,
   TrackRecordService,
+  PredictionEpisodeService,
 } from '@emeradar/services';
 import { closePool, query } from '@emeradar/db';
 
@@ -20,6 +21,10 @@ async function main() {
       console.log(`[cli] Executing daily pipeline for ${date}...`);
       const result = await runDailyPipeline(date);
       console.log('[cli] Result:', result);
+      // Outcomes mature on their own schedule; grade them after the day's
+      // verdicts are committed so the public record stays current.
+      const outcomes = await PredictionEpisodeService.evaluateDueEpisodes(date);
+      console.log('[cli] Episode outcomes:', outcomes);
     } else if (command === 'discover') {
       console.log('[cli] Collecting new source signals...');
       const result = await discoverSources();
@@ -65,6 +70,11 @@ async function main() {
         console.error('❌ Checkpoint verification FAILED! Data corruption detected.');
         process.exit(1);
       }
+    } else if (command === 'evaluate-episodes') {
+      const date = args[1] || new Date().toISOString().slice(0, 10);
+      console.log(`[cli] Evaluating prediction episodes due by ${date}...`);
+      const outcomes = await PredictionEpisodeService.evaluateDueEpisodes(date);
+      console.log('[cli] Episode outcomes:', outcomes);
     } else if (command === 'assess-commercial') {
       const date = args[1] || new Date().toISOString().slice(0, 10);
       console.log(`[cli] Re-banding the M-axis for ${date} (read-only, nothing is written)...`);
@@ -72,7 +82,7 @@ async function main() {
       console.log(renderCommercialAssessment(report));
     } else {
       console.log(`Unknown command: ${command}`);
-      console.log('Available commands: run-daily [date], discover, generate-intents [limit], validate-intents [limit], generate-experiments [limit], sync-gsc [days], verify-ledger [date], assess-commercial [date]');
+      console.log('Available commands: run-daily [date], discover, generate-intents [limit], validate-intents [limit], generate-experiments [limit], sync-gsc [days], evaluate-episodes [date], verify-ledger [date], assess-commercial [date]');
     }
   } catch (err) {
     console.error('[cli] Command failed with error:', err);

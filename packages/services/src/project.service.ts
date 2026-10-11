@@ -1,5 +1,5 @@
 import { query, transaction } from '@emeradar/db';
-import { EmeradarError, ErrorCode, BuildArchetype } from '@emeradar/core';
+import { EmeradarError, ErrorCode, BuildArchetype, isPrivateAddress, readBodyWithLimit } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
@@ -142,19 +142,11 @@ export class ProjectService {
     return result.rows.length > 0;
   }
 
-  private static isPrivateAddress(address: string): boolean {
-    const value = address.toLowerCase();
-    if (value === '::1' || value === '0.0.0.0' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb')) return true;
-    if (value.includes(':')) return value.startsWith('::ffff:') ? this.isPrivateAddress(value.slice(7)) : false;
-    const p = value.split('.').map(Number);
-    return p.length === 4 && (p[0] === 10 || p[0] === 127 || p[0] === 0 || (p[0] === 169 && p[1] === 254) || (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || (p[0] === 192 && p[1] === 168) || p[0] >= 224);
-  }
-
   private static async publicUrl(raw: string): Promise<URL> {
     const url = new URL(raw);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Target URL must be a public HTTP(S) URL.', 400);
     const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-    if (!addresses.length || addresses.some(({ address }) => this.isPrivateAddress(address))) throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Target URL must resolve to a public address.', 400);
+    if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Target URL must resolve to a public address.', 400);
     return url;
   }
 
@@ -170,14 +162,14 @@ export class ProjectService {
       if (!location || redirects === 3) throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'Site redirects exceed the safety limit.', 502);
       current = await this.publicUrl(new URL(location, current).toString());
     }
-    const html = response && response.ok ? await response.text() : '';
+    const html = response && response.ok ? await readBodyWithLimit(response) : '';
     const lower = html.toLowerCase();
     const robotsResult = await (async () => {
       try {
         const robotsUrl = await this.publicUrl(new URL('/robots.txt', current).toString());
         const r = await fetch(robotsUrl, { redirect: 'manual', signal: AbortSignal.timeout(3000) });
         if (!r.ok) return { status: 'UNKNOWN' as const, sitemaps: [] as string[] };
-        const text = await r.text();
+        const text = await readBodyWithLimit(r, 256 * 1024);
         const sitemaps = [...text.matchAll(/^\s*sitemap:\s*(\S+)\s*$/gim)].map((match) => match[1]);
         return { status: /disallow:\s*\/\s*(?:$|\n)/i.test(text) ? 'DISALLOW' as const : 'ALLOW' as const, sitemaps };
       } catch {
@@ -319,13 +311,28 @@ export class ProjectService {
     return res.rows[0];
   }
 
+  /**
+   * GSC returns up to 25k rows per sync; everything downstream is written in
+   * set-based statements so the sync cost is a handful of round trips rather
+   * than one query per row.
+   */
+  static readonly MAX_GSC_ROWS = 25_000;
+
   static async syncGscSearchAnalytics(
     projectId: string,
     userId: string,
     rows: GscSearchAnalyticsRow[]
   ): Promise<{ count: number; weekStartDates: string[] }> {
+    const limited = rows.length > ProjectService.MAX_GSC_ROWS ? rows.slice(0, ProjectService.MAX_GSC_ROWS) : rows;
+    if (limited.length !== rows.length) {
+      console.warn(`[gsc] Truncated ${rows.length - limited.length} row(s) beyond the ${ProjectService.MAX_GSC_ROWS} row sync cap.`);
+    }
+
     const grouped = new Map<string, Map<string, GscWeeklyDetailInput>>();
-    for (const row of rows) {
+    // Bucket the raw daily rows per week in the same pass: filtering the full
+    // row list once per week made the sync O(weeks x rows).
+    const dailyByWeek = new Map<string, GscSearchAnalyticsRow[]>();
+    for (const row of limited) {
       const date = new Date(`${row.date}T00:00:00Z`);
       if (Number.isNaN(date.getTime())) continue;
       const day = date.getUTCDay() || 7;
@@ -347,19 +354,35 @@ export class ProjectService {
         current.clicks += row.clicks;
       }
       grouped.set(week, byKey);
+      const bucket = dailyByWeek.get(week);
+      if (bucket) bucket.push(row);
+      else dailyByWeek.set(week, [row]);
     }
+
     let count = 0;
     for (const [week, byKey] of grouped.entries()) {
       const list = [...byKey.values()];
-      const weekEnd = new Date(`${week}T00:00:00Z`);
-      weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-      const weekEndDate = weekEnd.toISOString().slice(0, 10);
-      for (const row of rows.filter((item) => item.date >= week && item.date < weekEndDate)) {
+      const daily = dailyByWeek.get(week) || [];
+      if (daily.length > 0) {
         await query(
           `INSERT INTO gsc_metrics_daily (project_id, observation_date, page_url, query, impressions, clicks, average_position, source)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'GSC')
-           ON CONFLICT (project_id, observation_date, page_url, query) DO UPDATE SET impressions=EXCLUDED.impressions, clicks=EXCLUDED.clicks, average_position=EXCLUDED.average_position, source=EXCLUDED.source`,
-          [projectId, row.date, row.page || '', row.query || '', row.impressions, row.clicks, row.position || 0],
+           SELECT $1, d::date, p, q, i, c, a, 'GSC'
+           FROM unnest($2::text[], $3::text[], $4::text[], $5::int[], $6::int[], $7::float8[])
+             AS t(d, p, q, i, c, a)
+           ON CONFLICT (project_id, observation_date, page_url, query) DO UPDATE SET
+             impressions = EXCLUDED.impressions,
+             clicks = EXCLUDED.clicks,
+             average_position = EXCLUDED.average_position,
+             source = EXCLUDED.source`,
+          [
+            projectId,
+            daily.map((row) => row.date),
+            daily.map((row) => row.page || ''),
+            daily.map((row) => row.query || ''),
+            daily.map((row) => Math.round(row.impressions)),
+            daily.map((row) => Math.round(row.clicks)),
+            daily.map((row) => row.position || 0),
+          ]
         );
       }
       count += (await this.upsertGscWeeklyDetails(projectId, userId, list)).count;
@@ -406,19 +429,29 @@ export class ProjectService {
   ): Promise<{ count: number }> {
     const owned = await query(`SELECT 1 FROM projects WHERE id = $1 AND user_id = $2`, [projectId, userId]);
     if (owned.rows.length === 0) throw new EmeradarError(ErrorCode.NOT_FOUND, `Project not found: ${projectId}`, 404);
-    for (const row of rows) {
-      await query(
-        `INSERT INTO gsc_metrics_weekly_detail
-          (project_id, week_start_date, page_url, query, impressions, clicks, average_position, source)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (project_id, week_start_date, page_url, query) DO UPDATE SET
-           impressions = EXCLUDED.impressions,
-           clicks = EXCLUDED.clicks,
-           average_position = EXCLUDED.average_position,
-           source = EXCLUDED.source`,
-        [projectId, row.weekStartDate, row.pageUrl || '', row.query || '', row.impressions, row.clicks, row.averagePosition || 0, row.source || 'GSC']
-      );
-    }
+    if (rows.length === 0) return { count: 0 };
+    await query(
+      `INSERT INTO gsc_metrics_weekly_detail
+        (project_id, week_start_date, page_url, query, impressions, clicks, average_position, source)
+       SELECT $1, w::date, p, q, i, c, a, s
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::int[], $6::int[], $7::float8[], $8::text[])
+         AS t(w, p, q, i, c, a, s)
+       ON CONFLICT (project_id, week_start_date, page_url, query) DO UPDATE SET
+         impressions = EXCLUDED.impressions,
+         clicks = EXCLUDED.clicks,
+         average_position = EXCLUDED.average_position,
+         source = EXCLUDED.source`,
+      [
+        projectId,
+        rows.map((row) => row.weekStartDate),
+        rows.map((row) => row.pageUrl || ''),
+        rows.map((row) => row.query || ''),
+        rows.map((row) => Math.round(row.impressions)),
+        rows.map((row) => Math.round(row.clicks)),
+        rows.map((row) => row.averagePosition || 0),
+        rows.map((row) => row.source || 'GSC'),
+      ]
+    );
     return { count: rows.length };
   }
 

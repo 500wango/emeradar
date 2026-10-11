@@ -12,6 +12,12 @@ export interface VerdictInput {
   claimsCount?: number;
   maxClaims?: number;
   isCrowdedLocked?: boolean;
+  /** Distinct days of organic SERP observations for the primary query (05 §5.0). */
+  serpHistoryDays?: number;
+  /** Whether the most recent snapshot is an accepted organic search result. */
+  recentSerpSnapshotAvailable?: boolean;
+  /** A critical collector failed for this batch while the caller carried on. */
+  criticalSourceFailure?: boolean;
 }
 
 export interface VerdictResult {
@@ -20,6 +26,8 @@ export interface VerdictResult {
   flags: string[];
   reason: string;
   rulesTriggered: string[];
+  /** False when 05 §5.0 forced this cycle's output down to WATCH. */
+  publicationEligible: boolean;
 }
 
 export function evaluateVerdict(input: VerdictInput): VerdictResult {
@@ -34,6 +42,24 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     (input.claimsCount !== undefined &&
       input.maxClaims !== undefined &&
       input.claimsCount >= input.maxClaims);
+
+  // ---- 05 §5.0 publication eligibility -------------------------------------
+  // Evaluated before any upgrade rule. Anything listed here means this cycle's
+  // observation is not yet a publishable decision, so it must not reach
+  // BUILD_NOW / EARLY_BET (or WINDOW_CLOSING) no matter how the axes look.
+  // Fields left undefined by a caller do not participate, so callers that do not
+  // collect SERP history keep their previous behaviour.
+  const minHistoryDays = isFastTrack ? 7 : 14;
+  const publicationFailures: string[] = [];
+  if (historyDays < minHistoryDays) publicationFailures.push('BASELINE_PERIOD');
+  if (dBand === 'INSUFFICIENT') publicationFailures.push('D_INSUFFICIENT');
+  if (input.serpHistoryDays !== undefined && input.serpHistoryDays < minHistoryDays) {
+    publicationFailures.push('SERP_HISTORY_BELOW_BASELINE');
+  }
+  if (input.recentSerpSnapshotAvailable === false) publicationFailures.push('NO_RECENT_ORGANIC_SERP');
+  if (mSummary.inferredOnly) publicationFailures.push('M_INFERRED_ONLY');
+  if (input.criticalSourceFailure) publicationFailures.push('CRITICAL_SOURCE_FAILURE');
+  const publicationEligible = publicationFailures.length === 0;
 
   // Flag detection
   if (negativeM) {
@@ -153,7 +179,30 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     }
   }
 
-  // 2. Debounce logic
+  // 2. Publication gate (05 §5.0).
+  //    A rejected cycle publishes nothing: neither axis state nor debounce may
+  //    upgrade it. A strong negative signal still resolves to PASS, because PASS
+  //    is a rejection rather than a published opportunity claim.
+  if (!publicationEligible && !negativeM) {
+    for (const failure of publicationFailures) {
+      if (!flags.includes(failure)) flags.push(failure);
+    }
+    if (!flags.includes('PARTIAL_DATA')) flags.push('PARTIAL_DATA');
+    rulesTriggered.push('PUBLICATION_GATE_BLOCKED');
+    return {
+      verdict: 'WATCH',
+      rawVerdict: 'WATCH',
+      flags,
+      reason:
+        'Publication gate not met for this observation cycle (' +
+        publicationFailures.join(', ') +
+        '); the record stays under observation and no upgrade is published.',
+      rulesTriggered,
+      publicationEligible: false,
+    };
+  }
+
+  // 3. Debounce logic
   let published: Verdict = raw;
 
   if (negativeM) {
@@ -197,5 +246,6 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     flags,
     reason,
     rulesTriggered,
+    publicationEligible: true,
   };
 }

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { adminUserUpdateSchema, parseInput } from '@emeradar/core';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
+  // Individual user records carry personal data; ADMIN-only, as with the list.
+  const session = await getAdminSession({ requireAdmin: true });
   if (!session) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }
@@ -18,9 +21,8 @@ export async function GET(
       return NextResponse.json({ error: 'User not found.' }, { status: 404 });
     }
     return NextResponse.json(user);
-  } catch (err: any) {
-    console.error('[admin/users/get] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/users/get');
   }
 }
 
@@ -35,8 +37,7 @@ export async function PATCH(
 
   const { id } = await params;
   try {
-    const body = await req.json();
-    const { role, tier, status } = body;
+    const { role, tier, status } = parseInput(adminUserUpdateSchema, await req.json().catch(() => ({})));
 
     const updated = await AdminService.updateUser(session.user.id, id, {
       role,
@@ -45,11 +46,7 @@ export async function PATCH(
     });
 
     return NextResponse.json(updated);
-  } catch (err: any) {
-    console.error('[admin/users/update] Error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error' },
-      { status: err.status || 400 }
-    );
+  } catch (err) {
+    return errorResponse(err, 'admin/users/update');
   }
 }

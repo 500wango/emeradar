@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/admin-auth';
 import { AdminService } from '@emeradar/services';
+import { candidateModerateSchema, parseInput } from '@emeradar/core';
+import { errorResponse } from '@/lib/api-errors';
 
 export async function GET(req: NextRequest) {
   const session = await getAdminSession();
@@ -16,9 +18,8 @@ export async function GET(req: NextRequest) {
   try {
     const res = await AdminService.listCandidates({ search, limit, offset });
     return NextResponse.json(res);
-  } catch (err: any) {
-    console.error('[admin/candidates] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/candidates');
   }
 }
 
@@ -29,16 +30,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
-    const { opportunityId, action } = body;
-    if (!opportunityId || !action) {
-      return NextResponse.json({ error: 'Missing opportunityId or action' }, { status: 400 });
-    }
+    const { opportunityId, action } = parseInput(
+      candidateModerateSchema,
+      await req.json().catch(() => ({}))
+    );
 
-    const res = await AdminService.moderateCandidate(opportunityId, action);
+    const res = await AdminService.moderateCandidate(opportunityId, action, session.user.id);
     return NextResponse.json(res);
-  } catch (err: any) {
-    console.error('[admin/candidates/moderate] Error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  } catch (err) {
+    return errorResponse(err, 'admin/candidates/moderate');
   }
 }

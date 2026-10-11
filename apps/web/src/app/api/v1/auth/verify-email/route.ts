@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, parseInput, verifyEmailSchema } from '@emeradar/core';
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  let token: string;
+  try {
+    ({ token } = parseInput(verifyEmailSchema, await request.json().catch(() => ({}))));
+  } catch (error) {
+    if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
+    throw error;
+  }
+
   let user;
   try {
     user = await AuthService.verifyEmail(token);

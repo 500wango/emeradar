@@ -35,8 +35,13 @@ export function generateDailyLedger(
   hashedRows: { opportunityId: string; prevHash: string; rowHash: string; data: VerdictRowData }[];
   tree: MerkleTree;
 } {
-  // 1. Sort records by opportunityId ascending per spec §4.2
-  const sorted = [...records].sort((a, b) => a.opportunityId.localeCompare(b.opportunityId));
+  // 1. Sort records by opportunityId ascending per spec §4.2.
+  //    Byte order, not `localeCompare`: ICU collation varies with the host's
+  //    locale data, and any change here reorders the hash chain and invalidates
+  //    every previously published Merkle root.
+  const sorted = [...records].sort((a, b) =>
+    a.opportunityId < b.opportunityId ? -1 : a.opportunityId > b.opportunityId ? 1 : 0
+  );
 
   let currentPrevHash = prevRowHash;
   const hashedRows: {

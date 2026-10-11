@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DecisionService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, decisionSchema, parseInput } from '@emeradar/core';
 import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
@@ -14,20 +14,8 @@ export async function POST(request: NextRequest) {
     const verificationError = requireVerifiedEmail(auth);
     if (verificationError) return verificationError;
     const userId = auth.user.id;
-    const body = await request.json().catch(() => ({}));
-    const reasons = Array.isArray(body.reasons) ? body.reasons.map(String) : [];
-
-    if (!body.opportunityId || typeof body.opportunityId !== 'string') {
-      return NextResponse.json(
-        {
-          type: 'about:blank',
-          title: 'Validation Error',
-          status: 400,
-          detail: 'opportunityId is required.',
-        },
-        { status: 400 }
-      );
-    }
+    const body = parseInput(decisionSchema, await request.json().catch(() => ({})));
+    const reasons = body.reasons ?? [];
 
     const decision = await DecisionService.pass(userId, body.opportunityId, reasons);
     return NextResponse.json(decision, { status: 201 });
@@ -35,12 +23,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Decision Error',
         status: error.status || 500,
-        detail: error.message || 'Could not record the decision.',
+        detail: 'Could not record the decision.',
       },
       { status: error.status || 500 }
     );

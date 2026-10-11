@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LiveScanService, EntitlementService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { AppError, parseInput, scanSchema } from '@emeradar/core';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
@@ -14,20 +14,10 @@ export async function POST(request: NextRequest) {
     }
     const scopeError = requireScope(auth, 'opportunities:write');
     if (scopeError) return scopeError;
-    const body = await request.json().catch(() => ({}));
-    const { query, marketCountry, language, archetype } = body;
-
-    if (!query || typeof query !== 'string' || query.trim().length < 2) {
-      return NextResponse.json(
-        {
-          type: 'about:blank',
-          title: 'Validation Error',
-          status: 400,
-          detail: 'Query must be at least 2 characters long.',
-        },
-        { status: 400 }
-      );
-    }
+    const { query, marketCountry, language, archetype } = parseInput(
+      scanSchema,
+      await request.json().catch(() => ({}))
+    );
 
     // Reserve live scan daily quota (Free: 3/day, Pro: 30/day, Team: 100/day)
     const scanQuota = await EntitlementService.reserveLiveScanQuota(auth.user.id);
@@ -54,12 +44,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    console.error('[api] Unhandled error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Scan Error',
         status: error.status || 500,
-        detail: error.message || 'An error occurred during real-time scan.',
+        detail: 'An error occurred during real-time scan.',
       },
       { status: error.status || 500 }
     );

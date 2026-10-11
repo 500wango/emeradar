@@ -430,4 +430,142 @@ describe('Scoring Engine Unit Tests', () => {
     assert.ok(earlyRes.rulesTriggered.includes('RULE_EARLY_BET'));
     assert.ok(earlyRes.flags.includes('FAST_TRACK'));
   });
+
+  // ---- 05 §5.0 publication gate -------------------------------------------
+
+  it('forces WATCH when the observation has not cleared the baseline period', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 7800,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 6, // below the 14-day (and 7-day fast-track) baseline
+    });
+    assert.strictEqual(res.verdict, 'WATCH');
+    assert.strictEqual(res.rawVerdict, 'WATCH');
+    assert.strictEqual(res.publicationEligible, false);
+    assert.ok(res.flags.includes('BASELINE_PERIOD'));
+    assert.ok(res.flags.includes('PARTIAL_DATA'));
+    assert.ok(res.rulesTriggered.includes('PUBLICATION_GATE_BLOCKED'));
+  });
+
+  it('forces WATCH when the commercial axis is inferred-only', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'LOW',
+        independentDomainsCount: 0,
+        hasSubscriptionPlans: false,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        inferredOnly: true,
+        totalScore: 1000,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 45,
+    });
+    assert.strictEqual(res.verdict, 'WATCH');
+    assert.ok(res.flags.includes('M_INFERRED_ONLY'));
+  });
+
+  it('forces WATCH when the SERP history or latest snapshot is not usable', () => {
+    const stale = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 7800,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 45,
+      serpHistoryDays: 5,
+      recentSerpSnapshotAvailable: false,
+    });
+    assert.strictEqual(stale.verdict, 'WATCH');
+    assert.ok(stale.flags.includes('SERP_HISTORY_BELOW_BASELINE'));
+    assert.ok(stale.flags.includes('NO_RECENT_ORGANIC_SERP'));
+  });
+
+  it('lets a fast-track pulse publish from 7 days of history', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 7800,
+      },
+      wBand: 'MEDIUM',
+      confidence: 'MEDIUM',
+      historyDays: 8,
+      fastTrack: true,
+      serpHistoryDays: 7,
+      recentSerpSnapshotAvailable: true,
+    });
+    assert.strictEqual(res.publicationEligible, true);
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+  });
+
+  it('still resolves a strong negative commercial signal to PASS', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: true,
+        totalScore: 900,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 45,
+      serpHistoryDays: 3,
+      recentSerpSnapshotAvailable: false,
+    });
+    assert.strictEqual(res.verdict, 'PASS');
+  });
+
+  it('clamps the demand score to the 0-10000 basis-point range', () => {
+    const res = calculateDemandScore({
+      clusterSize: 12,
+      newQueries7d: 20,
+      clusterGrowth30d: 3,
+      expansionSlope30d: 4,
+      attentionSourcesActive14d: 4,
+      attentionGrowth14d: 10, // unbounded heuristic term
+      trendsSlope90d: 5,
+      historyDays: 60,
+    });
+    assert.ok(res.basisPoints <= 10000, `expected <= 10000, got ${res.basisPoints}`);
+    assert.ok(res.basisPoints >= 0);
+
+    const clamped = calculateDemandScore(
+      {
+        clusterSize: 12,
+        newQueries7d: 20,
+        clusterGrowth30d: 3,
+        expansionSlope30d: 4,
+        attentionSourcesActive14d: 4,
+        attentionGrowth14d: 10,
+        historyDays: 60,
+      },
+      { newQueries: 900, growth: 900, expansion: 900, attention: 900 }
+    );
+    assert.ok(clamped.basisPoints <= 10000, `expected <= 10000, got ${clamped.basisPoints}`);
+  });
 });

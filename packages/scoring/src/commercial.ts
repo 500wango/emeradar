@@ -36,6 +36,12 @@ export interface CommercialBandResult {
   coverageInsufficient: boolean;
   persistenceDaysNeeded: number;
   reason: string;
+  /**
+   * 07 §5 / 05 §5.0: the M axis rests only on INFERRED commercial intent in the
+   * query text — no observed pricing, checkout, transaction proxy or category
+   * validation. Such a signal cannot carry a published decision.
+   */
+  inferredOnly: boolean;
 }
 
 const BASIS_BY_BAND: Record<AxisBand, number> = {
@@ -290,6 +296,13 @@ export function bandM(
     summary.persistenceDaysNeeded ??
     Math.max(0, cfg.persistenceDays - (summary.maxSnapshotSpanDays ?? 0));
 
+  const inferredOnly =
+    priced === 0 &&
+    categoryOrAnalog === 0 &&
+    (summary.infraOnlyDomains ?? 0) === 0 &&
+    !traction &&
+    revenue === 0;
+
   return {
     band,
     basisPoints: BASIS_BY_BAND[band],
@@ -301,5 +314,6 @@ export function bandM(
     coverageInsufficient,
     persistenceDaysNeeded,
     reason,
+    inferredOnly,
   };
 }

@@ -16,6 +16,22 @@ import {
   formatPresence,
 } from './localization';
 
+/**
+ * Neutralises Markdown control characters in values that originate outside this
+ * package (opportunity titles, SERP titles/domains, query text). A pipe or a
+ * newline in a title otherwise splits a table row or breaks a heading.
+ */
+export function escapeMarkdown(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    // `.` and `-` are left alone: they only carry meaning at the start of a
+    // line, and newlines are collapsed below, so escaping them would only add
+    // noise to prices and version numbers.
+    .replace(/([`*_{}[\]()#+!|>])/g, '\\$1')
+    .replace(/[\r\n]+/g, ' ');
+}
+
 export function renderReportToMarkdown(report: OpportunityReportData): string {
   const { metadata, section1, section2, section3, section4, section5, section6 } = report;
   const isZh = metadata.locale === 'zh-CN';
@@ -25,7 +41,7 @@ export function renderReportToMarkdown(report: OpportunityReportData): string {
   const wPct = (metadata.scores.wBasisPoints / 100).toFixed(1);
 
   if (isZh) {
-    let md = `# 🎯 商业机会深度研究报告：${metadata.title}
+    let md = `# 🎯 商业机会深度研究报告：${escapeMarkdown(metadata.title)}
 
 > **报告编号 (Report ID)**：\`${metadata.reportId}\`  
 > **机会标识 (Opportunity ID)**：\`${metadata.opportunityId}\` ｜ **观测日期**：\`${metadata.obsDate}\`  
@@ -75,7 +91,7 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 
 ## 2. 🔍 搜索需求与查询词图谱分析 (Search Demand)
 
-- **核心种子查询词 (Primary Query)**：\`${section2.primaryQuery}\`
+- **核心种子查询词 (Primary Query)**：\`${escapeMarkdown(section2.primaryQuery)}\`
 - **主要搜索意图 (Search Intent)**：\`${formatSearchIntent(section2.searchIntent, 'zh-CN')}\`
 - **解决核心任务 (Core Job)**：${section2.jobToBeDone}
 - **建议落地形态 (Recommended Shape)**：**${section2.recommendedProductShape}**
@@ -85,7 +101,7 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 ### 关联查询词矩阵 (Query Cluster)
 | 搜索关键词 (Google Query) | 搜索意图类型 | 搜索量等级 |
 |:--------------------------|:-------------|:-----------|
-${section2.clusterQueries.map((q) => `| \`${q.query}\` | ${formatSearchIntent(q.intent, 'zh-CN')} | ${formatVolumeTier(q.volumeTier, 'zh-CN')} |`).join('\n')}
+${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${formatSearchIntent(q.intent, 'zh-CN')} | ${formatVolumeTier(q.volumeTier, 'zh-CN')} |`).join('\n')}
 
 ### 搜索框联想词与长尾萌芽信号 (Autocomplete Signals)
 ${section2.autocompleteSignals.map((s) => `- \`${s}\``).join('\n')}
@@ -104,7 +120,7 @@ ${section2.momentumAssessment}
 ### Google 前 10 名自然搜索结果审计
 | 排名 | 目标域名 | 网页原始标题 (Title) | 页面类型 | 渗透难度 | 存在薄弱点原因 |
 |:---:|:---|:---|:---:|:---:|:---|
-${section3.top10Results.map((r) => `| ${r.rank} | **${r.domain}** | ${r.title} | \`${formatResultType(r.resultType, 'zh-CN')}\` | ${r.isWeak ? '🔴 薄弱 (易被替换)' : '🟢 强劲 (权重高)'} | ${r.weaknessReason || '暂无详细薄弱标注'} |`).join('\n')}
+${section3.top10Results.map((r) => `| ${r.rank} | **${escapeMarkdown(r.domain)}** | ${escapeMarkdown(r.title)} | \`${formatResultType(r.resultType, 'zh-CN')}\` | ${r.isWeak ? '🔴 薄弱 (易被替换)' : '🟢 强劲 (权重高)'} | ${escapeMarkdown(r.weaknessReason) || '暂无详细薄弱标注'} |`).join('\n')}
 
 ### 可切入空隙与竞品盲区
 ${section3.vulnerableGaps.map((gap) => `- 🎯 ${gap}`).join('\n')}
@@ -140,7 +156,7 @@ ${section3.indieCompetitionAudit.defensiveMoatAdvice}
 ### 细分赛道活跃付费竞品
 | 竞品域名 | 收费模式 | 价格区间 | 已集成支付通道 |
 |:---------|:---------|:---------|:---------------|
-${section4.paidCompetitors.map((c) => `| **${c.domain}** | ${formatPricingModel(c.pricingModel, 'zh-CN')} | ${c.priceRange} | ${c.paymentGateways.join(', ')} |`).join('\n')}
+${section4.paidCompetitors.map((c) => `| **${escapeMarkdown(c.domain)}** | ${formatPricingModel(c.pricingModel, 'zh-CN')} | ${escapeMarkdown(c.priceRange)} | ${escapeMarkdown(c.paymentGateways.join(', '))} |`).join('\n')}
 
 **变现空间与商业天花板评估**：  
 ${section4.monetizationHeadroom}
@@ -232,14 +248,14 @@ ${section6.radarWatchGuidance}
 
 | 测算指标 | 预估/目标数值 | 业务解读与参考基准 |
 |:---|:---|:---|
-| **目标月经常性收入 (MRR)** | **$${sim.defaultMonthlyTargetUSD.toLocaleString()} / 月** | 独立开发者基准月收入目标 |
+| **目标月经常性收入 (MRR)** | **$${sim.defaultMonthlyTargetUSD.toLocaleString(isZh ? 'zh-CN' : 'en-US')} / 月** | 独立开发者基准月收入目标 |
 | **Ahrefs 标定难度 (KD)** | **${sim.estimatedKd} / 100 分** | 关键词自然搜索算法竞争阻力 |
 | **目标域名权重 (DR)** | **${sim.targetDrRange}** | 进入搜索首页所需的最低域名权威度 |
 | **所需反向外链域名数 (RD)** | **${sim.requiredDomainsLow} ~ ${sim.requiredDomainsHigh} 个独立域名** | 达成排位所需的独立引荐域名配额 |
-| **预估外链获取预算** | **$${estLowCost.toLocaleString()} ~ $${estHighCost.toLocaleString()}** | 阶梯化外链建设或软文拓展预算 |
+| **预估外链获取预算** | **$${estLowCost.toLocaleString(isZh ? 'zh-CN' : 'en-US')} ~ $${estHighCost.toLocaleString(isZh ? 'zh-CN' : 'en-US')}** | 阶梯化外链建设或软文拓展预算 |
 | **黄金关键词比率 (KGR)** | **${sim.kgrRatio.toFixed(3)}** | ${sim.kgrRatio < 0.25 ? '✅ 极佳 (< 0.25 具备极速上词潜质)' : '⚠️ 标准'} |
 | **聚合长尾 KGR (EKGR)** | **${sim.ekgrRatio.toFixed(3)}** | ${sim.ekgrRatio < 1.0 ? '✅ 潜力良好 (< 1.0)' : '标准'} |
-| **聚合词月度搜索潜量** | **约 ${sim.monthlyVolumeEstimate.toLocaleString()} 次/月** | 整个意图词簇的月度总搜索量估算 |
+| **聚合词月度搜索潜量** | **约 ${sim.monthlyVolumeEstimate.toLocaleString(isZh ? 'zh-CN' : 'en-US')} 次/月** | 整个意图词簇的月度总搜索量估算 |
 
 ### 核心测算假设条件
 ${sim.assumptions.map((a) => `- 💡 ${a}`).join('\n')}
@@ -250,7 +266,7 @@ ${sim.assumptions.map((a) => `- 💡 ${a}`).join('\n')}
   }
 
   // Pure English output for en-US / foreign users
-  let md = `# 🎯 Opportunity Research Report: ${metadata.title}
+  let md = `# 🎯 Opportunity Research Report: ${escapeMarkdown(metadata.title)}
 
 > **Report ID**: \`${metadata.reportId}\`  
 > **Opportunity ID**: \`${metadata.opportunityId}\` | **Obs Date**: \`${metadata.obsDate}\`  
@@ -300,7 +316,7 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 
 ## 2. 🔍 Search Demand & Query Clustering
 
-- **Primary Query**: \`${section2.primaryQuery}\`
+- **Primary Query**: \`${escapeMarkdown(section2.primaryQuery)}\`
 - **Search Intent**: \`${section2.searchIntent}\`
 - **Core Job**: ${section2.jobToBeDone}
 - **Recommended Shape**: **${section2.recommendedProductShape}**
@@ -310,7 +326,7 @@ ${section1.keyRisks.map((risk) => `- ⚠️ ${risk}`).join('\n')}
 ### Query Cluster Matrix
 | Search Query | Search Intent | Volume Tier |
 |--------------|---------------|-------------|
-${section2.clusterQueries.map((q) => `| \`${q.query}\` | ${q.intent} | ${q.volumeTier} |`).join('\n')}
+${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${q.intent} | ${q.volumeTier} |`).join('\n')}
 
 ### Autocomplete & Emerging Long-Tail Signals
 ${section2.autocompleteSignals.map((s) => `- \`${s}\``).join('\n')}
@@ -329,7 +345,7 @@ ${section2.momentumAssessment}
 ### Top 10 Organic Search Results
 | Rank | Domain | Title | Result Type | Weakness Status | Reason |
 |:----:|--------|-------|:-----------:|:---------------:|--------|
-${section3.top10Results.map((r) => `| ${r.rank} | **${r.domain}** | ${r.title} | \`${r.resultType}\` | ${r.isWeak ? '🔴 WEAK' : '🟢 STRONG'} | ${r.weaknessReason || ''} |`).join('\n')}
+${section3.top10Results.map((r) => `| ${r.rank} | **${escapeMarkdown(r.domain)}** | ${escapeMarkdown(r.title)} | \`${r.resultType}\` | ${r.isWeak ? '🔴 WEAK' : '🟢 STRONG'} | ${escapeMarkdown(r.weaknessReason)} |`).join('\n')}
 
 ### Attackable Gaps & Competitor Blindspots
 ${section3.vulnerableGaps.map((gap) => `- 🎯 ${gap}`).join('\n')}
@@ -365,7 +381,7 @@ ${section3.indieCompetitionAudit.defensiveMoatAdvice}
 ### Paid Solutions Active in Niche
 | Competitor Domain | Pricing Model | Price Range | Payment Gateways |
 |-------------------|---------------|-------------|------------------|
-${section4.paidCompetitors.map((c) => `| **${c.domain}** | ${c.pricingModel} | ${c.priceRange} | ${c.paymentGateways.join(', ')} |`).join('\n')}
+${section4.paidCompetitors.map((c) => `| **${escapeMarkdown(c.domain)}** | ${escapeMarkdown(c.pricingModel)} | ${escapeMarkdown(c.priceRange)} | ${escapeMarkdown(c.paymentGateways.join(', '))} |`).join('\n')}
 
 **Monetization Headroom**:  
 ${section4.monetizationHeadroom}
@@ -457,14 +473,14 @@ ${section6.radarWatchGuidance}
 
 | Metric | Target / Projected Value | Operational Benchmark |
 |--------|-------------------------|-----------------------|
-| **Target Monthly Revenue** | **$${sim.defaultMonthlyTargetUSD.toLocaleString()} / mo** | Baseline ambition tier |
+| **Target Monthly Revenue** | **$${sim.defaultMonthlyTargetUSD.toLocaleString(isZh ? 'zh-CN' : 'en-US')} / mo** | Baseline ambition tier |
 | **Ahrefs-Calibrated KD** | **${sim.estimatedKd} / 100** | Algorithmic resistance estimate |
 | **Target Domain Rating (DR)** | **${sim.targetDrRange}** | Viable ranking threshold |
 | **Required Referring Domains** | **${sim.requiredDomainsLow} - ${sim.requiredDomainsHigh} domains** | Calibrated link acquisition quota |
-| **Estimated Link Outlay** | **$${estLowCost.toLocaleString()} - $${estHighCost.toLocaleString()}** | Tiered outreach & link acquisition |
+| **Estimated Link Outlay** | **$${estLowCost.toLocaleString(isZh ? 'zh-CN' : 'en-US')} - $${estHighCost.toLocaleString(isZh ? 'zh-CN' : 'en-US')}** | Tiered outreach & link acquisition |
 | **Keyword Golden Ratio (KGR)** | **${sim.kgrRatio.toFixed(3)}** | ${sim.kgrRatio < 0.25 ? '✅ Great (< 0.25 - Fast rank candidate)' : '⚠️ Standard'} |
 | **Extended KGR (EKGR)** | **${sim.ekgrRatio.toFixed(3)}** | ${sim.ekgrRatio < 1.0 ? '✅ Promising (< 1.0)' : 'Standard'} |
-| **Monthly Volume Modeling** | **~${sim.monthlyVolumeEstimate.toLocaleString()} visits/mo** | Modeled across query cluster |
+| **Monthly Volume Modeling** | **~${sim.monthlyVolumeEstimate.toLocaleString(isZh ? 'zh-CN' : 'en-US')} visits/mo** | Modeled across query cluster |
 
 ### Modeling Assumptions
 ${sim.assumptions.map((a) => `- 💡 ${a}`).join('\n')}

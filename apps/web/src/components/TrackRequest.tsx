@@ -54,6 +54,7 @@ export function TrackRequest() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           minLength={2}
+          maxLength={120}
           required
           placeholder={t('feed.trackRequestPlaceholder')}
           className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"

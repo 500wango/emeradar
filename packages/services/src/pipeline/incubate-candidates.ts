@@ -108,7 +108,11 @@ export async function incubateCandidatesFromDiscovery(limit = 15): Promise<
         [oppId, actualQueryId]
       );
 
-      // 4. Create Opportunity Card in WATCH state
+      // 4. Create Opportunity Card in WATCH state.
+      //    A discovery candidate has not been observed yet, so every axis starts
+      //    INSUFFICIENT with a zero score. Seeding HIGH/MEDIUM bands here would
+      //    publish scores that no observation ever produced; the daily pipeline
+      //    overwrites them once real collection runs.
       await client.query(
         `INSERT INTO opportunity_cards (
            opportunity_id, slug, primary_query,
@@ -118,9 +122,9 @@ export async function incubateCandidatesFromDiscovery(limit = 15): Promise<
            why_now_summary, top_idea, first_observed_at
          ) VALUES (
            $1, $2, $3,
-           'WATCH', 'EARLY_WINDOW', $4, 'S',
-           7200, 6800, 7100,
-           'HIGH', 'MEDIUM', 'HIGH', 'MEDIUM',
+           'WATCH', 'FORMING', $4, 'S',
+           0, 0, 0,
+           'INSUFFICIENT', 'INSUFFICIENT', 'INSUFFICIENT', 'LOW',
            $5, $6, NOW()
          )
          ON CONFLICT (opportunity_id) DO NOTHING`,

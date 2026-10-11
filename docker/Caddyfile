@@ -1,4 +1,14 @@
 emeradar.com, www.emeradar.com {
   encode gzip
-  reverse_proxy web:3000
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+  reverse_proxy web:3000 {
+    # Strip client-supplied X-Real-IP so the app cannot be tricked into
+    # trusting a forged value for rate limiting / client-address derivation.
+    header_up -X-Real-IP
+  }
 }

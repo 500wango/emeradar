@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ProjectService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { internalErrorResponse } from '@/lib/api-errors';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { AppError } from '@emeradar/core';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -16,6 +17,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return response;
   } catch (error: any) {
     if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
-    return NextResponse.json({ type: 'about:blank', title: 'Error', status: 500, detail: error.message }, { status: 500 });
+    return internalErrorResponse(error, 'projects/id/gsc/connect');
   }
 }

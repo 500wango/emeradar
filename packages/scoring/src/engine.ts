@@ -24,6 +24,13 @@ export interface FullOpportunityScoreInput {
   claimsCount?: number;
   maxClaims?: number;
   isCrowdedLocked?: boolean;
+  /** 05 §5.0 publication-gate inputs, forwarded to evaluateVerdict as-is. */
+  criticalSourceFailure?: boolean;
+  /**
+   * Trailing 7-day observation volume over the 90-day peak window. Without it
+   * the lifecycle DEAD transition is unreachable (LC-ANY-TO-DEAD).
+   */
+  activityRatio90d?: number;
 }
 
 export function calculateOpportunityScore(
@@ -68,6 +75,9 @@ export function calculateOpportunityScore(
     claimsCount,
     maxClaims,
     isCrowdedLocked,
+    serpHistoryDays: input.window.serpHistoryDays,
+    recentSerpSnapshotAvailable: input.window.recentSerpSnapshotAvailable,
+    criticalSourceFailure: input.criticalSourceFailure,
   });
 
   // 6. Lifecycle Evaluation
@@ -79,6 +89,7 @@ export function calculateOpportunityScore(
     volatility30d: input.window.volatility30d,
     expansionSlope30d: input.demand.expansionSlope30d,
     newQueries7d: input.demand.newQueries7d,
+    activityRatio90d: input.activityRatio90d,
     prev: input.prev,
   });
 

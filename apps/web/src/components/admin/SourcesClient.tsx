@@ -20,8 +20,13 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
   const [url, setUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const handleToggle = async (sourceId: string, currentActive: boolean) => {
+    // Row-level guard: block repeat/concurrent toggles while one is in flight.
+    if (processingId) return;
+    setProcessingId(sourceId);
+    setMessage(null);
     try {
       const res = await fetch('/api/v1/admin/sources', {
         method: 'POST',
@@ -33,15 +38,25 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
         }),
       });
 
-      if (res.ok) {
-        setSources((prev) =>
-          prev.map((s) => (s.id === sourceId ? { ...s, isActive: !currentActive } : s))
-        );
-      } else {
-        alert('切换状态失败');
+      if (!res.ok) {
+        console.error('切换采集源状态失败:', res.status);
+        alert('切换状态失败，请稍后重试');
+        return;
+      }
+
+      // Refresh the row from server truth rather than optimistically negating
+      // the (possibly stale) client value — rapid clicks used to send the same
+      // target twice and leave the switch inverted.
+      const listRes = await fetch('/api/v1/admin/sources');
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        setSources(listData.sources);
       }
     } catch (err: any) {
-      alert(`网络错误: ${err.message}`);
+      console.error('切换采集源状态时发生网络错误:', err);
+      alert('网络错误，请稍后重试');
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -71,10 +86,12 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
         setMessage(`已成功添加 RSS 采集源：「${data.source.name}」！`);
       } else {
         const err = await res.json();
-        alert(`添加失败: ${err.error || '未知错误'}`);
+        console.error('添加采集源失败:', err);
+        alert('添加采集源失败，请稍后重试');
       }
     } catch (err: any) {
-      alert(`网络错误: ${err.message}`);
+      console.error('添加采集源时发生网络错误:', err);
+      alert('网络错误，请稍后重试');
     } finally {
       setSubmitting(false);
     }
@@ -208,7 +225,8 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
                   aria-label={s.isActive ? `暂停 ${s.name}` : `激活 ${s.name}`}
                   aria-pressed={s.isActive}
                   onClick={() => handleToggle(s.id, s.isActive)}
-                  className={`w-11 h-6 rounded-full transition-colors relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${
+                  disabled={processingId === s.id}
+                  className={`w-11 h-6 rounded-full transition-colors relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-50 disabled:cursor-not-allowed ${
                     s.isActive ? 'bg-emerald-500' : 'bg-slate-700'
                   }`}
                 >

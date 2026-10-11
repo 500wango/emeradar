@@ -19,6 +19,7 @@ import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
 import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
 import { getServerI18n } from '@/lib/i18n/server';
+import { safeExternalUrl } from '@/lib/format';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
@@ -36,7 +37,7 @@ export default async function OpportunityWorkspacePage({
 
   let data: any;
   try {
-    data = await OpportunityService.getOpportunityDetail(slug);
+    data = await OpportunityService.getOpportunityDetail(slug, { minAgeDays: ent.feedDelayDays });
   } catch {
     notFound();
   }
@@ -283,7 +284,7 @@ export default async function OpportunityWorkspacePage({
                       </td>
                       <td className="py-3 px-3 max-w-md align-top">
                         <a
-                          href={r.url}
+                          href={safeExternalUrl(r.url) ?? '#'}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-medium text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5 group"

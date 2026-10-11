@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ProjectService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { AppError } from '@emeradar/core';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -13,6 +13,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json(await ProjectService.inspectProjectSite(id, auth.user.id));
   } catch (error: any) {
     if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
-    return NextResponse.json({ type: 'about:blank', title: 'Site check failed', status: 502, detail: error.message }, { status: 502 });
+    console.error('[projects/site-check] Error:', error);
+    return NextResponse.json(
+      { type: 'about:blank', title: 'Site check failed', status: 502, detail: 'The project site could not be inspected.' },
+      { status: 502 }
+    );
   }
 }

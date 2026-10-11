@@ -6,6 +6,7 @@ import { FeedClient } from '@/components/FeedClient';
 import { TrackRequest } from '@/components/TrackRequest';
 import { StartExperimentButton } from '@/components/StartExperimentButton';
 import { getServerI18n } from '@/lib/i18n/server';
+import { safeExternalUrl } from '@/lib/format';
 
 type FeedSearchParams = Record<string, string | string[] | undefined>;
 
@@ -130,7 +131,7 @@ export default async function FeedPage({
                       {new Date(item.sourcePublishedAt || item.firstCollectedAt).toLocaleDateString(isZh ? 'zh-CN' : 'en-US')}
                     </time>
                   </div>
-                  <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 block font-semibold text-slate-900 hover:text-blue-700">
+                  <a href={safeExternalUrl(item.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-2 block font-semibold text-slate-900 hover:text-blue-700">
                     {item.title}
                   </a>
                   {item.excerpt && <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3">{item.excerpt}</p>}
@@ -203,7 +204,7 @@ export default async function FeedPage({
                     <dd>{experiment.abandonCondition}</dd>
                   </div>
                 </dl>
-                <a href={experiment.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block text-[11px] text-blue-700 hover:underline">
+                <a href={safeExternalUrl(experiment.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-4 inline-block text-[11px] text-blue-700 hover:underline">
                   {isZh ? '来源: ' : 'Source: '} {experiment.sourceTitle}
                 </a>
                 <StartExperimentButton experimentCardId={experiment.id} title={experiment.title} />

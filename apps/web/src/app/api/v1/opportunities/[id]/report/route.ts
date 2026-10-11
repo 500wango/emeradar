@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReportService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
+import { internalErrorResponse } from '@/lib/api-errors';
 import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
+import { AppError } from '@emeradar/core';
 
 export async function GET(
   request: NextRequest,
@@ -26,9 +27,6 @@ export async function GET(
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Report Generation Error', status: 500, detail: error.message },
-      { status: 500 }
-    );
+    return internalErrorResponse(error, 'opportunities/id/report');
   }
 }

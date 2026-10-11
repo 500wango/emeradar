@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { AppError } from '@emeradar/core';
 
 export async function DELETE(
   request: NextRequest,
@@ -45,13 +46,17 @@ export async function DELETE(
       revokedId: id,
       message: 'API Key revoked successfully.',
     });
-  } catch (error: any) {
+  } catch (error) {
+    if (error instanceof AppError) {
+      return NextResponse.json(error.toRFC9457(), { status: error.status });
+    }
+    console.error('[user/api-keys/revoke] Error:', error);
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Revoke Error',
         status: 500,
-        detail: error.message,
+        detail: 'The API key could not be revoked.',
       },
       { status: 500 }
     );

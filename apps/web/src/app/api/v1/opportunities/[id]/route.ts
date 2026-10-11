@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EntitlementService, OpportunityService } from '@emeradar/services';
-import { AppError } from '@emeradar/core';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { AppError } from '@emeradar/core';
 
 export async function GET(
   _request: NextRequest,
@@ -25,14 +25,17 @@ export async function GET(
       );
     }
     const { id } = await params;
-    const data = await OpportunityService.getOpportunityDetail(id);
+    const data = await OpportunityService.getOpportunityDetail(id, {
+      minAgeDays: ent.feedDelayDays,
+    });
     return NextResponse.json(data);
   } catch (error: any) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
+    console.error('[opportunities/detail] Error:', error);
     return NextResponse.json(
-      { type: 'about:blank', title: 'Error', status: 500, detail: error.message },
+      { type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'The opportunity could not be loaded.' },
       { status: 500 }
     );
   }

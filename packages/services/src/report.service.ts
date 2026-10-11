@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto';
 import { query } from '@emeradar/db';
 import { EmeradarError, ErrorCode, Locale } from '@emeradar/core';
-import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import {
   generateOpportunityReport,
   renderReportToMarkdown,
@@ -94,90 +92,47 @@ export class ReportService {
       };
     }
 
-    // 2. Ensure snapshot exists
-    const dScore = Number(opp.d_basis_points) > 0 ? Number(opp.d_basis_points) : 7200;
+    // 2. Load the sealed snapshot produced by the daily pipeline.
+    //    A report is a decision record backed by recorded observations: we never
+    //    invent a snapshot, a verdict row, or a score the ledger does not contain.
+    const dScore = Number(opp.d_basis_points) || 0;
     // 07 §10: a missing commercial observation must stay missing. Rewriting it to
     // MEDIUM/6500 would publish "commercially validated" for an opportunity we never sampled.
     const mScore = Number(opp.m_basis_points) || 0;
-    const wScore = Number(opp.w_basis_points) > 0 ? Number(opp.w_basis_points) : 6800;
-    const dBand = opp.d_band && opp.d_band !== 'INSUFFICIENT' ? opp.d_band : 'MEDIUM';
+    const wScore = Number(opp.w_basis_points) || 0;
+    const dBand = opp.d_band ?? 'INSUFFICIENT';
     const mBand = opp.m_band ?? 'INSUFFICIENT';
-    const wBand = opp.w_band && opp.w_band !== 'INSUFFICIENT' ? opp.w_band : 'MEDIUM';
-    const confidence = opp.confidence && opp.confidence !== 'LOW' ? opp.confidence : 'MEDIUM';
+    const wBand = opp.w_band ?? 'INSUFFICIENT';
+    const confidence = opp.confidence;
 
     const snapRes = await query<{ id: string; obs_date: string }>(
       `SELECT id, obs_date::text FROM opportunity_snapshots WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
       [opp.id]
     );
-    let snapshotId: string;
-    let snapshotObsDate: string;
-    if (snapRes.rows.length > 0) {
-      snapshotId = snapRes.rows[0].id;
-      snapshotObsDate = snapRes.rows[0].obs_date;
-    } else {
-      const today = new Date().toISOString().split('T')[0];
-      snapshotId = `snp_${opp.id}_${today.replace(/-/g, '')}`;
-      snapshotObsDate = today;
-      await query(
-        `INSERT INTO opportunity_snapshots (id, opportunity_id, obs_date, metrics, sealed_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
-        [
-          snapshotId,
-          opp.id,
-          today,
-          JSON.stringify({
-            d_score: dScore,
-            m_score: mScore,
-            w_score: wScore,
-            d_band: dBand,
-            m_band: mBand,
-            w_band: wBand,
-            confidence: confidence,
-          }),
-        ]
+    if (snapRes.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.PRECONDITION_FAILED,
+        'This opportunity has no sealed snapshot yet; a report can only be produced from recorded observations.',
+        409
       );
     }
+    const snapshotId = snapRes.rows[0].id;
+    const snapshotObsDate = snapRes.rows[0].obs_date;
 
-    // Ensure verdict exists
+    // 2b. Reports must cite a sealed verdict. If none exists, refuse: the verdicts
+    //    table is append-only and may only be written by the daily pipeline (S6).
     const verdictRes = await query<{ id: string; obs_date: string }>(
       `SELECT id, obs_date::text FROM verdicts WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
       [opp.id]
     );
-    let verdictId: string;
-    if (verdictRes.rows.length > 0) {
-      verdictId = verdictRes.rows[0].id;
-    } else {
-      const today = new Date().toISOString().split('T')[0];
-      verdictId = `vdt_${opp.id}_${today.replace(/-/g, '')}`;
-      const rowHash = createHash('sha256')
-        .update(`${opp.id}|${today}|${opp.verdict}|${dScore}|${mScore}|${wScore}`)
-        .digest('hex');
-      const prevHash = createHash('sha256').update(`genesis_${opp.id}`).digest('hex');
-      await query(
-        `INSERT INTO verdicts (
-           id, opportunity_id, obs_date, scoring_config_version,
-           verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
-           confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '{}', $12, $13)
-         ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
-        [
-          verdictId,
-          opp.id,
-          today,
-          SCORING_CONFIG_VERSION,
-          opp.verdict,
-          opp.lifecycle || 'EARLY_WINDOW',
-          dScore,
-          mScore,
-          wScore,
-          confidence,
-          [snapshotId],
-          prevHash,
-          rowHash,
-        ]
+    if (verdictRes.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.PRECONDITION_FAILED,
+        'This opportunity has no sealed verdict yet; a report can only be produced from a published prediction.',
+        409
       );
     }
+    const verdictId = verdictRes.rows[0].id;
 
     // 3. Reserve quota via Hold & Release
     const reservation = await EntitlementService.reserveReportGenerationQuota(userId, opp.id);

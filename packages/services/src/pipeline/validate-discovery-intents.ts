@@ -1,5 +1,30 @@
 import { query } from '@emeradar/db';
-import { AutocompleteCollector, RunContext, SerpCollector } from '@emeradar/collectors';
+import {
+  AutocompleteCollector,
+  BudgetGuard,
+  CostLedgerService,
+  RunContext,
+  SerpCollector,
+} from '@emeradar/collectors';
+
+/**
+ * In-run budget guard that accumulates every approved spend, so the cap is
+ * enforced across the whole loop rather than per call.
+ */
+function createSpendBudget(maxDailyBudgetUsd: number): BudgetGuard {
+  let spent = 0;
+  return {
+    maxDailyBudgetUsd,
+    get currentSpentUsd() {
+      return spent;
+    },
+    canSpend(costUsd: number): boolean {
+      if (spent + costUsd > maxDailyBudgetUsd) return false;
+      spent += costUsd;
+      return true;
+    },
+  };
+}
 
 export async function validateDiscoveryIntents(limit = 5, obsDate = new Date().toISOString().slice(0, 10)): Promise<number> {
   const rows = await query<{ id: string; query_hypothesis: string }>(
@@ -14,15 +39,24 @@ export async function validateDiscoveryIntents(limit = 5, obsDate = new Date().t
     runId: `run_discovery_validate_${Date.now()}`,
     obsDate,
     clock: () => new Date(),
-    budget: { maxDailyBudgetUsd: Number(process.env.DISCOVERY_VALIDATION_BUDGET_USD || 0), currentSpentUsd: 0, canSpend(cost) { return this.currentSpentUsd + cost <= this.maxDailyBudgetUsd; } },
+    // The guard must actually accumulate inside canSpend: the previous version
+    // compared a constant `0 + cost` against the cap, so the discovery budget
+    // never bounded anything.
+    budget: createSpendBudget(Number(process.env.DISCOVERY_VALIDATION_BUDGET_USD || 0)),
   };
   let validated = 0;
   for (const row of rows.rows) {
     const queryId = `qry_discovery_${row.id}`;
     const acOutcome = await ac.collect(ctx, { queryId, queryText: row.query_hypothesis });
+    if (acOutcome.status !== 'SKIPPED' && acOutcome.cost) {
+      await CostLedgerService.recordCost(acOutcome.cost);
+    }
     const acStatus = acOutcome.status === 'OK' ? (acOutcome.snapshots[0]?.data.suggestions?.length ? 'OBSERVED' : 'EMPTY') : acOutcome.status === 'FAILED' ? 'FAILED' : 'UNKNOWN';
     const suggestions = acOutcome.status === 'OK' ? acOutcome.snapshots[0]?.data.suggestions ?? [] : [];
     const serpOutcome = await serp.collect(ctx, { queryId, queryText: row.query_hypothesis });
+    if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
+      await CostLedgerService.recordCost(serpOutcome.cost);
+    }
     const serpData = serpOutcome.status === 'OK' ? serpOutcome.snapshots[0]?.data : undefined;
     const serpStatus = serpOutcome.status === 'OK' ? (serpData?.items?.length ? 'OBSERVED' : 'EMPTY') : serpOutcome.status === 'FAILED' ? 'FAILED' : 'UNKNOWN';
     const serpItems = serpData?.items ?? [];

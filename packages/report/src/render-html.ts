@@ -366,7 +366,7 @@ export function renderReportToHtml(report: OpportunityReportData): string {
     <tbody>
       <tr>
         <td><strong>${isZh ? '目标月经常性收入 (MRR)' : 'Target Monthly Revenue'}</strong></td>
-        <td><strong style="color: #16a34a; font-size: 15px;">$${report.goalSimulator.defaultMonthlyTargetUSD.toLocaleString()}</strong> / ${isZh ? '月' : 'mo'}</td>
+        <td><strong style="color: #16a34a; font-size: 15px;">$${report.goalSimulator.defaultMonthlyTargetUSD.toLocaleString(isZh ? 'zh-CN' : 'en-US')}</strong> / ${isZh ? '月' : 'mo'}</td>
         <td>${isZh ? '独立开发者基准月收入目标' : 'Builder baseline revenue target'}</td>
       </tr>
       <tr>
@@ -381,7 +381,7 @@ export function renderReportToHtml(report: OpportunityReportData): string {
       </tr>
       <tr>
         <td><strong>${isZh ? '预估外链获取预算' : 'Estimated Link Acquisition Budget'}</strong></td>
-        <td><strong>$${(report.goalSimulator.requiredDomainsLow * 100).toLocaleString()} &ndash; $${Math.round(report.goalSimulator.requiredDomainsHigh * 125).toLocaleString()}</strong></td>
+        <td><strong>$${(report.goalSimulator.requiredDomainsLow * 100).toLocaleString(isZh ? 'zh-CN' : 'en-US')} &ndash; $${Math.round(report.goalSimulator.requiredDomainsHigh * 125).toLocaleString(isZh ? 'zh-CN' : 'en-US')}</strong></td>
         <td>${isZh ? '阶梯化外链建设预算' : 'Tiered outreach &amp; link acquisition'}</td>
       </tr>
       <tr>
@@ -396,7 +396,7 @@ export function renderReportToHtml(report: OpportunityReportData): string {
       </tr>
       <tr>
         <td><strong>${isZh ? '聚合词月度搜索潜量' : 'Monthly Volume Modeling'}</strong></td>
-        <td>~${report.goalSimulator.monthlyVolumeEstimate.toLocaleString()} ${isZh ? '次/月' : 'visits/mo'}</td>
+        <td>~${report.goalSimulator.monthlyVolumeEstimate.toLocaleString(isZh ? 'zh-CN' : 'en-US')} ${isZh ? '次/月' : 'visits/mo'}</td>
         <td>${isZh ? '整个意图词簇的月度总搜索量估算' : 'Cluster organic search volume estimate'}</td>
       </tr>
     </tbody>

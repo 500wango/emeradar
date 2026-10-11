@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  # Allows deploy.yml to reuse this job set as a required gate (see the `ci`
+  # job there) without duplicating the steps.
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Root lint = turbo run lint; package lint scripts are `tsc --noEmit`
+      # (no source is emitted, so this is a typecheck gate).
+      - name: Lint / typecheck
+        run: pnpm lint
+
+      # Only packages whose tests are self-contained and need no external
+      # services are run here.
+      #
+      # Intentionally excluded:
+      #   - @emeradar/services: its tests require a real PostgreSQL instance.
+      # @emeradar/core runs on vitest (declared in its own devDependencies), so
+      # it is included: it carries the SSRF guard and request-validation suites.
+      - name: Unit tests (@emeradar/core)
+        run: pnpm --filter @emeradar/core test
+
+      - name: Unit tests (@emeradar/scoring)
+        run: pnpm --filter @emeradar/scoring test
+
+      - name: Unit tests (@emeradar/ledger)
+        run: pnpm --filter @emeradar/ledger test
+
+      - name: Unit tests (@emeradar/collectors)
+        run: pnpm --filter @emeradar/collectors test
+
+      - name: Unit tests (@emeradar/report)
+        run: pnpm --filter @emeradar/report test
+
+      - name: Unit tests (@emeradar/llm)
+        run: pnpm --filter @emeradar/llm test

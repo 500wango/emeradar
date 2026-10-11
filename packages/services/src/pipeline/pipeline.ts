@@ -13,6 +13,7 @@ import {
 } from '@emeradar/collectors';
 import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
+import { PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
 import { discoverAutocompleteCandidates } from './discover-candidates';
 
@@ -22,6 +23,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   processedOpportunities: number;
   merkleRoot: string;
   alertsTriggered: number;
+  episodesOpened: number;
 }> {
   console.log(`[pipeline] Starting daily pipeline run for ${obsDate}...`);
 
@@ -51,7 +53,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
        VALUES ($1, $2, 'ABORTED', NOW(), NOW(), 'Advisory lock held by another process')`,
       [abortRunId, obsDate]
     ).catch(() => undefined);
-    return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0 };
+    return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0, episodesOpened: 0 };
   }
 
   const runId = `run_${obsDate.replace(/-/g, '')}_${Date.now()}`;
@@ -102,7 +104,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   const opps = oppsRes.rows;
   console.log(`[pipeline] Found ${opps.length} opportunities to observe.`);
   if (opps.length === 0) {
-    return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0 };
+    return { processedOpportunities: 0, merkleRoot: '', alertsTriggered: 0, episodesOpened: 0 };
   }
 
   const existingCheckpoint = await query<{
@@ -117,7 +119,22 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       processedOpportunities: 0,
       merkleRoot: existingCheckpoint.rows[0].merkle_root,
       alertsTriggered: 0,
+      episodesOpened: 0,
     };
+  }
+
+  // Guard against a half-written ledger day: verdict rows for this obs_date
+  // without a checkpoint mean a previous run crashed mid-write. Abort loudly
+  // rather than computing a hash chain that silently skips existing rows.
+  const orphanVerdicts = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM verdicts WHERE obs_date = $1`,
+    [obsDate]
+  );
+  if (Number(orphanVerdicts.rows[0]?.count ?? '0') > 0) {
+    throw new Error(
+      `Refusing to write the ledger for ${obsDate}: ${orphanVerdicts.rows[0].count} verdict row(s) already exist ` +
+        `without a checkpoint. Resolve the partial write before re-running.`
+    );
   }
 
   const observed: ObservedOpportunity[] = [];
@@ -157,6 +174,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       : null;
 
   let alertsTriggered = 0;
+  let episodesOpened = 0;
   const pendingEmails: Array<{ to: string; subject: string; body: string }> = [];
 
   await transaction(async (client) => {
@@ -217,8 +235,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
           ) VALUES (
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
-          )
-          ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
+          )`,
           [
             `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
             row.opportunityId,
@@ -236,12 +253,26 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             row.rowHash,
           ]
         );
+
+        // A published BUILD NOW / EARLY BET is a prediction, and the public
+        // Track Record is built from those. Opening the episode in the same
+        // transaction as its verdict keeps the two from ever disagreeing.
+        const source = publishable.find((item) => item.opportunityId === row.opportunityId);
+        if (source) {
+          const opened = await PredictionEpisodeService.recordEpisode(client, {
+            opportunityId: row.opportunityId,
+            verdictId: `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
+            verdict: row.data.verdict,
+            previousVerdict: source.previousVerdict,
+            obsDate,
+          });
+          if (opened) episodesOpened++;
+        }
       }
 
       await client.query(
         `INSERT INTO ledger_checkpoints (id, obs_date, total_records, merkle_root, final_row_hash, checkpoint_hash, signature)
-         VALUES ($1,$2,$3,$4,$5,$6,'unsigned')
-         ON CONFLICT (obs_date) DO NOTHING`,
+         VALUES ($1,$2,$3,$4,$5,$6,'unsigned')`,
         [
           `ckp_${obsDate.replace(/-/g, '')}`,
           obsDate,
@@ -321,6 +352,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       processedOpportunities: observed.length,
       merkleRoot: dailyLedger?.summary.merkleRoot || '',
       alertsTriggered,
+      episodesOpened,
     };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;

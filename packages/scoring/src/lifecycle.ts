@@ -9,6 +9,7 @@ export interface LifecycleInput {
   volatility30d: number;
   expansionSlope30d: number;
   newQueries7d: number;
+  /** Trailing 7-day observation volume divided by the 90-day peak 7-day window. */
   activityRatio90d?: number; // active_7d / max_90d
   prev?: PrevScoringState;
 }

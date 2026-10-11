@@ -15,6 +15,13 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5000,
 });
 
+// Idle clients can emit errors (server restart, network reset, admin terminate).
+// Without a listener Node treats the event as unhandled and kills the process,
+// taking the whole web app down with it.
+pool.on('error', (error) => {
+  console.error('[db] Idle client error:', error);
+});
+
 export async function query<T extends QueryResultRow = any>(
   text: string,
   params?: any[]

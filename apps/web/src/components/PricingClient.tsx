@@ -90,10 +90,12 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       if (res.ok && data.url) {
         window.location.href = data.url;
       } else {
-        alert(data.detail || data.title || 'Failed to start Stripe checkout session.');
+        console.error('Failed to start Stripe checkout session:', data);
+        alert(t('pricing.checkoutFailed'));
       }
     } catch (err: any) {
-      alert(err.message || 'Error connecting to checkout service.');
+      console.error('Error connecting to checkout service:', err);
+      alert(t('pricing.checkoutError'));
     } finally {
       setLoadingPlan(null);
     }

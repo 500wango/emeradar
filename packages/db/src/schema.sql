@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires TIMESTAMPTZ NOT NULL
 );
 
+-- Session and verification tokens are bearer credentials, so the application
+-- stores only their SHA-256 digest. Sessions written before that change would
+-- hold the token in the clear and can never match a hashed lookup; drop them
+-- rather than leaving live credentials in the table. Idempotent: the DELETE
+-- matches nothing once every row is a digest.
+DELETE FROM sessions WHERE session_token !~ '^[0-9a-f]{64}$';
+
 CREATE TABLE IF NOT EXISTS verification_tokens (
   identifier TEXT NOT NULL,
   token TEXT NOT NULL,
@@ -437,16 +444,22 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- FOR EACH ROW, deliberately: a statement-level trigger also fires for the
+-- internal `DELETE FROM verdicts WHERE opportunity_id = ...` that PostgreSQL
+-- runs for the ON DELETE CASCADE, even when that cascade matches zero rows.
+-- The whole statement then aborts, so `DELETE FROM opportunities` could never
+-- succeed anywhere. Row-level keeps the guarantee that matters — no ledger row
+-- can ever be modified or removed — without blocking no-op cascades.
 DROP TRIGGER IF EXISTS trg_verdicts_append_only ON verdicts;
 CREATE TRIGGER trg_verdicts_append_only
 BEFORE UPDATE OR DELETE ON verdicts
-FOR EACH STATEMENT
+FOR EACH ROW
 EXECUTE FUNCTION prevent_ledger_modification();
 
 DROP TRIGGER IF EXISTS trg_ledger_checkpoints_append_only ON ledger_checkpoints;
 CREATE TRIGGER trg_ledger_checkpoints_append_only
 BEFORE UPDATE OR DELETE ON ledger_checkpoints
-FOR EACH STATEMENT
+FOR EACH ROW
 EXECUTE FUNCTION prevent_ledger_modification();
 
 -- 9. 机会研究报告 (Opportunity Reports)
@@ -656,6 +669,21 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_user_id_unique ON subscriptions(user_id);
 
+-- Stripe linkage: required so lifecycle webhooks (cancellation, payment failure,
+-- dispute, refund) can be attributed to a user without relying on metadata that
+-- Stripe does not always propagate to the created subscription object.
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_stripe_subscription
+  ON subscriptions(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
+
+-- Webhook idempotency: each Stripe event id is applied at most once.
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL DEFAULT '',
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS usage_events (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -757,3 +785,35 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_obs_date ON pipeline_runs(obs_date);
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
+
+-- 16. 评分轴取值域约束 (05 §4)
+-- basis points 是 0-10000 的定点表达。没有这条约束时，一个越界的 Demand 得分
+-- （历史上 attention 启发式的兜底表达式无上界）会被下游分档当作 HIGH 读取。
+-- 用 DO 块保证重复执行幂等，并在已有脏数据时明确失败而不是静默跳过。
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'opportunity_cards_basis_points_range'
+  ) THEN
+    ALTER TABLE opportunity_cards
+      ADD CONSTRAINT opportunity_cards_basis_points_range
+      CHECK (
+        d_basis_points BETWEEN 0 AND 10000
+        AND m_basis_points BETWEEN 0 AND 10000
+        AND w_basis_points BETWEEN 0 AND 10000
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'verdicts_basis_points_range'
+  ) THEN
+    ALTER TABLE verdicts
+      ADD CONSTRAINT verdicts_basis_points_range
+      CHECK (
+        d_basis_points BETWEEN 0 AND 10000
+        AND m_basis_points BETWEEN 0 AND 10000
+        AND w_basis_points BETWEEN 0 AND 10000
+      );
+  END IF;
+END
+$$;

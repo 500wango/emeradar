@@ -32,11 +32,13 @@ export class EntitlementService {
     const userRes = await query<{
       id: string;
       role: string;
+      status: string;
       tier: string;
       plan_code: string;
       entitlements: any;
     }>(
-      `SELECT u.id, u.role, u.tier, COALESCE(s.plan_code, u.tier, 'FREE') as plan_code, p.entitlements
+      `SELECT u.id, u.role, u.status, u.tier,
+              COALESCE(s.plan_code, u.tier, 'FREE') as plan_code, p.entitlements
        FROM users u
        LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status = 'ACTIVE'
        LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')
@@ -53,15 +55,19 @@ export class EntitlementService {
     }
 
     const row = userRes.rows[0];
-    const isAdmin = row.role === 'ADMIN';
-    const ent = row.entitlements || {};
+    // A suspended or deleted account keeps no paid entitlements, even if its
+    // subscription row is still marked ACTIVE (e.g. mid-dispute or mid-refund).
+    const accountActive = row.status === 'ACTIVE';
+    const isAdmin = row.role === 'ADMIN' && accountActive;
+    const ent = accountActive ? (row.entitlements || {}) : {};
+    const planCode = accountActive ? row.plan_code : 'FREE';
     const exportLimit = isAdmin ? -1 : (ent.export_reports_monthly ?? 1);
     const reportGenerationLimit = isAdmin ? -1 : (ent.generate_reports_monthly ?? ent.export_reports_monthly ?? 1);
     const maxProjects = isAdmin ? 9999 : (ent.max_projects ?? 1);
     const maxAlerts = isAdmin ? 9999 : (ent.max_alerts ?? 0);
     const apiAccess = isAdmin || !!ent.api_access;
-    const opportunityDetailFull = isAdmin || row.plan_code !== 'FREE';
-    const deepReportExport = isAdmin || row.plan_code !== 'FREE';
+    const opportunityDetailFull = isAdmin || planCode !== 'FREE';
+    const deepReportExport = isAdmin || planCode !== 'FREE';
     const feedDelayDays = isAdmin
       ? 0
       : typeof ent.feed_delay_days === 'number'
@@ -89,7 +95,7 @@ export class EntitlementService {
 
     // Daily live scan usage (Free: 3/day, Pro: 30/day, Team: 100/day)
     const today = new Date().toISOString().slice(0, 10);
-    const scanLimit = isAdmin ? 9999 : row.plan_code === 'TEAM' ? 100 : row.plan_code === 'PRO' ? 30 : 3;
+    const scanLimit = isAdmin ? 9999 : planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
     const scanCounterRes = await query<{ used: number }>(
       `SELECT used FROM usage_counters
        WHERE user_id = $1 AND feature = 'LIVE_SCAN' AND period_start = $2`,
@@ -117,8 +123,8 @@ export class EntitlementService {
 
     return {
       userId,
-      tier: row.tier,
-      planCode: row.plan_code,
+      tier: accountActive ? row.tier : 'FREE',
+      planCode,
       exportReportsMonthlyLimit: exportLimit,
       exportReportsUsed: used,
       remainingReports: remaining,

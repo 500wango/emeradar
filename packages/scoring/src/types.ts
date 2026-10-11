@@ -115,6 +115,8 @@ export interface CommercialSummary {
   hasTransactionTraction?: boolean;
   pricingDecorationOnly?: boolean;
   persistentPricedDomains?: number;
+  /** See CommercialBandResult.inferredOnly (07 §5 / 05 §5.0). */
+  inferredOnly?: boolean;
 
   asOf?: string;
   sampledDomains?: number;

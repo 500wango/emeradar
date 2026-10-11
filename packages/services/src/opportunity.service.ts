@@ -485,7 +485,21 @@ export class OpportunityService {
   /**
    * Get full 9-section opportunity decision workspace details
    */
-  static async getOpportunityDetail(idOrSlug: string): Promise<any> {
+  static async getOpportunityDetail(
+    idOrSlug: string,
+    options: { minAgeDays?: number } = {}
+  ): Promise<any> {
+    // Only published decisions are addressable. Without this a caller who knows
+    // (or guesses) a slug could read a CANDIDATE record the feed deliberately
+    // withholds, and a delayed-feed plan could read a fresh record ahead of its
+    // feed boundary.
+    const conditions = [`(o.id = $1 OR o.slug = $1)`, `o.status = 'TRACKED'`];
+    const params: any[] = [idOrSlug];
+    if (options.minAgeDays && options.minAgeDays > 0) {
+      params.push(String(options.minAgeDays));
+      conditions.push(`c.first_observed_at <= NOW() - ($${params.length} || ' days')::interval`);
+    }
+
     const oppRes = await query<any>(
       `SELECT o.*, 
         c.primary_query, c.verdict, c.lifecycle,
@@ -494,8 +508,8 @@ export class OpportunityService {
         c.why_now_summary, c.top_idea, c.query_velocity
        FROM opportunities o
        JOIN opportunity_cards c ON c.opportunity_id = o.id
-       WHERE o.id = $1 OR o.slug = $1`,
-      [idOrSlug]
+       WHERE ${conditions.join(' AND ')}`,
+      params
     );
 
     if (oppRes.rows.length === 0) {

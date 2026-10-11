@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AppError } from '@emeradar/core';
+import { AppError, compareSchema, parseInput } from '@emeradar/core';
+import { internalErrorResponse } from '@/lib/api-errors';
 import { EntitlementService, OpportunityService } from '@emeradar/services';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
 
@@ -19,12 +20,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json().catch(() => null);
-    const ids = Array.isArray(body?.ids) ? body.ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+    const { ids } = parseInput(compareSchema, await request.json().catch(() => ({})));
     const items = await OpportunityService.compareOpportunities(ids, { minAgeDays: entitlements.feedDelayDays });
     return NextResponse.json({ items });
   } catch (error: any) {
     if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
-    return NextResponse.json({ type: 'about:blank', title: 'Error', status: 500, detail: error.message }, { status: 500 });
+    return internalErrorResponse(error, 'opportunities/compare');
   }
 }

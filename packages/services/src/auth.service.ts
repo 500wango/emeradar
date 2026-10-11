@@ -34,6 +34,16 @@ export interface ApiKeyItem {
 }
 
 export class AuthService {
+  /**
+   * Session tokens are stored as SHA-256 digests, never in the clear: a leaked
+   * backup, replica or query log would otherwise hand over live sessions for
+   * every active user. The raw token exists only in the caller's cookie.
+   * (Email-verification and password-reset tokens are hashed the same way.)
+   */
+  private static hashSessionToken(sessionToken: string): string {
+    return createHash('sha256').update(sessionToken).digest('hex');
+  }
+
   private static readonly apiKeyScopes = new Set([
     'opportunities:read', 'opportunities:write',
     'reports:read', 'reports:export',
@@ -130,7 +140,7 @@ export class AuthService {
       await client.query(
         `INSERT INTO sessions (id, session_token, user_id, expires)
          VALUES ($1, $2, $3, $4)`,
-        [`sess_id_${userId}`, sessionToken, userId, expiresAt]
+        [`sess_id_${userId}`, this.hashSessionToken(sessionToken), userId, expiresAt]
       );
     });
 
@@ -200,7 +210,12 @@ export class AuthService {
     await query(
       `INSERT INTO sessions (id, session_token, user_id, expires)
        VALUES ($1, $2, $3, $4)`,
-      [`sess_id_${Date.now()}_${randomBytes(3).toString('hex')}`, sessionToken, row.id, expiresAt]
+      [
+        `sess_id_${Date.now()}_${randomBytes(3).toString('hex')}`,
+        this.hashSessionToken(sessionToken),
+        row.id,
+        expiresAt,
+      ]
     );
 
     const user: UserProfile = {
@@ -349,7 +364,7 @@ export class AuthService {
        JOIN users u ON u.id = s.user_id
        LEFT JOIN user_preferences p ON p.user_id = u.id
        WHERE s.session_token = $1 AND s.expires > NOW() AND u.status = 'ACTIVE'`,
-      [sessionToken]
+      [this.hashSessionToken(sessionToken)]
     );
 
     if (res.rows.length === 0) return null;
@@ -382,7 +397,9 @@ export class AuthService {
    * Deletes session on logout
    */
   static async logout(sessionToken: string): Promise<void> {
-    await query(`DELETE FROM sessions WHERE session_token = $1`, [sessionToken]);
+    await query(`DELETE FROM sessions WHERE session_token = $1`, [
+      this.hashSessionToken(sessionToken),
+    ]);
   }
 
   /**
@@ -416,25 +433,42 @@ export class AuthService {
     userId: string,
     prefs: Partial<UserPreferencesData>
   ): Promise<UserPreferencesData> {
+    // An omitted key must stay omitted. Substituting defaults here (`[]`, `false`)
+    // turned a partial PUT into a reset: updating only the locale silently wiped
+    // the user's markets, topics and onboarding state.
+    //
+    // `preferred_time_budget` is the one nullable column, so ``null`` is
+    // ambiguous for COALESCE: it has to mean "clear this" when the caller sent
+    // the key, and "leave it" when it did not. Presence decides.
+    const hasTimeBudget = Object.prototype.hasOwnProperty.call(prefs, 'preferredTimeBudget');
     await query(
       `INSERT INTO user_preferences (
         user_id, ui_locale, preferred_markets, preferred_build_types, preferred_time_budget, topics, onboarding_completed
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ) VALUES (
+        $1,
+        COALESCE($2, 'zh-CN'),
+        COALESCE($3::text[], '{}'),
+        COALESCE($4::text[], '{}'),
+        CASE WHEN $8::boolean THEN $5 ELSE NULL END,
+        COALESCE($6::text[], '{}'),
+        COALESCE($7, false)
+       )
        ON CONFLICT (user_id) DO UPDATE SET
          ui_locale = COALESCE($2, user_preferences.ui_locale),
-         preferred_markets = COALESCE($3, user_preferences.preferred_markets),
-         preferred_build_types = COALESCE($4, user_preferences.preferred_build_types),
-         preferred_time_budget = COALESCE($5, user_preferences.preferred_time_budget),
-         topics = COALESCE($6, user_preferences.topics),
+         preferred_markets = COALESCE($3::text[], user_preferences.preferred_markets),
+         preferred_build_types = COALESCE($4::text[], user_preferences.preferred_build_types),
+         preferred_time_budget = CASE WHEN $8::boolean THEN $5 ELSE user_preferences.preferred_time_budget END,
+         topics = COALESCE($6::text[], user_preferences.topics),
          onboarding_completed = COALESCE($7, user_preferences.onboarding_completed)`,
       [
         userId,
-        prefs.uiLocale ?? 'zh-CN',
-        prefs.preferredMarkets ?? [],
-        prefs.preferredBuildTypes ?? [],
+        prefs.uiLocale ?? null,
+        prefs.preferredMarkets ?? null,
+        prefs.preferredBuildTypes ?? null,
         prefs.preferredTimeBudget ?? null,
-        prefs.topics ?? [],
-        prefs.onboardingCompleted ?? false,
+        prefs.topics ?? null,
+        prefs.onboardingCompleted ?? null,
+        hasTimeBudget,
       ]
     );
 
