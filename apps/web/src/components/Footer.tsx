@@ -30,6 +30,9 @@ export function Footer() {
             <Link href="/pricing" className="hover:text-blue-600 transition-colors">
               {t('footer.pricing')}
             </Link>
+            <Link href="/terms" className="hover:text-blue-600 transition-colors">
+              {t('footer.terms')}
+            </Link>
             <LanguageSwitcher variant="toggle" />
           </div>
         </div>

@@ -106,8 +106,27 @@ export interface TranslationDictionary {
     trackRecord: string;
     liveFeed: string;
     pricing: string;
+    terms: string;
     copyright: string;
     builtFor: string;
+  };
+  terms: {
+    badge: string;
+    title: string;
+    intro: string;
+    billingTitle: string;
+    billingBody: string;
+    refundTitle: string;
+    refundBody: string;
+    cancellationTitle: string;
+    cancellationBody: string;
+    useTitle: string;
+    useBody: string;
+    changesTitle: string;
+    changesBody: string;
+    contactTitle: string;
+    contactBody: string;
+    backToPricing: string;
   };
   home: {
     badge: string;
@@ -398,7 +417,7 @@ export interface TranslationDictionary {
     guaranteeTitle: string;
     guaranteeDesc: string;
     badgeCancel: string;
-    badgeRefund: string;
+    badgeLifetime: string;
     badgeCrypto: string;
     perForever?: string;
     perMonth?: string;

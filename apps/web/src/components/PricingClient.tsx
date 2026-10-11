@@ -596,7 +596,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           </div>
           <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center gap-2.5">
             <Award className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="text-xs font-bold text-slate-800">{p.badgeRefund}</span>
+            <span className="text-xs font-bold text-slate-800">{p.badgeLifetime}</span>
           </div>
           <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center gap-2.5">
             <Layers className="w-4 h-4 text-indigo-600 shrink-0" />

@@ -80,6 +80,7 @@ Team workspace、开放 API、多席位不属于当前产品范围，也不出�
 | `/` | 说明决策，展示至多 2 条真实 BUILD NOW，进入信息流 |
 | `/methodology` | 发布资格、三轴、什么不算证据 |
 | `/pricing` | Free 与 Pro 的权益，价格未定时写「设计伙伴定价」 |
+| `/terms` | 方案、付款、取消与退款规则 |
 | `/track-record` | 命中和失误、样本数、T+30/60/90 |
 | `/opportunities/[slug]` | 仅延迟公开资格通过的机会（15） |
 

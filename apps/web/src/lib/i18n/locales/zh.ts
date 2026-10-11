@@ -91,8 +91,27 @@ export const zh: TranslationDictionary = {
     trackRecord: '可验证战绩',
     liveFeed: '决策动态流',
     pricing: '价格方案',
+    terms: '使用条款',
     copyright: '© {year} Emeradar Systems. 保留所有权利。',
     builtFor: '专为独立开发者、自力更生创作者与微型SaaS团队打造。',
+  },
+  terms: {
+    badge: '使用条款',
+    title: '使用条款',
+    intro: '本条款说明 Emeradar 面向独立开发者提供的方案、付款与访问规则。',
+    billingTitle: '方案与付款',
+    billingBody: '月付和年付方案按所选周期续费，直到用户取消。创始用户终身版为一次性付款，获得当前 Builder Pro 权益；月度和数量配额仍适用。',
+    refundTitle: '退款',
+    refundBody: '创始用户终身版付款后不提供退款。',
+    cancellationTitle: '取消与续费',
+    cancellationBody: '月付和年付方案可在下一次扣款前从账户设置中取消自动续费。取消后，当前已付款周期内的访问权限保持有效。',
+    useTitle: '合理使用',
+    useBody: '请将 Emeradar 用于你自己的产品研究与决策。不得滥用自动化访问、绕过套餐限制或转发账户私有数据。',
+    changesTitle: '条款变更',
+    changesBody: '当产品或计费规则发生变化时，我们可能更新本条款；当前版本会持续发布在本页面。',
+    contactTitle: '问题与支持',
+    contactBody: '账户或账单问题请通过 Emeradar 账户绑定的邮箱联系支持。',
+    backToPricing: '返回价格方案',
   },
   home: {
     badge: '独立开发者搜索机会情报与商业信号雷达 · US 英语市场',
@@ -347,7 +366,7 @@ export const zh: TranslationDictionary = {
     lifetimePrice: '$399',
     lifetimeCta: '购买创始用户终身版',
     lifetimeCheckoutLoading: '正在连接 Stripe...',
-    lifetimeFinePrint: '创始用户首发价 · 付款后不提供退款',
+    lifetimeFinePrint: '创始用户首发价',
 
 
     // Marketing value anchor / why us
@@ -382,10 +401,10 @@ export const zh: TranslationDictionary = {
     ],
 
     // Guarantee & Trust
-    guaranteeTitle: '透明方案条款',
-    guaranteeDesc: '月付和年付可随时取消自动续费；终身版为一次性付款，付款后不提供退款。',
+    guaranteeTitle: '方案说明',
+    guaranteeDesc: '月付和年付按所选周期续费，可在下一次续费前取消；终身版一次性获得当前 Builder Pro 权益，月度配额仍适用。',
     badgeCancel: '月付和年付可随时取消续费',
-    badgeRefund: '终身版付款后不提供退款',
+    badgeLifetime: '终身版一次性获得当前 Pro 权益',
     badgeCrypto: '结果复盘清晰，命中失误都展示',
 
     // FAQ
@@ -409,8 +428,8 @@ export const zh: TranslationDictionary = {
         a: '选择年付可享受 20% 的价格优惠。所有 Pro 权益完整保留，无额外限制。',
       },
       {
-        q: '终身版支持退款吗？',
-        a: '月付和年付方案可以在账户设置中随时取消自动续费。创始用户终身版为一次性付款，付款后不提供退款。',
+        q: '终身版如何计费？',
+        a: '创始用户终身版为一次性付款，获得当前 Builder Pro 权益；报告、导出、项目和提醒等月度或数量配额仍按 Pro 规则执行。',
       },
     ],
 

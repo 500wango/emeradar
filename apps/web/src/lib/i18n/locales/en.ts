@@ -91,8 +91,27 @@ export const en: TranslationDictionary = {
     trackRecord: 'Verifiable Track Record',
     liveFeed: 'Live Feed',
     pricing: 'Pricing',
+    terms: 'Terms of Use',
     copyright: '© {year} Emeradar Systems. All rights reserved.',
     builtFor: 'Built for indie builders, bootstrap hackers, and micro-SaaS teams.',
+  },
+  terms: {
+    badge: 'Terms of Use',
+    title: 'Terms of Use',
+    intro: 'These terms explain how Emeradar plans, payments, and access work for independent builders.',
+    billingTitle: 'Plans and payments',
+    billingBody: 'Monthly and annual plans renew on the selected billing cycle until canceled. Founding Pro Lifetime is a one-time purchase for current Builder Pro access. Monthly and usage quotas continue to apply.',
+    refundTitle: 'Refunds',
+    refundBody: 'Founding Pro Lifetime purchases are non-refundable after purchase.',
+    cancellationTitle: 'Cancellation and renewal',
+    cancellationBody: 'You can cancel a monthly or annual renewal from Account Settings before the next billing date. Access remains available through the current paid period.',
+    useTitle: 'Acceptable use',
+    useBody: 'Use Emeradar for your own product research and decision-making. Do not abuse automated access, circumvent plan limits, or redistribute private account data.',
+    changesTitle: 'Changes to these terms',
+    changesBody: 'We may update these terms when the product or billing rules change. The current version is published on this page.',
+    contactTitle: 'Questions',
+    contactBody: 'For account or billing questions, contact support through the account email associated with your Emeradar account.',
+    backToPricing: 'Back to pricing',
   },
   home: {
     badge: 'US English search · decisions, not keyword audits',
@@ -347,7 +366,7 @@ export const en: TranslationDictionary = {
     lifetimePrice: '$399',
     lifetimeCta: 'Get Founding Lifetime',
     lifetimeCheckoutLoading: 'Connecting to Stripe...',
-    lifetimeFinePrint: 'Founding launch price · No refunds after purchase',
+    lifetimeFinePrint: 'Founding launch price',
 
 
     // Marketing value anchor / why us
@@ -382,10 +401,10 @@ export const en: TranslationDictionary = {
     ],
 
     // Guarantee & Trust
-    guaranteeTitle: 'Transparent Plan Terms',
-    guaranteeDesc: 'Monthly and annual plans can be canceled before renewal; Lifetime purchases are one-time and non-refundable.',
+    guaranteeTitle: 'Plan details',
+    guaranteeDesc: 'Monthly and annual plans renew on the selected cycle until canceled; Lifetime includes current Builder Pro access with monthly quotas still applying.',
     badgeCancel: 'Cancel monthly or annual renewal anytime',
-    badgeRefund: 'Lifetime purchases are non-refundable',
+    badgeLifetime: 'One-time Lifetime access to current Pro entitlements',
     badgeCrypto: 'Clear outcome review with hits and misses',
 
     // FAQ
@@ -409,8 +428,8 @@ export const en: TranslationDictionary = {
         a: 'Annual billing saves you 20% immediately. All Pro entitlements are fully included with no additional restrictions.',
       },
       {
-        q: 'What is the refund policy for the Lifetime plan?',
-        a: 'Monthly and annual plans can be canceled anytime from Account Settings. The Founding Pro Lifetime purchase is one-time and non-refundable.',
+        q: 'How is the Lifetime plan billed?',
+        a: 'Founding Pro Lifetime is a one-time purchase for current Builder Pro access. Monthly and usage quotas for reports, exports, projects, and alerts still apply.',
       },
     ],
 
