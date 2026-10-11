@@ -90,8 +90,9 @@ export function EvidenceDrawer() {
                   {selectedEvidence.id}
                 </span>
                 <button
+                  type="button"
                   onClick={copyId}
-                  className="text-xs text-sky-400 hover:text-sky-300 font-medium"
+                  className="text-xs text-sky-400 hover:text-sky-300 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
                 >
                   {copied ? (isZh ? '已复制' : 'Copied') : (isZh ? '复制ID' : 'Copy ID')}
                 </button>
@@ -101,8 +102,10 @@ export function EvidenceDrawer() {
               </h2>
             </div>
             <button
+              type="button"
+              aria-label={isZh ? '关闭证据抽屉' : 'Close evidence drawer'}
               onClick={closeDrawer}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
             >
               <svg
                 className="w-5 h-5"
@@ -172,7 +175,7 @@ export function EvidenceDrawer() {
               </span>
               <span className="text-xs text-emerald-400 flex items-center gap-1 font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                {isZh ? 'RFC 6962 默克尔账本已固化' : 'RFC 6962 Merkle Ledger Sealed'}
+                {isZh ? '来源载荷已记录' : 'Source payload recorded'}
               </span>
             </div>
             <pre className="bg-slate-950 p-4 rounded-lg border border-slate-800/80 text-xs font-mono text-sky-300 overflow-x-auto max-h-72 leading-relaxed">

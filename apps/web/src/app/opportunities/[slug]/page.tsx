@@ -6,16 +6,13 @@ import {
   TrendingUp,
   Sparkles,
   Zap,
-  ArrowRight,
   FileText,
   AlertTriangle,
   ChevronLeft,
   CheckCircle2,
-  Lock,
   ExternalLink,
 } from 'lucide-react';
 import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
-import { formatDate } from '@/lib/format';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
 import { CommercialProofPanel } from '@/components/CommercialProofPanel';
 import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
@@ -128,7 +125,11 @@ export default async function OpportunityWorkspacePage({
             slug={opportunity.slug}
             title={opportunity.title}
             canGo={canGo}
-            canExport={true}
+            canExport={
+              opportunity.status === 'TRACKED' &&
+              (isBuildNow || isEarlyBet) &&
+              opportunity.confidence !== 'LOW'
+            }
             blockReason={blockReason}
           />
         </div>
@@ -363,8 +364,8 @@ export default async function OpportunityWorkspacePage({
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {isZh
-                    ? '来自 SERP、社群论坛与网络定价的可验证原始信号（点击任意条目即可查看 Merkle 锚定载荷）'
-                    : 'Raw verifiable signals from SERP, social forums, and web pricing (click any item to inspect raw Merkle-anchored payload)'}
+                    ? '来自 SERP、社群论坛与网络定价的原始信号（点击任意条目查看来源与观测内容）'
+                    : 'Raw signals from SERP, social forums, and web pricing (open any item to inspect its source and observation)'}
                 </p>
               </div>
               <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
@@ -376,7 +377,7 @@ export default async function OpportunityWorkspacePage({
           </div>
         </div>
 
-        {/* Right Column (1 Col): Rules, Blueprint & Ledger */}
+        {/* Right Column (1 Col): Rules, Blueprint & Evidence */}
         <div className="space-y-8">
           {/* Execution Blueprint Recommendation */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
@@ -454,45 +455,6 @@ export default async function OpportunityWorkspacePage({
             </div>
           </div>
 
-          {/* Cryptographic Ledger Verification Card */}
-          <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md">
-            <div className="flex items-center gap-2 mb-3">
-              <Lock className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                {isZh ? 'Merkle 账本密码学存证' : 'Merkle Ledger Proof'}
-              </h3>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              {isZh
-                ? `此裁决已于 ${formatDate(latestVerdict?.obs_date)} 封签录入公开 SHA-256 哈希链。`
-                : `This verdict was sealed on ${formatDate(latestVerdict?.obs_date)} into the public SHA-256 hash chain.`}
-            </p>
-
-            <div className="space-y-2 text-[11px] font-mono">
-              <div>
-                <span className="text-slate-500 block">{isZh ? '条目哈希 (Row Hash):' : 'Row Hash:'}</span>
-                <span className="text-slate-300 break-all select-all">
-                  {latestVerdict?.row_hash || 'Calculating...'}
-                </span>
-              </div>
-              <div className="pt-2 border-t border-slate-800">
-                <span className="text-slate-500 block">{isZh ? '上一区块哈希 (Previous Hash):' : 'Previous Hash:'}</span>
-                <span className="text-slate-300 break-all select-all">
-                  {latestVerdict?.prev_hash || 'Genesis'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-slate-800 text-center">
-              <Link
-                href="/track-record"
-                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1"
-              >
-                <span>{isZh ? '在可验证战绩账本中核验' : 'Verify on Track Record Ledger'}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
     </div>

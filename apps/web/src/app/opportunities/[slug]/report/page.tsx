@@ -29,6 +29,19 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
   const locale = await getServerLocale();
   const isZh = locale === 'zh-CN';
 
+  if (!session.user.emailVerifiedAt) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-16">
+        <div className="bg-white rounded-2xl border border-amber-200 p-8 shadow-sm text-center">
+          <div className="w-12 h-12 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center mx-auto mb-4"><Lock className="w-6 h-6" /></div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">{isZh ? '请先验证邮箱' : 'Verify your email first'}</h2>
+          <p className="text-sm text-slate-600 max-w-md mx-auto mb-6 leading-relaxed">{isZh ? '报告生成需要已确认的邮箱，以便保护报告归属并发送后续提醒。' : 'Reports require a confirmed email so ownership and follow-up alerts have a reliable destination.'}</p>
+          <Link href="/settings" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold transition-colors"><span>{isZh ? '前往账户设置' : 'Open account settings'}</span><ArrowLeft className="w-4 h-4 rotate-180" /></Link>
+        </div>
+      </div>
+    );
+  }
+
   let report: any;
   try {
     report = await ReportService.getOrGenerateReport(
@@ -89,27 +102,20 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
             </div>
 
             <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-100/70 text-blue-800 mb-3">
-              {isZh ? '专业版专属研报' : 'Pro & Team Exclusive'}
+              {isZh ? '证据门槛未满足' : 'Evidence gate not met'}
             </span>
 
             <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
-              {isZh ? '解锁全生态位深度可行性研报' : 'Unlock Deep Feasibility Report'}
+              {isZh ? '该机会仍在观察中' : 'This opportunity is still under observation'}
             </h2>
 
             <p className="text-sm text-slate-600 max-w-md mx-auto mb-8 leading-relaxed">
               {err.message || (isZh
-                ? '免费体验版研报仅对已正式发布的 BUILD NOW 或 EARLY BET 决策开放。升级至 Builder Pro 或 Scale Team 即可即时解锁任意生态位（包含观察期与候选利基）的完整深度研报。'
-                : 'Free tier reports are limited to published BUILD NOW or EARLY BET verdicts. Upgrade to Builder Pro or Scale Team to unlock in-depth reports for any niche.')}
+                ? '报告只对已发布的 BUILD NOW 或 EARLY BET 决策开放。升级套餐不会绕过证据门槛；请先关注该机会，等待发布。'
+                : 'Reports are available only for published BUILD NOW or EARLY BET decisions. A paid plan does not bypass the evidence gate; watch this opportunity until it is published.')}
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                href={`/pricing?reason=candidate_report&feature=report&back=${encodeURIComponent(`/opportunities/${slug}`)}`}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>{isZh ? '升级解锁此研报 ($49/月)' : 'Upgrade to Unlock Report'}</span>
-              </Link>
               <Link
                 href={`/opportunities/${slug}`}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors"

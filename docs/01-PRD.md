@@ -235,7 +235,7 @@ Watch 的机会发生变化（verdict、窗口关闭、Kill criteria 命中）�
 | F14 | 管理后台 | Phase 1（最小集） |
 
 **Phase 2**：用户侧 Historical Replay、对话式 Copilot（仅基于平台数据、强制引用证据）、zh-CN 研究语言、更多 Build Type（API / Developer Tool、Managed Service）、更多告警渠道、Weekly Review、GSC 结果自动校准评分。
-**Phase 3**：Programmatic SEO / GEO 规模化、Team 套餐、组合层面的建议。
+**Phase 3**：Programmatic SEO / GEO 规模化与组合层面的建议；不包含 Team workspace 或多席位协作。
 
 ---
 
@@ -398,7 +398,7 @@ Programmatic 规模化仅在 Gate 2 通过后启动。页面数量与纯流量�
 - **套餐结构**（具体配额与价格在计费与权限规格中定义，定价由预售访谈决定）：
   - Free：公开战绩大盘、每周 1 条实时精选 BUILD_NOW、实时候选异动池（Watching Queue）只读浏览、每月 1 份报告预览（不可导出）
   - Pro：实时 Feed（每日最多 10 条已发布决定）、完整 Detail、认领槽位特权、Watch / 邮件告警、每月 30 份报告导出、Project 追踪
-  - Team 与开放 API：不在首发售卖。权益字段可以预留，首发套餐快照里 `api_access = false`
+  - Team workspace、多席位与开放 API：不在当前产品范围。历史兼容字段不构成可售卖权益，首发套餐快照里 `api_access = false`
 - Web、API 共用同一套配额。
 - **单位经济约束**：追踪池规模由成本模型与目标毛利率反推，而不是反过来。必须能回答：每个付费用户每月消耗多少数据成本？目标毛利率 ≥ 70%（待定价确定后校准）。
 

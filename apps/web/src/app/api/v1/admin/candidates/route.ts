@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getAdminSession();
+  const session = await getAdminSession({ requireAdmin: true });
   if (!session) {
     return NextResponse.json({ error: 'Forbidden: Admin access required.' }, { status: 403 });
   }

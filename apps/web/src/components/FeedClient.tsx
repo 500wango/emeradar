@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Search,
   ArrowRight,
@@ -11,6 +12,8 @@ import {
   TrendingUp,
   AlertCircle,
   RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { FeedCardItem } from '@emeradar/services';
 import { useI18n } from '@/lib/i18n';
@@ -18,42 +21,60 @@ import { useI18n } from '@/lib/i18n';
 interface FeedClientProps {
   initialItems: FeedCardItem[];
   total: number;
+  hasMore: boolean;
+  offset: number;
+  pageSize: number;
+  activeFilters: {
+    verdict?: string;
+    archetype?: string;
+    executionClass?: string;
+    search?: string;
+  };
 }
 
-export function FeedClient({ initialItems, total }: FeedClientProps) {
+export function FeedClient({ initialItems, total, hasMore, offset, pageSize, activeFilters }: FeedClientProps) {
   const { t, isZh } = useI18n();
-  const [selectedVerdict, setSelectedVerdict] = useState<string>('ALL');
-  const [selectedArchetype, setSelectedArchetype] = useState<string>('ALL');
-  const [selectedClass, setSelectedClass] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const router = useRouter();
+  const pathname = usePathname();
+  const [selectedVerdict, setSelectedVerdict] = useState<string>(activeFilters.verdict || 'ALL');
+  const [selectedArchetype, setSelectedArchetype] = useState<string>(activeFilters.archetype || 'ALL');
+  const [selectedClass, setSelectedClass] = useState<string>(activeFilters.executionClass || 'ALL');
+  const [searchQuery, setSearchQuery] = useState<string>(activeFilters.search || '');
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
-  // Client-side filtering for fast interactivity
-  const filtered = initialItems.filter((item) => {
-    if (selectedVerdict !== 'ALL' && item.verdict !== selectedVerdict) {
-      return false;
-    }
-    if (selectedArchetype !== 'ALL' && item.recommendedArchetype !== selectedArchetype) {
-      return false;
-    }
-    if (selectedClass !== 'ALL' && item.executionClass !== selectedClass) {
-      return false;
-    }
-    if (searchQuery.trim().length > 0) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = item.title.toLowerCase().includes(q);
-      const matchQuery = item.primaryQuery.toLowerCase().includes(q);
-      const matchWhyNow = item.whyNowSummary.toLowerCase().includes(q);
-      if (!matchTitle && !matchQuery && !matchWhyNow) return false;
-    }
-    return true;
-  });
+  useEffect(() => {
+    setSelectedVerdict(activeFilters.verdict || 'ALL');
+    setSelectedArchetype(activeFilters.archetype || 'ALL');
+    setSelectedClass(activeFilters.executionClass || 'ALL');
+    setSearchQuery(activeFilters.search || '');
+  }, [activeFilters.verdict, activeFilters.archetype, activeFilters.executionClass, activeFilters.search]);
+
+  function navigate(next: Record<string, string | undefined>, mode: 'push' | 'replace' = 'replace') {
+    const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+    Object.entries(next).forEach(([key, value]) => {
+      if (!value || value === 'ALL') params.delete(key);
+      else params.set(key, value);
+    });
+    const query = params.toString();
+    if (mode === 'push') router.push(`${pathname}${query ? `?${query}` : ''}`);
+    else router.replace(`${pathname}${query ? `?${query}` : ''}`);
+  }
+
+  function applySearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    navigate({ search: searchQuery.trim() || undefined, offset: undefined });
+  }
 
   const resetFilters = () => {
-    setSelectedVerdict('ALL');
-    setSelectedArchetype('ALL');
-    setSelectedClass('ALL');
-    setSearchQuery('');
+    setSelectedVerdict('ALL'); setSelectedArchetype('ALL'); setSelectedClass('ALL'); setSearchQuery('');
+    navigate({ verdict: undefined, archetype: undefined, execution_class: undefined, search: undefined, offset: undefined });
   };
+
+  function toggleCompare(opportunityId: string) {
+    setCompareIds((current) => current.includes(opportunityId)
+      ? current.filter((id) => id !== opportunityId)
+      : current.length < 3 ? [...current, opportunityId] : current);
+  }
 
   const getVerdictLabel = (verdict: string) => {
     switch (verdict) {
@@ -109,8 +130,9 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setSelectedVerdict(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                  type="button"
+                  onClick={() => { setSelectedVerdict(tab.id); navigate({ verdict: tab.id, offset: undefined }); }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors ${
                     active
                       ? 'bg-slate-900 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -123,27 +145,32 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
           </div>
 
           {/* Search Bar */}
-          <div className="relative min-w-[260px]">
+          <form onSubmit={applySearch} className="relative min-w-[260px]">
+            <label htmlFor="feed-search" className="sr-only">{t('feed.searchPlaceholder')}</label>
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
-              type="text"
+              id="feed-search"
+              name="search"
+              type="search"
               placeholder={t('feed.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+              className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             />
-          </div>
+          </form>
         </div>
 
         {/* Filters Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-3 text-xs text-slate-600">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-500">{t('feed.archetypeFilter')}:</span>
+                <label htmlFor="feed-archetype" className="font-semibold text-slate-500">{t('feed.archetypeFilter')}:</label>
               <select
+                id="feed-archetype"
+                name="archetype"
                 value={selectedArchetype}
-                onChange={(e) => setSelectedArchetype(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none"
+                onChange={(e) => { setSelectedArchetype(e.target.value); navigate({ archetype: e.target.value, offset: undefined }); }}
+                className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 <option value="ALL">{t('feed.allArchetypes')}</option>
                 <option value="LIGHTWEIGHT_TOOL">{t('common.archetypes.LIGHTWEIGHT_TOOL')}</option>
@@ -156,11 +183,13 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-500">{t('feed.classFilter')}:</span>
+                <label htmlFor="feed-execution-class" className="font-semibold text-slate-500">{t('feed.classFilter')}:</label>
               <select
+                id="feed-execution-class"
+                name="execution_class"
                 value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none"
+                onChange={(e) => { setSelectedClass(e.target.value); navigate({ execution_class: e.target.value, offset: undefined }); }}
+                className="bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 <option value="ALL">{t('feed.allClasses')}</option>
                 <option value="S">{t('common.executionClasses.S')}</option>
@@ -173,13 +202,14 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
           <div className="flex items-center gap-2">
             <span className="text-slate-400">
               {isZh
-                ? `显示 ${filtered.length} / ${total} 项决策`
-                : `Showing ${filtered.length} of ${total} radar items`}
+                ? `显示 ${total === 0 ? 0 : offset + 1}-${Math.min(offset + initialItems.length, total)} / ${total} 项决策`
+                : `Showing ${total === 0 ? 0 : offset + 1}-${Math.min(offset + initialItems.length, total)} of ${total} radar items`}
             </span>
-            {(selectedVerdict !== 'ALL' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || searchQuery) && (
+            {(selectedVerdict !== 'ALL' || selectedArchetype !== 'ALL' || selectedClass !== 'ALL' || activeFilters.search) && (
               <button
+                type="button"
                 onClick={resetFilters}
-                className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1"
+                className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 <RotateCcw className="w-3 h-3" />
                 {t('common.reset')}
@@ -190,7 +220,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
       </div>
 
       {/* Zero State Fallback */}
-      {filtered.length === 0 ? (
+      {initialItems.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-xl mx-auto my-12">
           <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-6 h-6" />
@@ -204,8 +234,9 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
               : 'BUILD NOW is supposed to stay scarce. Candidates and low-confidence observations are not used to fill the gap.'}
           </p>
           <button
-            onClick={() => setSelectedVerdict('ALL')}
-            className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
+            type="button"
+            onClick={resetFilters}
+            className="mt-6 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             {isZh ? `查看全部已发布决策 (${total})` : `Show published decisions (${total})`}
           </button>
@@ -213,7 +244,7 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
       ) : (
         /* Opportunity Cards Grid */
         <div className="grid md:grid-cols-2 gap-6">
-          {filtered.map((opp) => {
+          {initialItems.map((opp) => {
             const isBuildNow = opp.verdict === 'BUILD_NOW';
             const isEarlyBet = opp.verdict === 'EARLY_BET';
             const isClosing = opp.verdict === 'WINDOW_CLOSING';
@@ -253,6 +284,17 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
                       <span className="truncate max-w-[140px]">{getArchetypeLabel(opp.recommendedArchetype)}</span>
                     </div>
                   </div>
+
+                  <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={compareIds.includes(opp.opportunityId)}
+                      disabled={!compareIds.includes(opp.opportunityId) && compareIds.length >= 3}
+                      onChange={() => toggleCompare(opp.opportunityId)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    />
+                    {isZh ? '加入比较' : 'Add to compare'}
+                  </label>
 
                   {/* Title & Primary Query */}
                   <Link
@@ -359,6 +401,51 @@ export function FeedClient({ initialItems, total }: FeedClientProps) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {(total > pageSize || offset > 0) && (
+        <nav className="mt-8 flex items-center justify-between border-t border-slate-200 pt-5" aria-label={isZh ? '决策流分页' : 'Decision feed pagination'}>
+          <button
+            type="button"
+            onClick={() => navigate({ offset: String(Math.max(0, offset - pageSize)) }, 'push')}
+            disabled={offset === 0}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            {t('feed.previousPage')}
+          </button>
+          <span className="text-xs text-slate-500">
+            {t('feed.pageStatus', { page: String(Math.floor(offset / pageSize) + 1) })}
+          </span>
+          <button
+            type="button"
+            onClick={() => navigate({ offset: String(offset + pageSize) }, 'push')}
+            disabled={!hasMore}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            {t('feed.nextPage')}
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </nav>
+      )}
+
+      {compareIds.length > 0 && (
+        <div className="sticky bottom-4 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50/95 px-4 py-3 shadow-lg backdrop-blur">
+          <span className="text-xs font-semibold text-blue-900">
+            {isZh ? `已选择 ${compareIds.length} / 3 个机会` : `${compareIds.length} / 3 opportunities selected`}
+          </span>
+          {compareIds.length >= 2 ? (
+            <Link
+              href={`/compare?ids=${encodeURIComponent(compareIds.join(','))}`}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              {isZh ? '开始比较' : 'Compare selected'}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <span className="text-xs text-blue-700">{isZh ? '再选择一个机会' : 'Select one more opportunity'}</span>
+          )}
         </div>
       )}
     </div>

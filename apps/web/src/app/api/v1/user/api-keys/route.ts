@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,6 +17,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    if (auth.user.role !== 'ADMIN') {
+      return NextResponse.json({ type: 'about:blank', title: 'Plan Upgrade Required', status: 403, detail: 'Developer API access is not available in the launch plan.' }, { status: 403 });
+    }
+
     const scopeError = requireScope(auth, 'api_keys:read');
     if (scopeError) return scopeError;
 
@@ -27,10 +31,10 @@ export async function GET(request: NextRequest) {
       {
         type: 'about:blank',
         title: 'API Keys Fetch Error',
-        status: 500,
+        status: error.status || 500,
         detail: error.message,
       },
-      { status: 500 }
+      { status: error.status || 500 }
     );
   }
 }
@@ -50,14 +54,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // RBAC & Entitlement check: Free users cannot create API keys (docs/13 §3.2 api_access)
-    if (auth.user.tier === 'FREE' && auth.user.role === 'USER') {
+    // Public API access is deferred from the launch contract. Keep the endpoint
+    // available for admins so operations can still validate the integration.
+    if (auth.user.role !== 'ADMIN') {
       return NextResponse.json(
         {
           type: 'about:blank',
           title: 'Plan Upgrade Required',
           status: 403,
-          detail: 'Developer API key access is not available on the Free plan. Please upgrade to Pro or Team.',
+          detail: 'Developer API access is not available in the launch plan.',
         },
         { status: 403 }
       );
@@ -65,12 +70,22 @@ export async function POST(request: NextRequest) {
 
     const scopeError = requireScope(auth, 'api_keys:write');
     if (scopeError) return scopeError;
+    const verificationError = requireVerifiedEmail(auth);
+    if (verificationError) return verificationError;
 
     const body = await request.json().catch(() => ({}));
     const label = body.label?.trim() || 'Default Production Key';
-    const scopes = Array.isArray(body.scopes) && body.scopes.length > 0 
-      ? body.scopes 
+    const allowedScopes = new Set([
+      'opportunities:read', 'opportunities:write', 'reports:read', 'reports:export',
+      'alerts:read', 'alerts:write', 'projects:read', 'projects:write',
+      'api_keys:read', 'api_keys:write',
+    ]);
+    const scopes = Array.isArray(body.scopes) && body.scopes.length > 0
+      ? body.scopes.filter((scope: unknown): scope is string => typeof scope === 'string' && allowedScopes.has(scope))
       : ['opportunities:read', 'reports:read', 'alerts:read'];
+    if (scopes.length !== (Array.isArray(body.scopes) && body.scopes.length > 0 ? body.scopes.length : 3)) {
+      return NextResponse.json({ type: 'about:blank', title: 'Invalid Scope', status: 400, detail: 'One or more requested scopes are not supported.' }, { status: 400 });
+    }
 
     const result = await AuthService.createApiKey(auth.user.id, label, scopes);
 

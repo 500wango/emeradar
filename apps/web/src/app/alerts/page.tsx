@@ -1,15 +1,13 @@
-import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import {
   Bell,
-  ShieldAlert,
-  ArrowUpRight,
   Clock,
 } from 'lucide-react';
 import { AlertService, AuthService } from '@emeradar/services';
 import { formatDateTime } from '@/lib/format';
 import { getServerI18n } from '@/lib/i18n/server';
+import { AlertRuleList } from '@/components/AlertRuleList';
 
 export default async function AlertsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -54,41 +52,7 @@ export default async function AlertsPage() {
               </span>
             </div>
 
-            {rules.length === 0 ? (
-              <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
-                <ShieldAlert className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                <p className="text-xs text-slate-600">
-                  {t('alerts.noRulesDesc')}
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {rules.map((rule) => (
-                  <div key={rule.id} className="py-4 flex items-center justify-between gap-4">
-                    <div>
-                      <Link
-                        href={`/opportunities/${rule.opportunity_slug}`}
-                        className="font-bold text-sm text-slate-900 hover:text-blue-600 flex items-center gap-1.5"
-                      >
-                        <span>{rule.opportunity_title}</span>
-                        <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-                      </Link>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                        <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-700">
-                          {rule.rule_type}
-                        </span>
-                        <span>&bull;</span>
-                        <span>{t('alerts.frequency')}: {rule.frequency}</span>
-                      </div>
-                    </div>
-
-                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      {t('common.active')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <AlertRuleList initialRules={rules} />
           </div>
         </div>
 

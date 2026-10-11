@@ -97,13 +97,12 @@ export interface TranslationDictionary {
     logout: string;
     accountSettings: string;
     myProjects: string;
-    teamScale: string;
+    legacyPlan: string;
     builderPro: string;
     freeStarter: string;
   };
   footer: {
     tagline: string;
-    merkleProof: string;
     trackRecord: string;
     liveFeed: string;
     pricing: string;
@@ -237,6 +236,9 @@ export interface TranslationDictionary {
     allClasses: string;
     searchPlaceholder: string;
     resetFilters: string;
+    previousPage: string;
+    nextPage: string;
+    pageStatus: (params: { page: string }) => string;
     noResults: string;
     demand: string;
     commercial: string;
@@ -273,10 +275,6 @@ export interface TranslationDictionary {
     totalPredictionsDesc: string;
     openBetRate: string;
     openBetDesc: string;
-    ledgerHeight: string;
-    ledgerHeightDesc: string;
-    checkpointsTitle: string;
-    checkpointsDesc: string;
     episodesTitle: string;
     episodesDesc: string;
     evaluationProtocol: string;
@@ -289,10 +287,7 @@ export interface TranslationDictionary {
     outcome30d: string;
     outcome60d: string;
     observedMetric: string;
-    verifyProof: string;
     noEpisodes: string;
-    hashChainActive: string;
-    sealedCount: string;
     inspect: string;
   };
   methodology: {
@@ -335,6 +330,7 @@ export interface TranslationDictionary {
     currentPlan: string;
     workspaceTier: string;
     monthlyReports: string;
+    reportExports: string;
     trackedProjects: string;
     alertRules: string;
     used: string;
@@ -343,17 +339,14 @@ export interface TranslationDictionary {
     alertsConfigured: string;
     webhookDelivery: string;
     upgradeToPro: string;
-    contactTeam: string;
     currentActive: string;
     gscSyncIncluded: string;
     popularBadge: string;
     getStartedFree: string;
     upgradeNow: string;
     startTrial: string;
-    contactSales: string;
     includedBaseline: string;
     marketFocusNotice?: string;
-    teamWaitlistBadge?: string;
     proEarlyBirdBadge?: string;
 
     // Plans
@@ -368,13 +361,13 @@ export interface TranslationDictionary {
     planProBilledYearly: string;
     planProDesc: string;
     proFeatures: string[];
+    lifetimeEarlyBirdTitle: string;
+    lifetimeEarlyBirdDesc: string;
+    lifetimePrice: string;
+    lifetimeCta: string;
+    lifetimeCheckoutLoading: string;
+    lifetimeFinePrint: string;
 
-    planTeamTitle: string;
-    planTeamMonthlyPrice: string;
-    planTeamYearlyPrice: string;
-    planTeamBilledYearly: string;
-    planTeamDesc: string;
-    teamFeatures: string[];
 
     // Marketing value anchor / why us
     whyTitle: string;
@@ -395,12 +388,10 @@ export interface TranslationDictionary {
     colFeature: string;
     colFree: string;
     colPro: string;
-    colTeam: string;
     matrixRows: Array<{
       feature: string;
       free: string;
       pro: string;
-      team: string;
     }>;
 
     // Guarantee & Trust
@@ -433,7 +424,6 @@ export interface TranslationDictionary {
     notInReleaseDesc?: string;
     notInReleaseItems?: string[];
     planProPrice?: string;
-    planTeamPrice?: string;
 
     // Invoices
     invoicesTitle: string;
@@ -467,6 +457,24 @@ export interface TranslationDictionary {
     loginFailed: string;
     registerFailed: string;
     securityFootnote: string;
+    forgotPasswordLink: string;
+    forgotPasswordTitle: string;
+    forgotPasswordDesc: string;
+    sendResetLink: string;
+    sendingResetLink: string;
+    resetLinkSent: string;
+    resetPasswordTitle: string;
+    resetPasswordDesc: string;
+    newPasswordLabel: string;
+    confirmPasswordLabel: string;
+    resetPasswordBtn: string;
+    resettingPassword: string;
+    passwordResetSuccess: string;
+    passwordResetFailed: string;
+    invalidResetToken: string;
+    passwordTooShort: string;
+    passwordMismatch: string;
+    backToLogin: string;
   };
   settings: {
     title: string;

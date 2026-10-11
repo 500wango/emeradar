@@ -10,6 +10,7 @@ export interface UserProfile {
   role: 'USER' | 'ANALYST' | 'ADMIN' | 'SUPPORT';
   tier: 'FREE' | 'PRO' | 'TEAM';
   status: string;
+  emailVerifiedAt: Date | null;
   createdAt: Date;
 }
 
@@ -33,6 +34,13 @@ export interface ApiKeyItem {
 }
 
 export class AuthService {
+  private static readonly apiKeyScopes = new Set([
+    'opportunities:read', 'opportunities:write',
+    'reports:read', 'reports:export',
+    'alerts:read', 'alerts:write',
+    'projects:read', 'projects:write',
+    'api_keys:read', 'api_keys:write',
+  ]);
   /**
    * Hashes a password with a unique per-user salt using scrypt
    * Returns formatted string: `${salt}:${hashHex}`
@@ -138,7 +146,7 @@ export class AuthService {
     const email = input.email.trim().toLowerCase();
 
     const userRes = await query<any>(
-      `SELECT id, email, display_name, avatar_url, role, tier, status, created_at
+      `SELECT id, email, display_name, avatar_url, role, tier, status, email_verified_at, created_at
        FROM users WHERE email = $1 AND status = 'ACTIVE'`,
       [email]
     );
@@ -203,10 +211,124 @@ export class AuthService {
       role: row.role,
       tier: row.tier,
       status: row.status,
+      emailVerifiedAt: row.email_verified_at,
       createdAt: row.created_at,
     };
 
     return { user, sessionToken };
+  }
+
+  /** Creates a one-time password reset token without revealing whether an email exists. */
+  static async requestPasswordReset(emailInput: string): Promise<{ email: string; token: string } | null> {
+    const email = emailInput.trim().toLowerCase();
+    const userRes = await query<{ id: string; email: string }>(
+      `SELECT id, email FROM users WHERE email = $1 AND status = 'ACTIVE'`,
+      [email]
+    );
+    if (userRes.rows.length === 0) return null;
+
+    const user = userRes.rows[0];
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const identifier = `password-reset:${user.id}`;
+
+    await transaction(async (client) => {
+      await client.query(`DELETE FROM verification_tokens WHERE identifier = $1`, [identifier]);
+      await client.query(
+        `INSERT INTO verification_tokens (identifier, token, expires)
+         VALUES ($1, $2, NOW() + INTERVAL '30 minutes')`,
+        [identifier, tokenHash]
+      );
+    });
+
+    return { email: user.email, token };
+  }
+
+  /** Creates a one-time email verification token without exposing its stored value. */
+  static async requestEmailVerification(userId: string): Promise<{ email: string; token: string } | null> {
+    const userRes = await query<{ id: string; email: string; email_verified_at: Date | null }>(
+      `SELECT id, email, email_verified_at FROM users WHERE id = $1 AND status = 'ACTIVE'`,
+      [userId]
+    );
+    if (userRes.rows.length === 0 || userRes.rows[0].email_verified_at) return null;
+
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const identifier = `email-verify:${userId}`;
+    await transaction(async (client) => {
+      await client.query(`DELETE FROM verification_tokens WHERE identifier = $1`, [identifier]);
+      await client.query(
+        `INSERT INTO verification_tokens (identifier, token, expires)
+         VALUES ($1, $2, NOW() + INTERVAL '24 hours')`,
+        [identifier, tokenHash]
+      );
+    });
+    return { email: userRes.rows[0].email, token };
+  }
+
+  /** Consumes an email verification token exactly once. */
+  static async verifyEmail(token: string): Promise<UserProfile | null> {
+    if (!token) return null;
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    let verifiedUserId: string | null = null;
+    await transaction(async (client) => {
+      const tokenRes = await client.query<{ identifier: string }>(
+        `SELECT identifier FROM verification_tokens
+         WHERE identifier LIKE 'email-verify:%' AND token = $1 AND expires > NOW()
+         FOR UPDATE`,
+        [tokenHash]
+      );
+      if (tokenRes.rows.length === 0) return null;
+      const userId = tokenRes.rows[0].identifier.slice('email-verify:'.length);
+      const userRes = await client.query<{ id: string }>(
+        `UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW()
+         WHERE id = $1 AND status = 'ACTIVE'
+         RETURNING id`,
+        [userId]
+      );
+      await client.query(`DELETE FROM verification_tokens WHERE identifier = $1 AND token = $2`, [tokenRes.rows[0].identifier, tokenHash]);
+      if (userRes.rows.length > 0) verifiedUserId = userId;
+    });
+    return verifiedUserId ? this.getUserById(verifiedUserId) : null;
+  }
+
+  /** Consumes a reset token, updates credentials, and revokes all existing sessions. */
+  static async resetPasswordWithToken(token: string, newPassword: string): Promise<void> {
+    if (!token || newPassword.length < 8) {
+      throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Password must be at least 8 characters long.', 400);
+    }
+
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    await transaction(async (client) => {
+      const tokenRes = await client.query<{ identifier: string }>(
+        `SELECT identifier FROM verification_tokens
+         WHERE identifier LIKE 'password-reset:%' AND token = $1 AND expires > NOW()
+         FOR UPDATE`,
+        [tokenHash]
+      );
+      if (tokenRes.rows.length === 0) {
+        throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'This password reset link is invalid or expired.', 401);
+      }
+
+      const userId = tokenRes.rows[0].identifier.slice('password-reset:'.length);
+      const userRes = await client.query<{ id: string; email: string }>(
+        `SELECT id, email FROM users WHERE id = $1 AND status = 'ACTIVE' FOR UPDATE`,
+        [userId]
+      );
+      if (userRes.rows.length === 0) {
+        throw new EmeradarError(ErrorCode.UNAUTHENTICATED, 'This password reset link is invalid or expired.', 401);
+      }
+
+      const passwordHash = this.hashPassword(newPassword);
+      await client.query(
+        `INSERT INTO accounts (id, user_id, type, provider, provider_account_id, refresh_token)
+         VALUES ($1, $2, 'credentials', 'credentials', $3, $4)
+         ON CONFLICT (provider, provider_account_id) DO UPDATE SET refresh_token = EXCLUDED.refresh_token`,
+        [`acc_${userId}`, userId, userRes.rows[0].email, passwordHash]
+      );
+      await client.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+      await client.query(`DELETE FROM verification_tokens WHERE identifier = $1 AND token = $2`, [tokenRes.rows[0].identifier, tokenHash]);
+    });
   }
 
   /**
@@ -220,7 +342,7 @@ export class AuthService {
 
     const res = await query<any>(
       `SELECT 
-        u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.created_at,
+        u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.email_verified_at, u.created_at,
         p.ui_locale, p.preferred_build_types, p.preferred_markets, p.preferred_time_budget,
         p.topics, p.onboarding_completed
        FROM sessions s
@@ -242,6 +364,7 @@ export class AuthService {
         role: r.role,
         tier: r.tier,
         status: r.status,
+        emailVerifiedAt: r.email_verified_at,
         createdAt: r.created_at,
       },
       preferences: {
@@ -267,7 +390,7 @@ export class AuthService {
    */
   static async getUserById(userId: string): Promise<UserProfile | null> {
     const res = await query<any>(
-      `SELECT id, email, display_name, avatar_url, role, tier, status, created_at
+      `SELECT id, email, display_name, avatar_url, role, tier, status, email_verified_at, created_at
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -281,6 +404,7 @@ export class AuthService {
       role: r.role,
       tier: r.tier,
       status: r.status,
+      emailVerifiedAt: r.email_verified_at,
       createdAt: r.created_at,
     };
   }
@@ -294,18 +418,22 @@ export class AuthService {
   ): Promise<UserPreferencesData> {
     await query(
       `INSERT INTO user_preferences (
-        user_id, ui_locale, preferred_markets, preferred_build_types, onboarding_completed
-       ) VALUES ($1, $2, $3, $4, $5)
+        user_id, ui_locale, preferred_markets, preferred_build_types, preferred_time_budget, topics, onboarding_completed
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (user_id) DO UPDATE SET
          ui_locale = COALESCE($2, user_preferences.ui_locale),
          preferred_markets = COALESCE($3, user_preferences.preferred_markets),
          preferred_build_types = COALESCE($4, user_preferences.preferred_build_types),
-         onboarding_completed = COALESCE($5, user_preferences.onboarding_completed)`,
+         preferred_time_budget = COALESCE($5, user_preferences.preferred_time_budget),
+         topics = COALESCE($6, user_preferences.topics),
+         onboarding_completed = COALESCE($7, user_preferences.onboarding_completed)`,
       [
         userId,
         prefs.uiLocale ?? 'zh-CN',
         prefs.preferredMarkets ?? [],
         prefs.preferredBuildTypes ?? [],
+        prefs.preferredTimeBudget ?? null,
+        prefs.topics ?? [],
         prefs.onboardingCompleted ?? false,
       ]
     );
@@ -357,6 +485,9 @@ export class AuthService {
     label: string,
     scopes = ['opportunities:read']
   ): Promise<{ apiKey: ApiKeyItem; rawSecretKey: string }> {
+    if (!Array.isArray(scopes) || scopes.length === 0 || scopes.some((scope) => !this.apiKeyScopes.has(scope))) {
+      throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'API key contains an unsupported scope.', 400);
+    }
     const keyId = `key_${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`;
     const rawSecretKey = `emd_live_${randomBytes(24).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawSecretKey).digest('hex');
@@ -407,7 +538,7 @@ export class AuthService {
     const res = await query<any>(
       `SELECT
         k.id AS key_id, k.scopes,
-        u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.created_at,
+        u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.email_verified_at, u.created_at,
         p.ui_locale, p.preferred_build_types, p.preferred_markets, p.preferred_time_budget,
         p.topics, p.onboarding_completed
        FROM api_keys k
@@ -435,6 +566,7 @@ export class AuthService {
         role: r.role,
         tier: r.tier,
         status: r.status,
+        emailVerifiedAt: r.email_verified_at,
         createdAt: r.created_at,
       },
       preferences: {

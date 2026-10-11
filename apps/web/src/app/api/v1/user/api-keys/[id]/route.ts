@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function DELETE(
   request: NextRequest,
@@ -19,6 +19,11 @@ export async function DELETE(
         { status: 401 }
       );
     }
+    if (auth.user.role !== 'ADMIN') {
+      return NextResponse.json({ type: 'about:blank', title: 'Plan Upgrade Required', status: 403, detail: 'Developer API access is not available in the launch plan.' }, { status: 403 });
+    }
+    const scopeError = requireScope(auth, 'api_keys:write');
+    if (scopeError) return scopeError;
 
     const { id } = await params;
     if (!id) {

@@ -8,6 +8,9 @@ export interface UserEntitlementsInfo {
   exportReportsMonthlyLimit: number;
   exportReportsUsed: number;
   remainingReports: number;
+  reportGenerationMonthlyLimit: number;
+  reportGenerationUsed: number;
+  remainingReportGenerations: number;
   maxProjects: number;
   currentProjectsCount: number;
   maxAlerts: number;
@@ -53,6 +56,7 @@ export class EntitlementService {
     const isAdmin = row.role === 'ADMIN';
     const ent = row.entitlements || {};
     const exportLimit = isAdmin ? -1 : (ent.export_reports_monthly ?? 1);
+    const reportGenerationLimit = isAdmin ? -1 : (ent.generate_reports_monthly ?? ent.export_reports_monthly ?? 1);
     const maxProjects = isAdmin ? 9999 : (ent.max_projects ?? 1);
     const maxAlerts = isAdmin ? 9999 : (ent.max_alerts ?? 0);
     const apiAccess = isAdmin || !!ent.api_access;
@@ -61,9 +65,7 @@ export class EntitlementService {
     const feedDelayDays = isAdmin
       ? 0
       : typeof ent.feed_delay_days === 'number'
-      ? ent.feed_delay_days === 45
-        ? 0
-        : ent.feed_delay_days
+      ? ent.feed_delay_days
       : 0;
 
     // Check usage in current month
@@ -77,6 +79,13 @@ export class EntitlementService {
       [userId, dateStr]
     );
     const used = counterRes.rows[0]?.used ?? 0;
+
+    const generationCounterRes = await query<{ used: number }>(
+      `SELECT used FROM usage_counters
+       WHERE user_id = $1 AND feature = 'GENERATE_REPORT' AND period_start = $2`,
+      [userId, dateStr]
+    );
+    const generationUsed = generationCounterRes.rows[0]?.used ?? 0;
 
     // Daily live scan usage (Free: 3/day, Pro: 30/day, Team: 100/day)
     const today = new Date().toISOString().slice(0, 10);
@@ -104,6 +113,7 @@ export class EntitlementService {
     const alertCount = parseInt(alertRes.rows[0]?.count ?? '0', 10);
 
     const remaining = exportLimit === -1 ? 999999 : Math.max(0, exportLimit - used);
+    const remainingGenerations = reportGenerationLimit === -1 ? 999999 : Math.max(0, reportGenerationLimit - generationUsed);
 
     return {
       userId,
@@ -112,6 +122,9 @@ export class EntitlementService {
       exportReportsMonthlyLimit: exportLimit,
       exportReportsUsed: used,
       remainingReports: remaining,
+      reportGenerationMonthlyLimit: reportGenerationLimit,
+      reportGenerationUsed: generationUsed,
+      remainingReportGenerations: remainingGenerations,
       maxProjects,
       currentProjectsCount: projCount,
       maxAlerts,
@@ -124,6 +137,74 @@ export class EntitlementService {
       liveScansUsedToday: scansUsedToday,
       remainingLiveScansToday: remainingScansToday,
     };
+  }
+
+  /** Reserve a report generation slot. Generation and file export are separate entitlements. */
+  static async reserveReportGenerationQuota(
+    userId: string,
+    opportunityId: string
+  ): Promise<{ reservationToken: string; isUnlimited: boolean }> {
+    return transaction(async (client) => {
+      const entRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
+        `SELECT u.role, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
+         FROM users u
+         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
+         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')
+         WHERE u.id = $1 AND u.status = 'ACTIVE'`,
+        [userId]
+      );
+      if (entRes.rows.length === 0) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
+      const ent = entRes.rows[0];
+      const limit = ent.role === 'ADMIN' ? -1 : (ent.entitlements?.generate_reports_monthly ?? ent.entitlements?.export_reports_monthly ?? 1);
+      if (limit === -1) return { reservationToken: `unlimited_generate_${Date.now()}`, isUnlimited: true };
+
+      const periodStart = new Date();
+      periodStart.setDate(1);
+      const period = periodStart.toISOString().slice(0, 10);
+      const counter = await client.query<{ used: number }>(
+        `INSERT INTO usage_counters (user_id, feature, period_start, used)
+         VALUES ($1, 'GENERATE_REPORT', $2, 1)
+         ON CONFLICT (user_id, feature, period_start) DO UPDATE
+         SET used = usage_counters.used + 1
+         WHERE usage_counters.used < $3
+         RETURNING used`,
+        [userId, period, limit]
+      );
+      if (counter.rows.length === 0) {
+        throw new EmeradarError(
+          ErrorCode.QUOTA_EXCEEDED,
+          `You have reached your monthly report generation limit (${limit}). Please upgrade your plan.`,
+          429,
+          { upgradeUrl: '/pricing', currentPlan: ent.plan_code, limit }
+        );
+      }
+      return {
+        reservationToken: `gen_${userId}_${opportunityId}_${Date.now()}:${period}`,
+        isUnlimited: false,
+      };
+    });
+  }
+
+  static async confirmReportGenerationQuota(userId: string, reservationToken: string, reportId: string): Promise<void> {
+    if (reservationToken.startsWith('unlimited_generate_')) return;
+    await query(
+      `INSERT INTO usage_events (id, user_id, feature, units, channel, request_id)
+       VALUES ($1, $2, 'GENERATE_REPORT', 1, 'WEB', $3)
+       ON CONFLICT (user_id, feature, request_id) DO NOTHING`,
+      [`evt_${Date.now()}`, userId, reportId]
+    );
+  }
+
+  static async releaseReportGenerationQuota(userId: string, reservationToken: string): Promise<void> {
+    if (reservationToken.startsWith('unlimited_generate_')) return;
+    const periodStart = reservationToken.split(':').pop();
+    if (!periodStart || !/^\d{4}-\d{2}-\d{2}$/.test(periodStart)) return;
+    await query(
+      `UPDATE usage_counters
+       SET used = GREATEST(0, used - 1)
+       WHERE user_id = $1 AND feature = 'GENERATE_REPORT' AND period_start = $2`,
+      [userId, periodStart]
+    );
   }
 
   /**

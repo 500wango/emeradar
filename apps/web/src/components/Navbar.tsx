@@ -57,8 +57,8 @@ export function Navbar() {
 
   const tierBadgeConfig = {
     TEAM: {
-      label: t('nav.teamScale'),
-      classes: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+      label: t('nav.legacyPlan'),
+      classes: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200',
     },
     PRO: {
       label: t('nav.builderPro'),
@@ -231,8 +231,11 @@ export function Navbar() {
                 {/* Profile Pill & Dropdown */}
                 <div className="relative" ref={dropdownRef}>
                   <button
+                    type="button"
                     onClick={() => setDropdownOpen(!dropdownOpen)}
-                    className="flex items-center gap-2 pl-2 sm:pl-3 py-1 pr-1.5 rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition"
+                    aria-expanded={dropdownOpen}
+                    aria-controls="account-menu"
+                    className="flex items-center gap-2 pl-2 sm:pl-3 py-1 pr-1.5 rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                   >
                     <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
                       {initials}
@@ -245,7 +248,7 @@ export function Navbar() {
 
                   {/* Dropdown Menu */}
                   {dropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-200/50 py-2 z-50">
+                    <div id="account-menu" className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-200/50 py-2 z-50">
                       {/* User Info Header */}
                       <div className="px-4 py-3 border-b border-slate-100">
                         <div className="text-xs font-bold text-slate-900 truncate">
@@ -347,8 +350,9 @@ export function Navbar() {
                       {/* Logout */}
                       <div className="pt-1 border-t border-slate-100">
                         <button
+                          type="button"
                           onClick={logout}
-                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition"
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
                         >
                           <LogOut className="w-4 h-4 text-rose-500" />
                           <span>{t('nav.logout')}</span>

@@ -7,6 +7,12 @@ CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  bucket_key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  reset_at TIMESTAMPTZ NOT NULL
+);
+
 -- 1. 用户与认证 (NextAuth / Auth.js v5)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,                         -- usr_01J...
@@ -624,6 +630,18 @@ CREATE TABLE IF NOT EXISTS plans (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Keep the launch entitlement contract aligned for existing installations.
+-- Subscription snapshots remain unchanged; this only updates the current plan catalog.
+UPDATE plans
+SET price_usd_monthly = CASE code WHEN 'PRO' THEN 29.00 WHEN 'TEAM' THEN 149.00 ELSE price_usd_monthly END,
+    entitlements = entitlements || CASE code
+      WHEN 'FREE' THEN '{"generate_reports_monthly":1,"export_reports_monthly":0,"feed_delay_days":45,"api_access":false}'::jsonb
+      WHEN 'PRO' THEN '{"generate_reports_monthly":30,"export_reports_monthly":30,"feed_delay_days":0,"api_access":false}'::jsonb
+      WHEN 'TEAM' THEN '{"generate_reports_monthly":100,"export_reports_monthly":100,"feed_delay_days":0,"api_access":false}'::jsonb
+      ELSE '{}'::jsonb
+    END
+WHERE code IN ('FREE', 'PRO', 'TEAM');
+
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -635,6 +653,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_user_id_unique ON subscriptions(user_id);
 
 CREATE TABLE IF NOT EXISTS usage_events (
   id TEXT PRIMARY KEY,

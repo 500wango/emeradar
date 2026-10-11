@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const { email, password } = body;
 
     // Rate limiting: max 10 requests per minute per IP, max 5 failed attempts per 15 min per account
-    const ipLimit = checkRateLimit({
+    const ipLimit = await checkRateLimit({
       key: `login_ip_${ip}`,
       limit: 15,
       windowMs: 60 * 1000,
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (email && typeof email === 'string') {
-      const emailLimit = checkRateLimit({
+      const emailLimit = await checkRateLimit({
         key: `login_email_${email.toLowerCase().trim()}`,
         limit: 5,
         windowMs: 15 * 60 * 1000,

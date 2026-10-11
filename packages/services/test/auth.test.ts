@@ -41,6 +41,16 @@ describe('AuthService Integration Tests', () => {
     );
   });
 
+  it('should verify email with a one-time token', async () => {
+    const login = await AuthService.login({ email: testEmail, password: 'StrongPassword123!' });
+    const pending = await AuthService.requestEmailVerification(login.user.id);
+    assert.ok(pending?.token);
+    const verified = await AuthService.verifyEmail(pending!.token);
+    assert.equal(verified?.email, testEmail);
+    assert.ok(verified?.emailVerifiedAt);
+    assert.equal(await AuthService.verifyEmail(pending!.token), null);
+  });
+
   it('should login with correct credentials', async () => {
     const res = await AuthService.login({
       email: testEmail,
@@ -105,5 +115,22 @@ describe('AuthService Integration Tests', () => {
     assert.equal(updated.uiLocale, 'en-US');
     assert.deepEqual(updated.preferredMarkets, ['US', 'GLOBAL']);
     assert.deepEqual(updated.preferredBuildTypes, ['MICRO_SAAS', 'PSEO_SITE']);
+  });
+
+  it('should reset a password with a one-time token and revoke the old credential', async () => {
+    const reset = await AuthService.requestPasswordReset(testEmail);
+    assert.ok(reset?.token);
+    await AuthService.resetPasswordWithToken(reset!.token, 'ResetPassword789!');
+
+    const loggedIn = await AuthService.login({ email: testEmail, password: 'ResetPassword789!' });
+    assert.ok(loggedIn.sessionToken);
+    await assert.rejects(
+      () => AuthService.login({ email: testEmail, password: 'StrongPassword123!' }),
+      (err: any) => err.code === 'UNAUTHENTICATED'
+    );
+    await assert.rejects(
+      () => AuthService.resetPasswordWithToken(reset!.token, 'AnotherPassword456!'),
+      (err: any) => err.code === 'UNAUTHENTICATED'
+    );
   });
 });

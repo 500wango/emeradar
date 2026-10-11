@@ -32,8 +32,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
   const [noticeBanner, setNoticeBanner] = useState<string | null>(null);
 
   const isPro = entitlements?.tier === 'PRO';
-  const isTeam = entitlements?.tier === 'TEAM';
-  const isFree = !isPro && !isTeam;
+  const isFree = !isPro;
 
   const p = dictionary.pricing;
 
@@ -48,8 +47,8 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     if (sessionId && isSuccess) {
       setSuccessBanner(
         isZh
-          ? '🎉 恭喜！订阅已成功激活，您的工作区配额已即时更新。'
-          : '🎉 Congratulations! Your subscription is active and your quota has been upgraded.'
+          ? '🎉 恭喜！方案已成功激活，您的工作区配额已即时更新。'
+          : '🎉 Congratulations! Your plan is active and your quota has been upgraded.'
       );
       fetch('/api/v1/billing/verify-session', {
         method: 'POST',
@@ -71,17 +70,21 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     }
   }, [isZh]);
 
-  const handleUpgrade = async (planCode: 'PRO' | 'TEAM') => {
+  const handleUpgrade = async (
+    planCode: 'PRO',
+    cycle: 'monthly' | 'yearly' | 'lifetime' = billingCycle,
+  ) => {
     if (!isLoggedIn) {
       window.location.href = `/register?plan=${planCode.toLowerCase()}`;
       return;
     }
-    setLoadingPlan(planCode);
+    const checkoutKey = cycle === 'lifetime' ? 'PRO_LIFETIME' : planCode;
+    setLoadingPlan(checkoutKey);
     try {
       const res = await fetch('/api/v1/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planCode, billingCycle }),
+        body: JSON.stringify({ planCode, billingCycle: cycle }),
       });
       const data = await res.json();
       if (res.ok && data.url) {
@@ -192,10 +195,36 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
             </Link>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
               <span className="text-xs font-semibold text-slate-500">
                 {p.monthlyReports}
+              </span>
+              <div className="text-2xl font-bold text-slate-900 mt-1">
+                {entitlements.reportGenerationUsed}{' '}
+                <span className="text-xs text-slate-400 font-normal">
+                  / {t('pricing.used', { used: entitlements.reportGenerationUsed, limit: entitlements.reportGenerationMonthlyLimit })}
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
+                <div
+                  className="bg-blue-600 h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (entitlements.reportGenerationUsed / Math.max(1, entitlements.reportGenerationMonthlyLimit)) * 100
+                    )}%`,
+                  }}
+                ></div>
+              </div>
+              <span className="text-[11px] text-slate-500 mt-2 block font-medium">
+                {t('pricing.remaining', { remaining: entitlements.remainingReportGenerations })}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
+              <span className="text-xs font-semibold text-slate-500">
+                {p.reportExports}
               </span>
               <div className="text-2xl font-bold text-slate-900 mt-1">
                 {entitlements.exportReportsUsed}{' '}
@@ -205,11 +234,11 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
               </div>
               <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
                 <div
-                  className="bg-blue-600 h-full rounded-full transition-all"
+                  className="bg-slate-600 h-full rounded-full transition-all"
                   style={{
                     width: `${Math.min(
                       100,
-                      (entitlements.exportReportsUsed / entitlements.exportReportsMonthlyLimit) * 100
+                      (entitlements.exportReportsUsed / Math.max(1, entitlements.exportReportsMonthlyLimit)) * 100
                     )}%`,
                   }}
                 ></div>
@@ -275,7 +304,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       )}
 
       {/* Pricing Comparison Cards */}
-      <div className="grid lg:grid-cols-3 gap-8 items-stretch mb-20">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch mb-20 max-w-6xl mx-auto">
         {/* Tier 1: Free Starter */}
         <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
           <div>
@@ -399,41 +428,40 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           </div>
         </div>
 
-        {/* Tier 3: Team Scale */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
+        {/* Tier 3: Founding Pro Lifetime */}
+        <div className="bg-amber-50/60 rounded-3xl border-2 border-amber-300 p-8 shadow-sm flex flex-col justify-between hover:border-amber-400 transition-all">
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 uppercase tracking-wider">
-                {p.planTeamTitle}
+              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">
+                {p.lifetimeEarlyBirdTitle}
               </span>
-              {p.teamWaitlistBadge && (
-                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
-                  {p.teamWaitlistBadge}
-                </span>
-              )}
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white text-amber-800 border border-amber-200">
+                {p.proEarlyBirdBadge}
+              </span>
             </div>
             <h3 className="font-extrabold text-2xl text-slate-900">
-              {p.planTeamTitle}
+              {p.lifetimeEarlyBirdTitle}
             </h3>
-            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed min-h-[36px]">
-              {p.planTeamDesc}
+            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed min-h-[36px]">
+              {p.lifetimeEarlyBirdDesc}
             </p>
 
-            <div className="mt-5 pb-6 border-b border-slate-100">
+            <div className="mt-5 pb-6 border-b border-amber-200">
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl sm:text-3xl font-black text-slate-900">
-                  {billingCycle === 'yearly' ? p.planTeamYearlyPrice : p.planTeamMonthlyPrice}
+                <span className="text-4xl sm:text-5xl font-black text-amber-800">
+                  {p.lifetimePrice}
                 </span>
+                <span className="text-xs text-slate-600 font-medium">{isZh ? '一次性' : 'one-time'}</span>
               </div>
-              <p className="text-[11px] text-indigo-600 font-medium mt-1">
-                {p.planTeamBilledYearly}
+              <p className="text-[11px] text-amber-800/80 font-medium mt-1">
+                {p.lifetimeFinePrint}
               </p>
             </div>
 
-            <ul className="mt-6 space-y-3.5 text-xs text-slate-600 leading-relaxed">
-              {p.teamFeatures.map((feat: string, idx: number) => (
+            <ul className="mt-6 space-y-3.5 text-xs text-slate-700 leading-relaxed font-medium">
+              {p.proFeatures.map((feat: string, idx: number) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <span>{feat}</span>
                 </li>
               ))}
@@ -441,27 +469,18 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           </div>
 
           <div className="mt-8 pt-6">
-            {isLoggedIn && isTeam ? (
-              <button
-                disabled
-                className="w-full py-3 rounded-xl border border-indigo-200 text-xs font-bold text-indigo-700 bg-indigo-50 cursor-default text-center"
-              >
-                {p.currentActive}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleUpgrade('TEAM')}
-                disabled={loadingPlan === 'TEAM'}
-                className="block w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all text-center disabled:opacity-60 cursor-pointer"
-              >
-                {loadingPlan === 'TEAM'
-                  ? (isZh ? '正在连接 Stripe...' : 'Connecting to Stripe...')
-                  : (isLoggedIn ? (isZh ? '升级至 Scale Team' : 'Upgrade to Team') : p.contactSales)}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => handleUpgrade('PRO', 'lifetime')}
+              disabled={loadingPlan === 'PRO_LIFETIME' || (isLoggedIn && isPro)}
+              className="block w-full py-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-black shadow-md shadow-amber-700/20 transition-all text-center disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {loadingPlan === 'PRO_LIFETIME' ? p.lifetimeCheckoutLoading : isPro ? p.currentActive : p.lifetimeCta}
+            </button>
+            <p className="text-center text-[10px] text-slate-500 mt-2">
+              {isZh ? '一次付款 · 当前 Pro 权益 · 月度配额适用' : 'One payment · Current Pro access · Monthly quotas apply'}
+            </p>
           </div>
-
         </div>
       </div>
 
@@ -537,7 +556,6 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 <th className="py-4 px-6 w-2/5">{p.colFeature}</th>
                 <th className="py-4 px-6 text-slate-600">{p.colFree}</th>
                 <th className="py-4 px-6 text-blue-700 bg-blue-50/50">{p.colPro}</th>
-                <th className="py-4 px-6 text-indigo-700">{p.colTeam}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -554,9 +572,6 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                   </td>
                   <td className="py-3.5 px-6 font-semibold text-blue-800 bg-blue-50/30">
                     {row.pro}
-                  </td>
-                  <td className="py-3.5 px-6 text-slate-700">
-                    {row.team}
                   </td>
                 </tr>
               ))}

@@ -50,7 +50,8 @@ export default function SiteCheckButton({ projectId }: { projectId: string }) {
           type="button"
           onClick={runCheck}
           disabled={loading}
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-wait disabled:opacity-60"
+          aria-busy={loading}
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           {loading ? t('projects.checking') : t('projects.runSiteCheck')}
         </button>

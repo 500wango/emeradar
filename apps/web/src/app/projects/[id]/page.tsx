@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { AuthService, ProjectService } from '@emeradar/services';
 import SiteCheckButton from '@/components/SiteCheckButton';
+import { ProjectLifecyclePanel } from '@/components/ProjectLifecyclePanel';
 import { getServerI18n } from '@/lib/i18n/server';
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,15 +14,22 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   let data: any;
   try { data = await ProjectService.getProjectDetail(id, session.user.id); } catch { notFound(); }
   const { t } = await getServerI18n();
+  const gscStatus = await ProjectService.getGscConnectionStatus(id, session.user.id);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <Link href="/projects" className="text-sm text-slate-500 hover:text-slate-800">
+      <Link href="/projects" className="text-sm text-slate-500 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
         &larr; {t('projects.backToProjects')}
       </Link>
       <h1 className="mt-4 text-2xl font-bold text-slate-900">{data.project.title}</h1>
       <p className="mt-1 text-sm text-slate-500">{data.project.domain || t('projects.noDomain')}</p>
       {data.project.domain && <SiteCheckButton projectId={id} />}
+      <ProjectLifecyclePanel
+        projectId={id}
+        initialStatus={gscStatus}
+        initialProjectStatus={data.project.status}
+        domain={data.project.domain}
+      />
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
         {data.outcomes.map((outcome: any) => (
           <section key={outcome.day} className="rounded-xl border border-slate-200 bg-white p-4">

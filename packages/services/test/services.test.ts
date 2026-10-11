@@ -40,16 +40,16 @@ describe('Services Layer Integration Tests', () => {
   it('retrieves user entitlements accurately', async () => {
     const freeEnt = await EntitlementService.getUserEntitlements('usr_test_ent_free');
     assert.strictEqual(freeEnt.tier, 'FREE');
-    assert.strictEqual(freeEnt.exportReportsMonthlyLimit, 1);
+    assert.strictEqual(freeEnt.exportReportsMonthlyLimit, 0);
     assert.strictEqual(freeEnt.apiAccess, false);
-    assert.strictEqual(freeEnt.feedDelayDays, 0); // Real-time feed (delay removed per 01-PRD & 13-BILLING-RBAC flaw #2 fix)
+    assert.strictEqual(freeEnt.feedDelayDays, 45);
     assert.strictEqual(freeEnt.opportunityDetailFull, false);
     assert.strictEqual(freeEnt.deepReportExport, false);
 
     const proEnt = await EntitlementService.getUserEntitlements('usr_test_ent_pro');
     assert.strictEqual(proEnt.tier, 'PRO');
     assert.strictEqual(proEnt.exportReportsMonthlyLimit, 30);
-    assert.strictEqual(proEnt.apiAccess, true);
+    assert.strictEqual(proEnt.apiAccess, false); // API access is closed for the launch tier contract.
     assert.strictEqual(proEnt.feedDelayDays, 0);
     assert.strictEqual(proEnt.opportunityDetailFull, true);
     assert.strictEqual(proEnt.deepReportExport, true);
@@ -59,6 +59,13 @@ describe('Services Layer Integration Tests', () => {
     const feed = await OpportunityService.listFeedCards({ verdict: 'BUILD_NOW' });
     assert.ok(feed.items.every((item) => item.slug !== 'shopify-sales-tax-calculator'));
     assert.ok(feed.items.every((item) => item.confidence !== 'LOW'));
+  });
+
+  it('rejects compare requests outside the 2-3 opportunity contract', async () => {
+    await assert.rejects(
+      () => OpportunityService.compareOpportunities(['only-one']),
+      { code: 'VALIDATION_ERROR' },
+    );
   });
 
   it('keeps live observations unpublished', async () => {

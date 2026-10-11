@@ -33,8 +33,8 @@ function RegisterFormContent() {
       setError(isZh ? '请填写您的邮箱和密码' : 'Please fill in your email and password');
       return;
     }
-    if (password.length < 6) {
-      setError(isZh ? '密码长度至少需 6 位字符' : 'Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError(isZh ? '密码长度至少需 8 位字符' : 'Password must be at least 8 characters');
       return;
     }
 
@@ -46,7 +46,7 @@ function RegisterFormContent() {
         password,
         displayName: displayName || undefined,
       });
-      router.push('/settings');
+      router.push('/verify-email?sent=1&next=%2Fonboarding');
     } catch (err: any) {
       setError(err.message || (isZh ? '注册遇到问题，请尝试其他邮箱。' : 'Registration failed. Please try a different email.'));
     } finally {
@@ -83,7 +83,7 @@ function RegisterFormContent() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Display Name */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="register-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 {t('auth.nameLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
@@ -91,18 +91,21 @@ function RegisterFormContent() {
                   <User className="h-4 w-4" />
                 </div>
                 <input
+                  id="register-name"
+                  name="name"
                   type="text"
+                  autoComplete="name"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder={t('auth.namePlaceholder')}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
+                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
                 />
               </div>
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="register-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 {t('auth.emailLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
@@ -110,19 +113,22 @@ function RegisterFormContent() {
                   <Mail className="h-4 w-4" />
                 </div>
                 <input
+                  id="register-email"
+                  name="email"
                   type="email"
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={t('auth.emailPlaceholder')}
                   required
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
+                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
                 />
               </div>
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="register-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 {t('auth.passwordLabel')}
               </label>
               <div className="relative rounded-xl shadow-sm">
@@ -130,13 +136,16 @@ function RegisterFormContent() {
                   <Lock className="h-4 w-4" />
                 </div>
                 <input
+                  id="register-password"
+                  name="password"
                   type="password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder={isZh ? '至少包含 6 位字符' : 'Minimum 6 characters'}
+                  placeholder={isZh ? '至少包含 8 位字符' : 'Minimum 8 characters'}
                   required
-                  minLength={6}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition"
+                  minLength={8}
+                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
                 />
               </div>
             </div>
@@ -145,7 +154,7 @@ function RegisterFormContent() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 disabled:opacity-60 transition"
+              className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
             >
               {loading ? (
                 <>
@@ -166,7 +175,7 @@ function RegisterFormContent() {
             <span>{t('auth.alreadyHaveAccount')}</span>
             <Link
               href="/login"
-              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               {t('auth.signInLink')}
             </Link>

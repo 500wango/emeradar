@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { ShieldCheck } from 'lucide-react';
 import { Logo } from './Logo';
 import { useI18n } from '@/lib/i18n';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -22,10 +21,6 @@ export function Footer() {
           </div>
 
           <div className="flex flex-wrap items-center gap-6 text-xs text-slate-500">
-            <div className="flex items-center gap-1.5 text-emerald-600 font-medium">
-              <ShieldCheck className="w-4 h-4" />
-              <span>{t('footer.merkleProof')}</span>
-            </div>
             <Link href="/track-record" className="hover:text-blue-600 transition-colors">
               {t('footer.trackRecord')}
             </Link>

@@ -95,8 +95,9 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
         </div>
 
         <button
+          type="button"
           onClick={handleReset}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors self-start sm:self-auto"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors self-start sm:self-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>{isZh ? '重置基准' : 'Reset'}</span>
@@ -108,15 +109,18 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
         {/* Slider: Monthly Revenue Target */}
         <div className="space-y-2 md:col-span-2">
           <div className="flex justify-between items-center text-xs">
-            <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+            <label htmlFor="goal-monthly-target" className="font-semibold text-slate-700 flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
               {isZh ? '月度目标营收 (Monthly Target)' : 'Monthly Revenue Target'}
-            </span>
+            </label>
             <span className="font-mono font-bold text-sm text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
               ${monthlyTarget.toLocaleString()} / mo
             </span>
           </div>
           <input
+            id="goal-monthly-target"
+            name="monthlyTarget"
+            aria-describedby="goal-monthly-target-range"
             type="range"
             min={500}
             max={10000}
@@ -125,7 +129,7 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
             onChange={(e) => setMonthlyTarget(Number(e.target.value))}
             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
           />
-          <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+          <div id="goal-monthly-target-range" className="flex justify-between text-[10px] text-slate-400 font-mono">
             <span>$500</span>
             <span>$2,500</span>
             <span>$5,000</span>
@@ -143,8 +147,9 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
             {[19, 29, 49, 99].map((p) => (
               <button
                 key={p}
+                type="button"
                 onClick={() => setArpu(p)}
-                className={`py-1.5 text-xs font-semibold rounded-md border transition-all ${
+                className={`py-1.5 text-xs font-semibold rounded-md border transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                   arpu === p
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'

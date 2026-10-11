@@ -35,12 +35,12 @@ export function StartExperimentButton({ experimentCardId, title }: { experimentC
         type="button"
         onClick={start}
         disabled={pending}
-        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
       >
         <FlaskConical className="h-3.5 w-3.5" />
         {pending ? (isZh ? '启动中…' : 'Starting…') : (isZh ? '启动实验' : 'Start experiment')}
       </button>
-      {error && <p className="mt-2 text-[11px] text-rose-700">{error}</p>}
+      {error && <p className="mt-2 text-[11px] text-rose-700" role="alert">{error}</p>}
     </div>
   );
 }

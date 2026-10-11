@@ -63,22 +63,28 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
             : 'border-slate-300 hover:border-slate-400 bg-white focus-within:border-blue-600 focus-within:ring-4 focus-within:ring-blue-500/10'
         }`}
       >
-        <div className="pl-4 sm:pl-5 pr-2 text-slate-400">
-          <Search className="w-5 h-5 text-blue-600" />
-        </div>
+        <label htmlFor="live-scan-query" className="pl-4 sm:pl-5 pr-2 text-slate-400">
+          <Search aria-hidden="true" className="w-5 h-5 text-blue-600" />
+          <span className="sr-only">{isZh ? '观测关键词' : 'Query to observe'}</span>
+        </label>
         <input
+          id="live-scan-query"
+          name="query"
           type="text"
+          autoComplete="off"
+          spellCheck={false}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={isScanning}
           placeholder={isZh ? '输入关键词开始观测。初次观测绝非裁决。' : 'Observe a query. One observation is not a verdict.'}
-          className="w-full py-3.5 sm:py-4 px-2 text-sm sm:text-base text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none disabled:opacity-50"
+          aria-describedby="live-scan-error"
+          className="w-full py-3.5 sm:py-4 px-2 text-sm sm:text-base text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:opacity-50"
         />
         <div className="pr-2 sm:pr-3 shrink-0">
           <button
             type="submit"
             disabled={isScanning || !query.trim()}
-            className="px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-1.5"
+            className="px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             <span>{isScanning ? (isZh ? '正在观测' : 'Observing') : (isZh ? '开启观测' : 'Observe')}</span>
@@ -105,7 +111,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
                 handleScan(kw);
               }}
               disabled={isScanning}
-              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition-all font-mono text-[11px] disabled:opacity-50"
+              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 transition-all font-mono text-[11px] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               {kw}
             </button>
@@ -114,7 +120,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
       )}
 
       {error && (
-        <div className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+        <div id="live-scan-error" className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2" role="alert" aria-live="polite">
           <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
           <span>{error}</span>
         </div>
@@ -136,8 +142,9 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
               <p className="text-xs text-slate-500 mt-0.5">{isZh ? '核心查询词: ' : 'Primary query: '}{scanResult.primaryQuery}</p>
             </div>
             <button
+              type="button"
               onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
-              className="px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 transition flex items-center gap-1.5 self-start sm:self-auto"
+              className="px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 transition flex items-center gap-1.5 self-start sm:self-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <span>{isZh ? '进入详情记录' : 'Open record'}</span>
               <ArrowRight className="w-4 h-4" />

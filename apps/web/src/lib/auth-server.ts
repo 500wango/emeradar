@@ -49,6 +49,21 @@ export function requireScope(auth: SessionContext, requiredScope: string): NextR
   return null;
 }
 
+/** High-value actions require a confirmed mailbox so ownership and alerts have a reliable destination. */
+export function requireVerifiedEmail(auth: SessionContext): NextResponse | null {
+  if (auth.user.emailVerifiedAt) return null;
+  return NextResponse.json(
+    {
+      type: 'about:blank',
+      title: 'Email Verification Required',
+      code: 'EMAIL_VERIFICATION_REQUIRED',
+      status: 403,
+      detail: 'Verify your email address before using reports, projects, decisions, alerts, API keys, or billing.',
+    },
+    { status: 403 }
+  );
+}
+
 /**
  * Extracts and validates the authenticated user from the request session cookie
  * or Authorization: Bearer <emd_live_...> header

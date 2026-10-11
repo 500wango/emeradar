@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { query } from '@emeradar/db';
-import { AdminService, OpportunityService, ReportService } from '../src';
+import { AdminService } from '../src';
 
 describe('Admin Candidate Promotion & Moderation Tests', () => {
   const testCandidateId = `opp_test_cand_${Date.now()}`;
@@ -43,54 +43,17 @@ describe('Admin Candidate Promotion & Moderation Tests', () => {
     assert.equal(check.rows[0].verdict, 'WATCH');
   });
 
-  it('promotes candidate to TRACKED with calibrated non-zero scores, SERP evidence, and snapshots', async () => {
-    const res = await AdminService.moderateCandidate(testCandidateId, 'PROMOTE_TO_TRACKED');
-    assert.equal(res.success, true);
-    assert.equal(res.newStatus, 'TRACKED');
-
-    // 1. Verify card in database
-    const cardRes = await query<any>(
-      `SELECT * FROM opportunity_cards WHERE opportunity_id = $1`,
-      [testCandidateId]
+  it('does not promote a candidate before real observations produce a publishable verdict', async () => {
+    await assert.rejects(
+      () => AdminService.moderateCandidate(testCandidateId, 'PROMOTE_TO_TRACKED'),
+      (error: any) => error.code === 'VALIDATION_ERROR'
     );
-    const card = cardRes.rows[0];
-    assert.equal(card.verdict, 'BUILD_NOW');
-    assert.equal(card.d_band, 'HIGH');
-    assert.equal(card.m_band, 'MEDIUM');
-    assert.equal(card.w_band, 'HIGH');
-    assert.equal(card.confidence, 'HIGH');
-    assert.ok(card.d_basis_points >= 7000);
-    assert.ok(card.m_basis_points >= 6000);
-    assert.ok(card.w_basis_points >= 7000);
 
-    // 2. Verify SERP results
-    const serpRes = await query<any>(
-      `SELECT r.rank, r.domain, r.is_weak
-       FROM serp_results r
-       JOIN serp_snapshots s ON s.id = r.serp_snapshot_id
-       JOIN opportunity_queries oq ON oq.query_id = s.query_id
-       WHERE oq.opportunity_id = $1
-       ORDER BY r.rank ASC`,
-      [testCandidateId]
-    );
-    assert.ok(serpRes.rows.length >= 5);
-    assert.ok(serpRes.rows.some((r) => r.is_weak));
+    const status = await query<any>(`SELECT status FROM opportunities WHERE id = $1`, [testCandidateId]);
+    assert.equal(status.rows[0].status, 'CANDIDATE');
+    const evidence = await query<any>(`SELECT COUNT(*)::int AS count FROM evidence WHERE opportunity_id = $1`, [testCandidateId]);
+    assert.equal(evidence.rows[0].count, 0);
 
-    // 3. Verify detail service
-    const detail = await OpportunityService.getOpportunityDetail(testSlug);
-    assert.equal(detail.opportunity.status, 'TRACKED');
-    assert.equal(detail.opportunity.verdict, 'BUILD_NOW');
-    assert.equal(detail.opportunity.d_band, 'HIGH');
-    assert.ok(detail.serpResults.length >= 5);
-    assert.ok(detail.evidence.length >= 1);
-
-    // 4. Verify report generation
-    const report = await ReportService.getOrGenerateReport(testCandidateId, 'usr_demo_admin', 'zh-CN');
-    assert.ok(report.reportId);
-    assert.equal(report.data.metadata.verdict, 'BUILD_NOW');
-    assert.equal(report.data.metadata.scores.dBasisPoints, card.d_basis_points);
-
-    // Clean up test card to avoid leaking test records into feeds
     await query(`DELETE FROM opportunity_cards WHERE opportunity_id = $1`, [testCandidateId]);
     await query(`UPDATE opportunities SET status = 'ARCHIVED' WHERE id = $1`, [testCandidateId]);
   });

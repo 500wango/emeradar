@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { StripeService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +12,11 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+    if (auth.authMethod === 'api_key') {
+      return NextResponse.json({ type: 'about:blank', title: 'Session Required', status: 403, detail: 'Checkout requires an interactive user session.' }, { status: 403 });
+    }
+    const verificationError = requireVerifiedEmail(auth);
+    if (verificationError) return verificationError;
 
     const body = await request.json().catch(() => ({}));
     const { planCode, billingCycle = 'yearly', returnUrl } = body;
@@ -28,13 +33,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (billingCycle !== 'monthly' && billingCycle !== 'yearly') {
+    if (planCode === 'TEAM') {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Design Partner Only',
+          status: 403,
+          code: 'DESIGN_PARTNER_ONLY',
+          detail: 'Team subscriptions are currently available only through a design partner agreement.',
+        },
+        { status: 403 }
+      );
+    }
+
+    if (billingCycle !== 'monthly' && billingCycle !== 'yearly' && billingCycle !== 'lifetime') {
       return NextResponse.json(
         {
           type: 'about:blank',
           title: 'Invalid Billing Cycle',
           status: 400,
-          detail: 'Billing cycle must be either monthly or yearly.',
+          detail: 'Billing cycle must be monthly, yearly, or lifetime.',
         },
         { status: 400 }
       );

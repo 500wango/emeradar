@@ -61,10 +61,11 @@ export function EvidenceInteractiveList({ evidence }: { evidence: EvidenceItem[]
   return (
     <div className="space-y-3">
       {evidence.map((ev) => (
-        <div
+        <button
+          type="button"
           key={ev.id}
           onClick={() => handleOpen(ev)}
-          className="group p-4 rounded-xl bg-slate-50 hover:bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer text-xs"
+          className="group block w-full p-4 rounded-xl bg-slate-50 hover:bg-white border border-slate-200/80 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer text-left text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="font-semibold text-slate-800 flex items-center gap-1.5">
@@ -96,7 +97,7 @@ export function EvidenceInteractiveList({ evidence }: { evidence: EvidenceItem[]
               <span>&rarr;</span>
             </span>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   );

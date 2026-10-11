@@ -7,7 +7,17 @@ import { TrackRequest } from '@/components/TrackRequest';
 import { StartExperimentButton } from '@/components/StartExperimentButton';
 import { getServerI18n } from '@/lib/i18n/server';
 
-export default async function FeedPage() {
+type FeedSearchParams = Record<string, string | string[] | undefined>;
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function FeedPage({
+  searchParams,
+}: {
+  searchParams?: Promise<FeedSearchParams>;
+}) {
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect('/login?next=%2Ffeed');
@@ -15,7 +25,28 @@ export default async function FeedPage() {
   const feedDelayDays = ent.feedDelayDays;
   const planLabel = ent.planCode;
   const realtime = feedDelayDays === 0;
-  const feed = await OpportunityService.listFeedCards({ limit: 10, minAgeDays: feedDelayDays });
+  const params = searchParams ? await searchParams : {};
+  const verdictParam = firstParam(params.verdict);
+  const archetypeParam = firstParam(params.archetype);
+  const executionClassParam = firstParam(params.execution_class);
+  const searchParam = firstParam(params.search)?.trim() || undefined;
+  const offsetParam = Number.parseInt(firstParam(params.offset) || '0', 10);
+  const offset = Number.isFinite(offsetParam) ? Math.max(0, Math.floor(offsetParam / 10) * 10) : 0;
+  const verdicts = ['BUILD_NOW', 'EARLY_BET', 'WATCH', 'WINDOW_CLOSING'];
+  const archetypes = ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS', 'PSEO_SITE', 'DIRECTORY', 'CONTENT_SITE', 'TOOL'];
+  const executionClasses = ['S', 'M', 'L'];
+  const selectedVerdict = verdicts.includes(verdictParam || '') ? verdictParam : undefined;
+  const selectedArchetype = archetypes.includes(archetypeParam || '') ? archetypeParam : undefined;
+  const selectedExecutionClass = executionClasses.includes(executionClassParam || '') ? executionClassParam : undefined;
+  const feed = await OpportunityService.listFeedCards({
+    verdict: selectedVerdict as any,
+    archetype: selectedArchetype as any,
+    executionClass: selectedExecutionClass as any,
+    search: searchParam,
+    limit: 10,
+    offset,
+    minAgeDays: feedDelayDays,
+  });
   const observations = realtime
     ? await OpportunityService.listLiveObservations({ limit: 20 })
     : [];
@@ -58,7 +89,19 @@ export default async function FeedPage() {
         </p>
       </div>
 
-      <FeedClient initialItems={feed.items} total={feed.total} />
+      <FeedClient
+        initialItems={feed.items}
+        total={feed.total}
+        hasMore={feed.hasMore}
+        offset={offset}
+        pageSize={10}
+        activeFilters={{
+          verdict: selectedVerdict,
+          archetype: selectedArchetype,
+          executionClass: selectedExecutionClass,
+          search: searchParam,
+        }}
+      />
 
       <div className="mt-14 pt-8 border-t border-slate-200">
         <TrackRequest />

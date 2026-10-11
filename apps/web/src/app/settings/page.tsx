@@ -22,6 +22,7 @@ import {
   Layers,
   Code2,
   Check,
+  MailCheck,
 } from 'lucide-react';
 
 const BUILD_ARCHETYPES = [
@@ -61,6 +62,19 @@ function SettingsContent() {
   // Entitlements and quotas state
   const [entitlements, setEntitlements] = useState<UserEntitlementsInfo | null>(null);
   const [loadingEntitlements, setLoadingEntitlements] = useState(false);
+  const [verificationSending, setVerificationSending] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
+
+  const resendVerification = async () => {
+    setVerificationSending(true);
+    setVerificationSent(false);
+    try {
+      const response = await fetch('/api/v1/auth/resend-verification', { method: 'POST' });
+      if (response.ok) setVerificationSent(true);
+    } finally {
+      setVerificationSending(false);
+    }
+  };
 
   const loadEntitlements = useCallback(async () => {
     if (!user) return;
@@ -282,10 +296,14 @@ function SettingsContent() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 mb-8 overflow-x-auto pb-2">
+      <div role="tablist" aria-label={isZh ? '账户设置分区' : 'Account settings sections'} className="flex items-center gap-2 border-b border-slate-200 mb-8 overflow-x-auto pb-2">
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'profile'}
+          aria-controls="settings-panel-profile"
           onClick={() => setActiveTab('profile')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap ${
+          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
             activeTab === 'profile'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -296,8 +314,12 @@ function SettingsContent() {
         </button>
 
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'preferences'}
+          aria-controls="settings-panel-preferences"
           onClick={() => setActiveTab('preferences')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap ${
+          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
             activeTab === 'preferences'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -307,21 +329,31 @@ function SettingsContent() {
           <span>{t('settings.tabPreferences')}</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('api-keys')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'api-keys'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <KeyRound className="w-4 h-4" />
-          <span>{t('settings.tabApiKeys')}</span>
-        </button>
+        {user?.role === 'ADMIN' && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'api-keys'}
+            aria-controls="settings-panel-api-keys"
+            onClick={() => setActiveTab('api-keys')}
+            className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+              activeTab === 'api-keys'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>{t('settings.tabApiKeys')}</span>
+          </button>
+        )}
 
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'billing'}
+          aria-controls="settings-panel-billing"
           onClick={() => setActiveTab('billing')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap ${
+          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
             activeTab === 'billing'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -334,7 +366,7 @@ function SettingsContent() {
 
       {/* TAB 1: Profile */}
       {activeTab === 'profile' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div id="settings-panel-profile" role="tabpanel" aria-label={t('settings.tabProfile')} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
               <h3 className="text-base font-bold text-slate-900 mb-1">
@@ -345,11 +377,30 @@ function SettingsContent() {
               </p>
 
               <div className="space-y-4">
+                {!user.emailVerifiedAt && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+                    <div className="flex items-start gap-3">
+                      <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-amber-900">{isZh ? '请先验证邮箱' : 'Verify your email address'}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-amber-800">{isZh ? '报告、项目、告警和订阅操作需要已确认的邮箱。' : 'Verified email is required for reports, projects, alerts, and subscriptions.'}</p>
+                        <button type="button" onClick={resendVerification} disabled={verificationSending} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">
+                          {verificationSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
+                          {verificationSending ? (isZh ? '发送中…' : 'Sending…') : (isZh ? '重新发送验证邮件' : 'Resend verification email')}
+                        </button>
+                        {verificationSent && <p className="mt-2 text-xs font-medium text-emerald-700">{isZh ? '如果邮箱尚未验证，新的链接已发送。' : 'If your email is not verified, a new link has been sent.'}</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="settings-display-name" className="block text-xs font-semibold text-slate-700 mb-1">
                     {t('auth.nameLabel')}
                   </label>
                   <input
+                    id="settings-display-name"
+                    name="displayName"
+                    autoComplete="name"
                     type="text"
                     readOnly
                     value={user.displayName || ''}
@@ -358,10 +409,14 @@ function SettingsContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="settings-email" className="block text-xs font-semibold text-slate-700 mb-1">
                     {t('auth.emailLabel')}
                   </label>
                   <input
+                    id="settings-email"
+                    name="email"
+                    autoComplete="email"
+                    spellCheck={false}
                     type="email"
                     readOnly
                     value={user.email}
@@ -399,8 +454,8 @@ function SettingsContent() {
               <h4 className="text-2xl font-extrabold mt-1">{user.tier} TIER</h4>
               <p className="text-xs text-slate-300 mt-2">
                 {isZh
-                  ? '实时 SERP 薄弱点指标、商业佐证不可篡改账本与机会智能打分。'
-                  : 'Real-time SERP weakness indicators, commercial proof ledger, and opportunity scoring.'}
+                  ? '实时 SERP 薄弱点指标、商业佐证与机会智能打分。'
+                  : 'Real-time SERP weakness indicators, commercial evidence, and opportunity scoring.'}
               </p>
               <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
                 <span className="text-slate-400">{t('settings.entitlements')}</span>
@@ -429,7 +484,7 @@ function SettingsContent() {
 
       {/* TAB 2: Preferences */}
       {activeTab === 'preferences' && (
-        <form onSubmit={handleSavePreferences} className="max-w-3xl space-y-8">
+        <form id="settings-panel-preferences" role="tabpanel" aria-label={t('settings.tabPreferences')} onSubmit={handleSavePreferences} className="max-w-3xl space-y-8">
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
             <div>
               <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
@@ -565,7 +620,7 @@ function SettingsContent() {
 
       {/* TAB 3: Developer API Keys */}
       {activeTab === 'api-keys' && (
-        <div className="space-y-8">
+        <div id="settings-panel-api-keys" role="tabpanel" aria-label={t('settings.tabApiKeys')} className="space-y-8">
           {/* Header Card */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -580,11 +635,14 @@ function SettingsContent() {
 
             <form onSubmit={handleCreateApiKey} className="flex items-center gap-2">
               <input
+                id="api-key-label"
+                name="apiKeyLabel"
+                autoComplete="off"
                 type="text"
                 placeholder={t('settings.keyLabelPlaceholder')}
                 value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)}
-                className="px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               />
               <button
                 type="submit"
@@ -617,8 +675,9 @@ function SettingsContent() {
                   {isZh ? '请妥善保存您的 Secret API 密钥' : 'Save Your Secret API Key'}
                 </span>
                 <button
+                  type="button"
                   onClick={() => setGeneratedSecret(null)}
-                  className="text-xs text-amber-700 hover:text-amber-900 font-semibold"
+                  className="text-xs text-amber-700 hover:text-amber-900 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                 >
                   {t('common.close')}
                 </button>
@@ -631,8 +690,9 @@ function SettingsContent() {
                   {generatedSecret}
                 </code>
                 <button
+                  type="button"
                   onClick={handleCopySecret}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition flex items-center gap-1.5 shrink-0"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition flex items-center gap-1.5 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                 >
                   {copiedKey ? (
                     <>
@@ -657,8 +717,9 @@ function SettingsContent() {
                 {t('settings.activeKeys')} ({apiKeys.length})
               </span>
               <button
+                type="button"
                 onClick={loadApiKeys}
-                className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
               >
                 <RefreshCw className="w-3 h-3" />
                 <span>{isZh ? '刷新' : 'Refresh'}</span>
@@ -715,8 +776,9 @@ function SettingsContent() {
 
                       {!isRevoked && (
                         <button
+                          type="button"
                           onClick={() => handleRevokeApiKey(key.id)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition flex items-center gap-1 self-start sm:self-auto"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition flex items-center gap-1 self-start sm:self-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>{t('settings.revokeBtn')}</span>
@@ -748,7 +810,7 @@ function SettingsContent() {
 
       {/* TAB 4: Billing & Quotas */}
       {activeTab === 'billing' && (
-        <div className="space-y-8">
+        <div id="settings-panel-billing" role="tabpanel" aria-label={t('settings.tabBilling')} className="space-y-8">
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
               <div>
@@ -757,7 +819,7 @@ function SettingsContent() {
                 </span>
                 <h3 className="text-2xl font-extrabold text-slate-900 mt-1">
                   {user.tier === 'TEAM'
-                    ? (isZh ? 'Team Scale 团队方案' : 'Team Scale Plan')
+                    ? (isZh ? '历史套餐' : 'Legacy Plan')
                     : user.tier === 'PRO'
                     ? (isZh ? 'Builder Pro 专业方案' : 'Builder Pro Plan')
                     : (isZh ? 'Free Starter 免费方案' : 'Free Starter Plan')}
@@ -783,7 +845,7 @@ function SettingsContent() {
                 <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto" />
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 pt-6">
                 {/* 1. Tracked Projects */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
@@ -809,17 +871,40 @@ function SettingsContent() {
                   </p>
                 </div>
 
-                {/* 2. Monthly Reports */}
+                {/* 2. Monthly Report Generations */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
                     <span>{t('pricing.monthlyReports')}</span>
                     <span className="text-emerald-600 font-bold">
-                      {entitlements ? `${entitlements.exportReportsUsed} / ${entitlements.exportReportsMonthlyLimit}` : '0 / 0'}
+                      {entitlements ? `${entitlements.reportGenerationUsed} / ${entitlements.reportGenerationMonthlyLimit}` : '0 / 0'}
                     </span>
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-2">
                     <div
                       className="bg-emerald-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${entitlements ? Math.min(100, (entitlements.reportGenerationUsed / Math.max(1, entitlements.reportGenerationMonthlyLimit)) * 100) : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    {entitlements
+                      ? (isZh ? `本月剩余 ${entitlements.remainingReportGenerations} 次生成` : `${entitlements.remainingReportGenerations} generations remaining`)
+                      : '-'}
+                  </p>
+                </div>
+
+                {/* 3. Monthly File Exports */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
+                    <span>{t('pricing.reportExports')}</span>
+                    <span className="text-slate-600 font-bold">
+                      {entitlements ? `${entitlements.exportReportsUsed} / ${entitlements.exportReportsMonthlyLimit}` : '0 / 0'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2">
+                    <div
+                      className="bg-slate-600 h-2 rounded-full transition-all"
                       style={{
                         width: `${entitlements ? Math.min(100, (entitlements.exportReportsUsed / Math.max(1, entitlements.exportReportsMonthlyLimit)) * 100) : 0}%`,
                       }}
@@ -827,12 +912,12 @@ function SettingsContent() {
                   </div>
                   <p className="text-[11px] text-slate-400 mt-2">
                     {entitlements
-                      ? (isZh ? `本月剩余 ${entitlements.remainingReports} 份报告` : `${entitlements.remainingReports} reports remaining`)
+                      ? (isZh ? `本月剩余 ${entitlements.remainingReports} 次导出` : `${entitlements.remainingReports} exports remaining`)
                       : '-'}
                   </p>
                 </div>
 
-                {/* 3. Alert Rules */}
+                {/* 4. Alert Rules */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
                     <span>{t('pricing.alertRules')}</span>
@@ -857,7 +942,7 @@ function SettingsContent() {
                   </p>
                 </div>
 
-                {/* 4. Live Scans (Daily) */}
+                {/* 5. Live Scans (Daily) */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
                     <span>{isZh ? '实时雷达扫描配额' : 'Live Radar Scans'}</span>

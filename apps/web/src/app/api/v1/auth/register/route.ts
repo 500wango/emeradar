@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { sendTransactionalEmail } from '@/lib/email-delivery';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
     const { email, password, displayName } = body;
 
     // Strict rate limiting on registration to stop mass script abuse
-    const ipLimit = checkRateLimit({
+    const ipLimit = await checkRateLimit({
       key: `register_ip_${ip}`,
       limit: 5,
       windowMs: 15 * 60 * 1000,
@@ -60,6 +61,16 @@ export async function POST(request: NextRequest) {
       password,
       displayName: displayName?.trim() || undefined,
     });
+
+    const verification = await AuthService.requestEmailVerification(user.id);
+    if (verification) {
+      const origin = process.env.APP_ORIGIN || request.nextUrl.origin;
+      await sendTransactionalEmail({
+        to: verification.email,
+        subject: 'Verify your Emeradar email',
+        text: `Verify your Emeradar account within 24 hours: ${origin}/verify-email?token=${encodeURIComponent(verification.token)}`,
+      });
+    }
 
     const response = NextResponse.json({
       user,

@@ -114,7 +114,7 @@ export function DecisionBar({
           type="button"
           onClick={watch}
           disabled={pending !== null}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-60"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <Bell className="w-4 h-4" />
           {t('opportunityDetail.watchBtn')}
@@ -123,7 +123,7 @@ export function DecisionBar({
           type="button"
           onClick={go}
           disabled={!canGo || pending !== null}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <Check className="w-4 h-4" />
           {t('opportunityDetail.goBtn')}
@@ -134,8 +134,10 @@ export function DecisionBar({
             setPassOpen((open) => !open);
             setError(null);
           }}
+          aria-expanded={passOpen}
+          aria-controls="pass-reasons"
           disabled={pending !== null}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-60"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <X className="w-4 h-4" />
           {t('opportunityDetail.passBtn')}
@@ -143,7 +145,7 @@ export function DecisionBar({
         {canExport ? (
           <a
             href={`/opportunities/${slug}/report`}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
             <FileText className="w-4 h-4 text-blue-600" />
             {t('opportunityDetail.exportReport')}
@@ -163,8 +165,8 @@ export function DecisionBar({
       )}
 
       {passOpen && (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 max-w-md">
-          <p className="text-xs font-semibold text-slate-800 mb-2">{t('opportunityDetail.passReasonsPrompt')}</p>
+        <div id="pass-reasons" role="group" aria-labelledby="pass-reasons-heading" className="rounded-xl border border-slate-200 bg-white p-3 max-w-md">
+          <p id="pass-reasons-heading" className="text-xs font-semibold text-slate-800 mb-2">{t('opportunityDetail.passReasonsPrompt')}</p>
           <div className="space-y-1.5">
             {passReasons.map((reason) => (
               <label key={reason.id} className="flex items-center gap-2 text-xs text-slate-700">
@@ -187,15 +189,15 @@ export function DecisionBar({
             type="button"
             onClick={pass}
             disabled={pending !== null}
-            className="mt-3 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold disabled:opacity-60"
+            className="mt-3 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
           >
             {t('opportunityDetail.confirmPass')}
           </button>
         </div>
       )}
 
-      {message && <p className="text-xs text-emerald-700">{message}</p>}
-      {error && <p className="text-xs text-rose-700">{error}</p>}
+      {message && <p className="text-xs text-emerald-700" role="status" aria-live="polite">{message}</p>}
+      {error && <p className="text-xs text-rose-700" role="alert">{error}</p>}
     </div>
   );
 }

@@ -56,6 +56,25 @@ export interface FeedResponse {
   zeroStateAlternativeCount?: number;
 }
 
+export interface CompareOpportunityItem {
+  opportunityId: string;
+  slug: string;
+  title: string;
+  primaryQuery: string;
+  verdict: Verdict;
+  dBand: string;
+  mBand: string;
+  wBand: string;
+  confidence: string;
+  executionClass: ExecutionClass;
+  claimsCount: number;
+  maxClaims: number;
+  killCriteriaTotal: number;
+  killCriteriaTriggered: number;
+  marketCountry: string;
+  researchLanguage: string;
+}
+
 export interface DiscoveryFeedItem {
   id: string;
   title: string;
@@ -390,6 +409,76 @@ export class OpportunityService {
       claimsCount: r.claims_count ?? 0,
       maxClaims: 5,
       isCrowdedLocked: (r.claims_count ?? 0) >= 5,
+    }));
+  }
+
+  /** Compare published opportunities using the same delayed feed boundary as the caller. */
+  static async compareOpportunities(
+    ids: string[],
+    options: { minAgeDays?: number } = {},
+  ): Promise<CompareOpportunityItem[]> {
+    const normalizedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    if (normalizedIds.length < 2 || normalizedIds.length > 3) {
+      throw new EmeradarError(
+        ErrorCode.VALIDATION_ERROR,
+        'Compare requires between 2 and 3 opportunity ids.',
+        400,
+      );
+    }
+
+    const params: any[] = [normalizedIds];
+    const conditions = [
+      `o.id = ANY($1::text[])`,
+      `o.status = 'TRACKED'`,
+      `c.verdict IN ('BUILD_NOW', 'EARLY_BET')`,
+      `c.confidence <> 'LOW'`,
+    ];
+    if (options.minAgeDays && options.minAgeDays > 0) {
+      params.push(String(options.minAgeDays));
+      conditions.push(`c.first_observed_at <= NOW() - ($${params.length} || ' days')::interval`);
+    }
+
+    const result = await query<any>(
+      `SELECT o.id AS opportunity_id, o.slug, o.title, o.market_country, o.research_language,
+              c.primary_query, c.verdict, c.d_band, c.m_band, c.w_band,
+              c.confidence, c.execution_class,
+              COALESCE((SELECT COUNT(*) FROM projects p
+                        WHERE p.opportunity_id = o.id AND p.status <> 'ABANDONED'), 0)::int AS claims_count,
+              COALESCE((SELECT COUNT(*) FROM kill_criteria k WHERE k.opportunity_id = o.id), 0)::int AS kill_criteria_total,
+              COALESCE((SELECT COUNT(*) FROM kill_criteria k
+                        WHERE k.opportunity_id = o.id AND k.status = 'TRIGGERED'), 0)::int AS kill_criteria_triggered
+       FROM opportunities o
+       JOIN opportunity_cards c ON c.opportunity_id = o.id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY array_position($1::text[], o.id) ASC`,
+      params,
+    );
+
+    if (result.rows.length !== normalizedIds.length) {
+      throw new EmeradarError(
+        ErrorCode.NOT_FOUND,
+        'One or more selected opportunities are not available for comparison.',
+        404,
+      );
+    }
+
+    return result.rows.map((row) => ({
+      opportunityId: row.opportunity_id,
+      slug: row.slug,
+      title: row.title,
+      primaryQuery: row.primary_query,
+      verdict: row.verdict,
+      dBand: row.d_band,
+      mBand: row.m_band,
+      wBand: row.w_band,
+      confidence: row.confidence,
+      executionClass: row.execution_class,
+      claimsCount: row.claims_count ?? 0,
+      maxClaims: 5,
+      killCriteriaTotal: row.kill_criteria_total ?? 0,
+      killCriteriaTriggered: row.kill_criteria_triggered ?? 0,
+      marketCountry: row.market_country,
+      researchLanguage: row.research_language,
     }));
   }
 

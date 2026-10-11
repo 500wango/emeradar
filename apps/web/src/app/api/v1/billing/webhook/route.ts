@@ -32,9 +32,14 @@ export async function POST(request: NextRequest) {
         const session = event.data?.object;
         const userId = session?.metadata?.userId || session?.client_reference_id;
         const planCode = (session?.metadata?.planCode as 'PRO' | 'TEAM') || 'PRO';
+        const billingCycle = session?.metadata?.billingCycle === 'lifetime'
+          ? 'lifetime'
+          : session?.metadata?.billingCycle === 'yearly'
+          ? 'yearly'
+          : 'monthly';
 
         if (userId) {
-          await StripeService.activateSubscription(userId, planCode);
+          await StripeService.activateSubscription(userId, planCode, billingCycle);
           console.log(`[Stripe Webhook] Successfully activated subscription for user ${userId} to ${planCode}`);
         }
         break;

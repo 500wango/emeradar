@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AlertService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser, requireScope } from '@/lib/auth-server';
+import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
     if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
     const scopeError = requireScope(auth, 'alerts:write');
     if (scopeError) return scopeError;
+    const verificationError = requireVerifiedEmail(auth);
+    if (verificationError) return verificationError;
     const userId = auth.user.id;
     const body = await request.json();
 
@@ -55,5 +57,21 @@ export async function POST(request: NextRequest) {
       { type: 'about:blank', title: 'Alert Error', status: 500, detail: error.message },
       { status: 500 }
     );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const auth = await getAuthUser(request);
+    if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const scopeError = requireScope(auth, 'alerts:write');
+    if (scopeError) return scopeError;
+    const ruleId = request.nextUrl.searchParams.get('ruleId');
+    if (!ruleId) return NextResponse.json({ type: 'about:blank', title: 'Validation Error', status: 400, detail: 'ruleId is required' }, { status: 400 });
+    await AlertService.deleteAlertRule(auth.user.id, ruleId);
+    return new NextResponse(null, { status: 204 });
+  } catch (error: any) {
+    if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });
+    return NextResponse.json({ type: 'about:blank', title: 'Alert Error', status: 500, detail: error.message }, { status: 500 });
   }
 }

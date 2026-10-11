@@ -21,7 +21,6 @@ import {
 import { Logo } from '@/components/Logo';
 import { getServerI18n } from '@/lib/i18n/server';
 import { OpportunityService, FeedCardItem } from '@emeradar/services';
-import { LiveScanner } from '@/components/LiveScanner';
 
 export default async function HomePage() {
   const { t, isZh } = await getServerI18n();
@@ -90,7 +89,7 @@ export default async function HomePage() {
       num: '04',
       title: t('home.step4Title'),
       desc: t('home.step4Desc'),
-      highlight: isZh ? '不可篡改审计账本' : 'Append-Only Ledger',
+      highlight: isZh ? '结果回流复盘' : 'Outcome Review',
     },
   ];
 
@@ -225,12 +224,7 @@ export default async function HomePage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] font-medium">
-                  <span className="flex items-center gap-1.5 text-emerald-400">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    LIVE RADAR
-                  </span>
-                  <span className="text-slate-500">|</span>
-                  <span className="text-slate-400 font-mono">HASH: 0x8f2a...</span>
+                  <span className="text-slate-400">PUBLISHED DECISION WORKSPACE</span>
                 </div>
               </div>
 
@@ -246,32 +240,6 @@ export default async function HomePage() {
                 />
               </div>
 
-              {/* Floating Insight Badges (Overlaid on desktop, stacked below on mobile) */}
-              <div className="hidden lg:block">
-                {/* Top-Left Badge: BUILD NOW */}
-                <div className="absolute top-16 left-6 bg-slate-900/90 backdrop-blur-md border border-emerald-500/40 px-3.5 py-2 rounded-xl shadow-xl text-xs font-semibold text-emerald-300 flex items-center gap-2 animate-bounce-subtle">
-                  <Flame className="w-4 h-4 text-emerald-400" />
-                  <span>{t('home.floatingBadge1')}</span>
-                </div>
-
-                {/* Top-Right Badge: SERP Weakness */}
-                <div className="absolute top-16 right-6 bg-slate-900/90 backdrop-blur-md border border-blue-500/40 px-3.5 py-2 rounded-xl shadow-xl text-xs font-semibold text-blue-300 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-amber-400" />
-                  <span>{t('home.floatingBadge2')}</span>
-                </div>
-
-                {/* Bottom-Left Badge: Stripe Proof */}
-                <div className="absolute bottom-6 left-6 bg-slate-900/90 backdrop-blur-md border border-indigo-500/40 px-3.5 py-2 rounded-xl shadow-xl text-xs font-semibold text-indigo-200 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                  <span>{t('home.floatingBadge3')}</span>
-                </div>
-
-                {/* Bottom-Right Badge: Cryptographic Seal */}
-                <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3.5 py-2 rounded-xl shadow-xl text-xs font-mono text-slate-300 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-cyan-400" />
-                  <span>{t('home.floatingBadge4')}</span>
-                </div>
-              </div>
             </div>
 
             {/* Caption */}
@@ -325,7 +293,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 3. Live Radar Showcase: Curated Proactive Decisions (No Search Needed!) */}
+      {/* 3. Published opportunity showcase */}
       <section className="py-18 bg-slate-50 border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-12">
@@ -340,8 +308,8 @@ export default async function HomePage() {
 
             <p className="mt-3 text-xs sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
               {isZh
-                ? '无需构思或搜索关键词。雷达全天候自主嗅探长尾爆发与商业收银台，直接向你交付高置信度立项决策。'
-                : 'No keyword search required. The radar autonomously detects emerging search clusters and live checkout signals, delivering verified build decisions directly to you.'}
+                ? '这里展示已经通过观察门槛的机会。每条记录都可以回到来源和限制条件，不把观察结果当成成功保证。'
+                : 'These opportunities passed the observation gate. Each record links back to its sources and limitations instead of presenting a success guarantee.'}
             </p>
           </div>
 
@@ -443,19 +411,9 @@ export default async function HomePage() {
               <ArrowRight className="w-4 h-4" />
             </Link>
 
-            {/* Optional Collapsible for manual scanner */}
-            <details className="mt-6 group border border-slate-200 rounded-2xl bg-white p-4 max-w-xl mx-auto text-left shadow-xs">
-              <summary className="cursor-pointer text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Search className="w-4 h-4 text-blue-600" />
-                  <span>{isZh ? '有特定的细分长尾词想让雷达定向扫描？展开即时探测器' : 'Have a custom query to observe? Open live query scanner'}</span>
-                </span>
-                <span className="text-slate-400 group-open:rotate-180 transition-transform">▼</span>
-              </summary>
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <LiveScanner showQuickChips={true} />
-              </div>
-            </details>
+            <p className="mt-6 text-xs text-slate-500">
+              {isZh ? '想追踪新的查询词？登录后提交观察申请；申请会进入候选池，不会即时生成裁决。' : 'Have a query to observe? Sign in to submit an observation request. Requests enter the candidate pool and do not create an instant verdict.'}
+            </p>
           </div>
         </div>
       </section>
@@ -489,7 +447,7 @@ export default async function HomePage() {
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex items-end p-5">
                   <div className="text-white text-xs font-medium">
                     <span className="text-emerald-400 font-bold block mb-1">D-M-W 交叉立方矩阵</span>
-                    <span>只有三轴同时穿透基准阈值，系统方可签署 BUILD NOW 密码学判决</span>
+                    <span>只有三轴同时穿透基准阈值，系统才会发布 BUILD NOW 决策</span>
                   </div>
                 </div>
               </div>
@@ -691,7 +649,7 @@ export default async function HomePage() {
                   BUILD NOW
                 </span>
                 <span className="text-xs text-slate-400 font-medium">
-                  {isZh ? '首发每日至多 10 条高置信度裁决' : 'Up to 10 verified decisions / day'}
+                  {isZh ? '首发每日至多 10 条已发布决策' : 'Up to 10 published decisions / day'}
                 </span>
               </div>
               <h2 className="text-2xl font-black text-slate-900">

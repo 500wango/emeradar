@@ -45,21 +45,15 @@ export class ReportService {
     }
     const opp = oppRes.rows[0];
 
-    const userEnt = await EntitlementService.getUserEntitlements(userId);
-    const isPaidOrAdmin = userEnt.deepReportExport || userEnt.tier === 'PRO' || userEnt.tier === 'TEAM' || userEnt.tier === 'ADMIN';
-
-    // Gate: Free tier trial reports are restricted to published BUILD_NOW / EARLY_BET opportunities.
-    // Paying subscribers (Pro/Team) and Admins can generate in-depth reports for ANY opportunity,
-    // including candidate niches and WATCH observations.
-    if (!isPaidOrAdmin) {
-      if (opp.status !== 'TRACKED' || !['BUILD_NOW', 'EARLY_BET'].includes(opp.verdict) || opp.confidence === 'LOW') {
-        throw new EmeradarError(
-          ErrorCode.PRECONDITION_FAILED,
-          '免费体验版仅对已正式发布的 BUILD NOW 或 EARLY BET 决策开放。升级至 Builder Pro 或 Scale Team 即可即时解锁任意生态位的深度可行性研报。',
-          409,
-          { upgradeUrl: '/pricing' }
-        );
-      }
+    // Reports are decision records, not exploratory scans. Every tier follows the
+    // same publication gate; paid plans change quota/export rights, not evidence quality.
+    if (opp.status !== 'TRACKED' || !['BUILD_NOW', 'EARLY_BET'].includes(opp.verdict) || opp.confidence === 'LOW') {
+      throw new EmeradarError(
+        ErrorCode.PRECONDITION_FAILED,
+        'A report is available only for a published BUILD NOW or EARLY BET decision. This opportunity is still under observation.',
+        409,
+        { upgradeUrl: '/pricing' }
+      );
     }
 
     // 1. Check for cached report matching current verdict
@@ -73,6 +67,18 @@ export class ReportService {
        FROM opportunity_reports r
        WHERE (r.opportunity_id = $1 OR r.opportunity_id = $2) AND r.user_id = $3 AND r.locale = $4
          AND r.content->'metadata'->>'verdict' = $5
+         AND r.snapshot_id = (
+           SELECT os.id FROM opportunity_snapshots os
+           WHERE os.opportunity_id = $2
+           ORDER BY os.obs_date DESC
+           LIMIT 1
+         )
+         AND r.verdict_id = (
+           SELECT v.id FROM verdicts v
+           WHERE v.opportunity_id = $2
+           ORDER BY v.obs_date DESC
+           LIMIT 1
+         )
        ORDER BY r.created_at DESC
        LIMIT 1`,
       [opportunityId, opp.id, userId, locale, opp.verdict]
@@ -174,7 +180,7 @@ export class ReportService {
     }
 
     // 3. Reserve quota via Hold & Release
-    const reservation = await EntitlementService.reserveExportQuota(userId, opp.id);
+    const reservation = await EntitlementService.reserveReportGenerationQuota(userId, opp.id);
 
     try {
       const reportId = `rpt_${opp.id}_${Date.now()}`;
@@ -190,116 +196,10 @@ export class ReportService {
         [opp.id]
       );
 
-      // If no SERP results exist yet, synthesize baseline search competition entries
+      // Reports must remain evidence-backed. Missing SERP observations are not
+      // grounds to manufacture competitors or weak-result evidence.
       if (serpRes.rows.length === 0) {
-        let qRes = await query<{ id: string; query_text: string }>(
-          `SELECT q.id, q.query_text FROM opportunity_queries oq
-           JOIN queries q ON q.id = oq.query_id
-           WHERE oq.opportunity_id = $1 AND oq.role = 'PRIMARY'`,
-          [opp.id]
-        );
-        let queryId = qRes.rows[0]?.id;
-        const queryText = qRes.rows[0]?.query_text || opp.primary_query || opp.title;
-        if (!queryId) {
-          const generatedQueryId = `qry_${opp.slug.slice(0, 16)}_${Date.now().toString(36)}`;
-          const qIns = await query<{ id: string }>(
-            `INSERT INTO queries (id, query_text, market_country, research_language, tier)
-             VALUES ($1, $2, $3, $4, 'A')
-             ON CONFLICT (query_text, market_country, research_language)
-             DO UPDATE SET query_text = EXCLUDED.query_text
-             RETURNING id`,
-            [generatedQueryId, queryText, opp.market_country || 'US', opp.research_language || 'en-US']
-          );
-          queryId = qIns.rows[0].id;
-          await query(
-            `INSERT INTO opportunity_queries (opportunity_id, query_id, role)
-             VALUES ($1, $2, 'PRIMARY')
-             ON CONFLICT (opportunity_id, query_id) DO UPDATE SET role = 'PRIMARY'`,
-            [opp.id, queryId]
-          );
-        }
-
-        const today = new Date().toISOString().split('T')[0];
-        const srpSnapId = `srp_${opp.id}_${today.replace(/-/g, '')}`;
-        await query(
-          `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio)
-           VALUES ($1, $2, $3, 0.6)
-           ON CONFLICT (query_id, obs_date) DO NOTHING`,
-          [srpSnapId, queryId, today]
-        );
-
-        const syntheticOrganic = [
-          {
-            rank: 1,
-            url: `https://reddit.com/r/SaaS/comments/${opp.slug}`,
-            domain: 'reddit.com',
-            title: `Best workflow or tool for ${queryText}? : r/SaaS`,
-            isWeak: true,
-            weaknessType: 'COMMUNITY_FORUM',
-          },
-          {
-            rank: 2,
-            url: `https://medium.com/@founder/${opp.slug}-guide`,
-            domain: 'medium.com',
-            title: `How to build a manual setup for ${queryText}`,
-            isWeak: true,
-            weaknessType: 'OUTDATED_CONTENT',
-          },
-          {
-            rank: 3,
-            url: `https://quora.com/unanswered/${opp.slug}`,
-            domain: 'quora.com',
-            title: `Is there an automated software for ${queryText}?`,
-            isWeak: true,
-            weaknessType: 'COMMUNITY_FORUM',
-          },
-          {
-            rank: 4,
-            url: `https://github.com/topics/${opp.slug}`,
-            domain: 'github.com',
-            title: `GitHub - ${opp.slug}: Open source community experiments`,
-            isWeak: true,
-            weaknessType: 'CODE_REPOSITORY',
-          },
-          {
-            rank: 5,
-            url: `https://softwareadvice.com/categories/${opp.slug}`,
-            domain: 'softwareadvice.com',
-            title: `Enterprise alternative listings for ${queryText}`,
-            isWeak: false,
-            weaknessType: null,
-          },
-        ];
-
-        for (const item of syntheticOrganic) {
-          await query(
-            `INSERT INTO serp_results (
-               serp_snapshot_id, rank, url, domain, title, snippet,
-               result_type, domain_authority_class, is_weak, weakness_type
-             ) VALUES ($1, $2, $3, $4, $5, $6, 'ORGANIC', 'COMMUNITY_FORUM', $7, $8)
-             ON CONFLICT (serp_snapshot_id, rank) DO NOTHING`,
-            [
-              srpSnapId,
-              item.rank,
-              item.url,
-              item.domain,
-              item.title,
-              `${item.title} - organic ranking result`,
-              item.isWeak,
-              item.weaknessType,
-            ]
-          );
-        }
-
-        serpRes = await query<any>(
-          `SELECT r.rank, r.url, r.domain, r.title, r.result_type, r.is_weak, r.weakness_type
-           FROM serp_snapshots ss
-           JOIN serp_results r ON r.serp_snapshot_id = ss.id
-           JOIN opportunity_queries oq ON oq.query_id = ss.query_id AND oq.role = 'PRIMARY'
-           WHERE oq.opportunity_id = $1
-           ORDER BY ss.obs_date DESC, r.rank ASC LIMIT 10`,
-          [opp.id]
-        );
+        throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'A report requires a real SERP observation; no report was generated.', 409);
       }
 
       // Fetch Kill Criteria
@@ -398,14 +298,12 @@ export class ReportService {
         ) VALUES (
           $1, $2, $3, $4, $5,
           $6, 'READY', $7, $8,
-          $9, $10, $11, 1
+          $9, $10, $11, 0
         )
         ON CONFLICT (opportunity_id, user_id, snapshot_id, locale)
         DO UPDATE SET
           content = EXCLUDED.content,
           content_markdown = EXCLUDED.content_markdown,
-          export_count = opportunity_reports.export_count + 1,
-          last_exported_at = NOW(),
           updated_at = NOW();`,
         [
           reportId,
@@ -423,7 +321,7 @@ export class ReportService {
       );
 
       // 7. Confirm quota
-      await EntitlementService.confirmExportQuota(
+      await EntitlementService.confirmReportGenerationQuota(
         userId,
         reservation.reservationToken,
         reportId
@@ -437,7 +335,7 @@ export class ReportService {
       };
     } catch (err) {
       // 8. Release quota on error
-      await EntitlementService.releaseExportQuota(
+      await EntitlementService.releaseReportGenerationQuota(
         userId,
         reservation.reservationToken
       );
@@ -483,34 +381,36 @@ export class ReportService {
     }
 
     const row = res.rows[0];
+    const reservation = await EntitlementService.reserveExportQuota(userId, row.opportunity_id);
+    try {
+      await query(
+        `UPDATE opportunity_reports
+         SET export_count = export_count + 1, last_exported_at = NOW()
+         WHERE id = $1`,
+        [reportId]
+      );
 
-    // Increment export count
-    await query(
-      `UPDATE opportunity_reports 
-       SET export_count = export_count + 1, last_exported_at = NOW() 
-       WHERE id = $1`,
-      [reportId]
-    );
-
-    if (format === 'markdown') {
-      return {
-        content: row.content_markdown,
-        contentType: 'text/markdown; charset=utf-8',
-        filename: `${row.opportunity_id}-report.md`,
-      };
-    } else if (format === 'html') {
-      const html = renderReportToHtml(row.content);
-      return {
-        content: html,
-        contentType: 'text/html; charset=utf-8',
-        filename: `${row.opportunity_id}-report.html`,
-      };
-    } else {
-      return {
-        content: JSON.stringify(row.content, null, 2),
-        contentType: 'application/json; charset=utf-8',
-        filename: `${row.opportunity_id}-report.json`,
-      };
+      let content: string;
+      let contentType: string;
+      let filename: string;
+      if (format === 'markdown') {
+        content = row.content_markdown;
+        contentType = 'text/markdown; charset=utf-8';
+        filename = `${row.opportunity_id}-report.md`;
+      } else if (format === 'html') {
+        content = renderReportToHtml(row.content);
+        contentType = 'text/html; charset=utf-8';
+        filename = `${row.opportunity_id}-report.html`;
+      } else {
+        content = JSON.stringify(row.content, null, 2);
+        contentType = 'application/json; charset=utf-8';
+        filename = `${row.opportunity_id}-report.json`;
+      }
+      await EntitlementService.confirmExportQuota(userId, reservation.reservationToken, reportId);
+      return { content, contentType, filename };
+    } catch (error) {
+      await EntitlementService.releaseExportQuota(userId, reservation.reservationToken);
+      throw error;
     }
   }
 }

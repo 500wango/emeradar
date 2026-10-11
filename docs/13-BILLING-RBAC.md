@@ -5,6 +5,10 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 ## 1. 目的
 定义套餐、配额、角色权限如何统一实现为一个单一决策点：`EntitlementService`。避免不同入口限流与权限规则不一致。
 
+### 邮箱验证门槛
+
+登录和 Feed/Compare 浏览不要求邮箱验证，保证用户可以先理解产品价值。报告生成与导出、正式决策、项目创建、告警规则、API key 创建和 checkout 属于高价值或外部投递动作，统一要求 `users.email_verified_at IS NOT NULL`；未满足时 API 返回 `EMAIL_VERIFICATION_REQUIRED`，页面引导用户到账户设置重发验证邮件。验证 token 仅保存哈希、24 小时过期且一次性消费。账户设置、证据列表和管理台操作控件必须保留可见键盘焦点与原生语义。
+
 ## 2. 角色（RBAC）
 
 | 角色 | 说明 | 典型权限边界 |
@@ -25,7 +29,7 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 |------|------|
 | `FREE` | 体验 + 公开延迟数据消费者；转化入口 |
 | `PRO` | 核心付费套餐：实时 Feed、完整 Detail、深度机会研究报告导出、Watchlist/Alerts、Project 追踪 |
-| `TEAM` | Phase 3；本文档预留结构，不在首发实现 |
+| `TEAM` | 历史兼容值；当前产品不提供 Team workspace、多席位或公开购买 |
 
 ### 3.2 `entitlements` 结构（`plans.entitlements` jsonb）
 ```json
@@ -59,12 +63,12 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 
 | 字段 | `FREE`（初始假设） | `PRO`（初始假设） |
 |------|---------------------|---------------------|
-| `feed_realtime` | `false`（但开放每周 1 条精选实时 BUILD_NOW 及实时候选异动流 Watching Queue） | `true` |
-| `feed_delay_days` | 0（彻底移除 45 天无用延迟，改为按条数及形态限流） | 0 |
+| `feed_realtime` | `false`（只展示延迟后的已发布摘要） | `true` |
+| `feed_delay_days` | 45 | 0 |
 | `opportunity_detail_full` | `false`（仅摘要 + Track Record 已公开部分） | `true` |
 | `scores_visible` | `false` | `false`（首发对任何套餐都不展示数值分，见 05 §1；此字段预留给未来可能的调试 / 企业需求） |
 | `compare_max_items` | 2 | 3 |
-| `deep_report_generate` | `{ quota, MONTH, 1 }`（体验示例） | `{ quota, MONTH, 30 }` |
+| `deep_report_generate` | `{ quota, MONTH, 1 }`（仅已发布决策预览） | `{ quota, MONTH, 30 }` |
 | `deep_report_export` | `false` | `true` |
 | `watchlist_max_items` | 5 | 200 |
 | `alert_rules_max` | 1（仅 `DAILY` digest） | 20 |
@@ -125,9 +129,10 @@ type ReservationResult =
 
 - 「申请追踪」创建 `CANDIDATE`，不视为 `feed_realtime`，不扣 `deep_report_generate`。
 - `opportunity_detail_full` 对 `CANDIDATE` 关闭：调用方看到观察状态、缺了哪一类证据、预计何时可复评。已发布裁决的完整详情才按套餐打开。
-- Free 的信息流只含延迟公开投影（15，默认 45 天）。Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计。
+- Free 的信息流只含延迟公开投影（默认 45 天）。Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计；候选观察区只对实时套餐开放。
 - 报告导出只针对已发布的 `BUILD_NOW` / `EARLY_BET`。同一快照重复导出不重复扣额。
-- Team 不在首发结账页出现。
+- Team 为历史兼容值，不在结账页出现，也不对应当前可用的 workspace 或多席位功能。
+- Founding Pro Lifetime 为一次性 `$399` 付款，复用当前 Pro 权益与月度配额；结账模式为 `payment`，成功后写入长期有效的 Pro 订阅记录，不产生续费事件。付款后不提供退款。终身版不承诺无限报告、无限抓取或未来高成本模块，当前仅作为首发早鸟方案。
 
 ## 5. 配额耗尽与降级 UX
 - REST：见 10 §1.1 错误格式，`QUOTA_EXCEEDED` / `PLAN_REQUIRED`，响应体含 `upgrade.url`。

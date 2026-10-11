@@ -82,20 +82,14 @@ describe('Report Generation for Opportunities Across User Tiers', () => {
     } catch (err: any) {
       assert.strictEqual(err instanceof EmeradarError, true);
       assert.strictEqual(err.status, 409);
-      assert.ok(err.message.includes('免费体验版'));
+      assert.ok(err.message.includes('published BUILD NOW'));
     }
   });
 
-  it('allows Team user to generate and export full 6-chapter report for candidate opportunity', async () => {
-    const result = await ReportService.getOrGenerateReport(oppId, teamUserId, 'zh-CN');
-
-    assert.ok(result.reportId);
-    assert.ok(result.data);
-    assert.strictEqual(result.data.metadata.opportunityId, oppId);
-    assert.ok(result.data.section1.decisionRecommendation);
-    assert.ok(result.data.section2.primaryQuery);
-    assert.ok(result.data.section3.top10Results.length >= 0);
-    assert.ok(result.data.section5.archetype);
-    assert.ok(result.markdown.includes('商业机会深度研究报告'));
+  it('rejects paid users too while the opportunity is still a candidate', async () => {
+    await assert.rejects(
+      () => ReportService.getOrGenerateReport(oppId, teamUserId, 'zh-CN'),
+      (err: any) => err instanceof EmeradarError && err.status === 409 && err.message.includes('published BUILD NOW')
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { query } from '@emeradar/db';
+import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode, BuildArchetype } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
@@ -278,12 +278,12 @@ export class ProjectService {
   static async getGscConnectionStatus(projectId: string, userId: string): Promise<GscConnectionStatus> {
     const owned = await query(`SELECT 1 FROM projects WHERE id = $1 AND user_id = $2`, [projectId, userId]);
     if (!owned.rows.length) throw new EmeradarError(ErrorCode.NOT_FOUND, `Project not found: ${projectId}`, 404);
-    const result = await query<{ property_url: string; last_synced_at: string | null }>(
-      `SELECT property_url, last_synced_at FROM gsc_connections WHERE project_id = $1 AND property_url IS NOT NULL LIMIT 1`,
+    const result = await query<{ property_url: string | null; last_synced_at: string | null }>(
+      `SELECT property_url, last_synced_at FROM gsc_connections WHERE project_id = $1 LIMIT 1`,
       [projectId],
     );
     const row = result.rows[0];
-    return row ? { connected: true, propertyUrl: row.property_url!, lastSyncedAt: row.last_synced_at ?? undefined } : { connected: false };
+    return row ? { connected: true, propertyUrl: row.property_url ?? undefined, lastSyncedAt: row.last_synced_at ?? undefined } : { connected: false };
   }
 
   static async disconnectGsc(projectId: string, userId: string): Promise<void> {
@@ -460,23 +460,6 @@ export class ProjectService {
       );
     }
 
-    // Check opportunity builder claim capacity (max 5 active claims to prevent alpha decay tragedy of commons)
-    if (input.opportunityId) {
-      const claimsRes = await query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ABANDONED'`,
-        [input.opportunityId]
-      );
-      const claimsCount = claimsRes.rows[0]?.count ?? 0;
-      const MAX_CLAIMS_PER_OPPORTUNITY = 5;
-      if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
-        throw new EmeradarError(
-          ErrorCode.PRECONDITION_FAILED,
-          `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
-          409
-        );
-      }
-    }
-
     // Ensure decision exists or create GO decision
     let decisionId = input.decisionId;
     if (!decisionId) {
@@ -522,30 +505,34 @@ export class ProjectService {
       }
     }
 
-    const projectId = `prj_${Date.now()}`;
+    const projectId = `prj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const domain = normalizeProjectDomain(input.domain);
-    const res = await query<any>(
-      `INSERT INTO projects (
-        id, user_id, opportunity_id, decision_id, report_id,
-        title, domain, build_type, status, launch_date, target_keywords
-      ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9
-      ) RETURNING *;`,
-      [
-        projectId,
-        userId,
-        input.opportunityId,
-        decisionId,
-        input.reportId || null,
-        input.title,
-        domain,
-        input.buildType || 'LIGHTWEIGHT_TOOL',
-        input.targetKeywords || [],
-      ]
-    );
-
-    return res.rows[0];
+    return transaction(async (client) => {
+      // Serialize the count and insert so concurrent GO clicks cannot bypass the limit.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.opportunityId]);
+      const claimsRes = await client.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ARCHIVED'`,
+        [input.opportunityId]
+      );
+      const claimsCount = claimsRes.rows[0]?.count ?? 0;
+      const MAX_CLAIMS_PER_OPPORTUNITY = 5;
+      if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
+        throw new EmeradarError(
+          ErrorCode.PRECONDITION_FAILED,
+          `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
+          409
+        );
+      }
+      const res = await client.query<any>(
+        `INSERT INTO projects (
+          id, user_id, opportunity_id, decision_id, report_id,
+          title, domain, build_type, status, launch_date, target_keywords
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9)
+        RETURNING *`,
+        [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'LIGHTWEIGHT_TOOL', input.targetKeywords || []]
+      );
+      return res.rows[0];
+    });
   }
 
   /**

@@ -31,6 +31,7 @@
 | 21 | DOCKER-VPS-DEPLOYMENT | 独立 VPS 与生产 Docker 部署指南 | 运维、全员 |
 | 22 | EARLY-DISCOVERY-DEVELOPMENT-PLAN | 新实体与早期搜索机会开发计划 | 后端、数据 |
 | 23 | COMPETITIVE-EVOLUTION-AND-EXECUTION-PLAN | 竞品对标演进与实施计划 (Sprint 1~4) | 产品、全员 |
+| 24 | PRODUCT-IMPROVEMENT-PLAN | 产品审查后的 P0/P1 改进顺序、验收与发布门槛 | 产品、全员 |
 
 ## 2. 依赖关系
 

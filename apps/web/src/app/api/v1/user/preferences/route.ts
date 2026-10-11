@@ -16,6 +16,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
+    if (auth.authMethod === 'api_key') {
+      return NextResponse.json({ type: 'about:blank', title: 'Session Required', status: 403, detail: 'Preferences require an interactive user session.' }, { status: 403 });
+    }
 
     return NextResponse.json({ preferences: auth.preferences });
   } catch (error: any) {
@@ -44,6 +47,9 @@ export async function PUT(request: NextRequest) {
         },
         { status: 401 }
       );
+    }
+    if (auth.authMethod === 'api_key') {
+      return NextResponse.json({ type: 'about:blank', title: 'Session Required', status: 403, detail: 'Preferences require an interactive user session.' }, { status: 403 });
     }
 
     const body = await request.json();

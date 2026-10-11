@@ -196,6 +196,7 @@ export function UsersClient({
 
         <div className="flex items-center gap-2.5">
           <button
+            type="button"
             onClick={() => fetchUsers()}
             disabled={loading}
             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition border border-slate-700 disabled:opacity-50"
@@ -204,6 +205,7 @@ export function UsersClient({
             <span>刷新</span>
           </button>
           <button
+            type="button"
             onClick={() => {
               setTemporaryPasswordResult(null);
               setIsCreateOpen(true);
@@ -233,7 +235,7 @@ export function UsersClient({
             )}
             <span>{message.text}</span>
           </div>
-          <button onClick={() => setMessage(null)} className="text-slate-400 hover:text-white">
+          <button type="button" aria-label="关闭提示" onClick={() => setMessage(null)} className="text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -271,6 +273,7 @@ export function UsersClient({
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
+            id="admin-user-search"
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -283,6 +286,8 @@ export function UsersClient({
         <div className="flex items-center gap-2 w-full md:w-auto">
           {/* Role Filter */}
           <select
+            id="admin-user-role-filter"
+            aria-label="按角色筛选"
             value={roleFilter}
             onChange={(e) => {
               setRoleFilter(e.target.value);
@@ -298,6 +303,8 @@ export function UsersClient({
 
           {/* Tier Filter */}
           <select
+            id="admin-user-tier-filter"
+            aria-label="按套餐筛选"
             value={tierFilter}
             onChange={(e) => {
               setTierFilter(e.target.value);
@@ -312,6 +319,8 @@ export function UsersClient({
 
           {/* Status Filter */}
           <select
+            id="admin-user-status-filter"
+            aria-label="按状态筛选"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
@@ -325,6 +334,7 @@ export function UsersClient({
           </select>
 
           <button
+            type="button"
             onClick={() => fetchUsers()}
             className="px-3 py-1.5 bg-purple-600/80 hover:bg-purple-600 text-white rounded-xl text-xs font-semibold shrink-0"
           >
@@ -539,7 +549,7 @@ export function UsersClient({
                 <UserPlus className="w-5 h-5 text-purple-400" />
                 <h3 className="font-bold text-white text-base">管理员新建用户</h3>
               </div>
-              <button onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-white">
+              <button type="button" aria-label="关闭新建用户弹窗" onClick={() => setIsCreateOpen(false)} className="text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -557,6 +567,8 @@ export function UsersClient({
                   <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-emerald-500/30 font-mono text-sm text-white">
                     <span>{temporaryPasswordResult}</span>
                     <button
+                      type="button"
+                      aria-label="复制初始密码"
                       onClick={() => copyToClipboard(temporaryPasswordResult)}
                       className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 flex items-center gap-1 text-xs"
                     >
@@ -568,6 +580,7 @@ export function UsersClient({
 
                 <div className="flex justify-end">
                   <button
+                    type="button"
                     onClick={() => {
                       setIsCreateOpen(false);
                       setTemporaryPasswordResult(null);
@@ -581,10 +594,13 @@ export function UsersClient({
             ) : (
               <form onSubmit={handleCreateUser} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="admin-new-email" className="block text-xs font-semibold text-slate-300 mb-1">
                     邮箱地址 <span className="text-rose-400">*</span>
                   </label>
                   <input
+                    id="admin-new-email"
+                    name="email"
+                    autoComplete="email"
                     type="email"
                     required
                     value={newEmail}
@@ -595,8 +611,10 @@ export function UsersClient({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">用户显示昵称</label>
+                  <label htmlFor="admin-new-display-name" className="block text-xs font-semibold text-slate-300 mb-1">用户显示昵称</label>
                   <input
+                    id="admin-new-display-name"
+                    name="displayName"
                     type="text"
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
@@ -607,8 +625,10 @@ export function UsersClient({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">角色权限</label>
+                    <label htmlFor="admin-new-role" className="block text-xs font-semibold text-slate-300 mb-1">角色权限</label>
                     <select
+                      id="admin-new-role"
+                      name="role"
                       value={newRole}
                       onChange={(e) => setNewRole(e.target.value as any)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
@@ -621,8 +641,10 @@ export function UsersClient({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">套餐等级</label>
+                    <label htmlFor="admin-new-tier" className="block text-xs font-semibold text-slate-300 mb-1">套餐等级</label>
                     <select
+                      id="admin-new-tier"
+                      name="tier"
                       value={newTier}
                       onChange={(e) => setNewTier(e.target.value as any)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
@@ -635,10 +657,12 @@ export function UsersClient({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="admin-new-password" className="block text-xs font-semibold text-slate-300 mb-1">
                     指定初始密码 <span className="text-slate-500 font-normal">(留空则自动生成随机高强度密码)</span>
                   </label>
                   <input
+                    id="admin-new-password"
+                    name="password"
                     type="text"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -678,7 +702,7 @@ export function UsersClient({
                 <ShieldCheck className="w-5 h-5 text-amber-400" />
                 <h3 className="font-bold text-white text-base">修改用户角色权限</h3>
               </div>
-              <button onClick={() => setEditRoleUser(null)} className="text-slate-400 hover:text-white">
+              <button type="button" aria-label="关闭角色编辑弹窗" onClick={() => setEditRoleUser(null)} className="text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -750,7 +774,7 @@ export function UsersClient({
                 <CreditCard className="w-5 h-5 text-indigo-400" />
                 <h3 className="font-bold text-white text-base">调整会员等级</h3>
               </div>
-              <button onClick={() => setEditTierUser(null)} className="text-slate-400 hover:text-white">
+              <button type="button" aria-label="关闭套餐编辑弹窗" onClick={() => setEditTierUser(null)} className="text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -821,7 +845,7 @@ export function UsersClient({
                 <Lock className="w-5 h-5 text-rose-400" />
                 <h3 className="font-bold text-white text-base">重置用户密码</h3>
               </div>
-              <button onClick={() => setResetPwdUser(null)} className="text-slate-400 hover:text-white">
+              <button type="button" aria-label="关闭密码重置弹窗" onClick={() => setResetPwdUser(null)} className="text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -840,6 +864,8 @@ export function UsersClient({
                   <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-emerald-500/30 font-mono text-sm text-white">
                     <span>{temporaryPasswordResult}</span>
                     <button
+                      type="button"
+                      aria-label="复制新密码"
                       onClick={() => copyToClipboard(temporaryPasswordResult)}
                       className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 flex items-center gap-1 text-xs"
                     >
@@ -871,10 +897,12 @@ export function UsersClient({
                 </p>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="admin-reset-password" className="block text-xs font-semibold text-slate-300 mb-1">
                     指定新密码 (可选，至少 8 位)
                   </label>
                   <input
+                    id="admin-reset-password"
+                    name="password"
                     type="text"
                     value={customPassword}
                     onChange={(e) => setCustomPassword(e.target.value)}

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ProjectService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope } from '@/lib/auth-server';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getAuthUser(request);
     if (!auth) return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
+    const scopeError = requireScope(auth, 'projects:write');
+    if (scopeError) return scopeError;
     const { id } = await params;
     const code = request.nextUrl.searchParams.get('code');
     const state = request.nextUrl.searchParams.get('state');

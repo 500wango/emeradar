@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DecisionService } from '@emeradar/services';
 import { AppError } from '@emeradar/core';
-import { getAuthUser } from '@/lib/auth-server';
+import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +9,10 @@ export async function POST(request: NextRequest) {
     if (!auth) {
       return NextResponse.json({ type: 'about:blank', title: 'Unauthorized', status: 401 }, { status: 401 });
     }
+    const scopeError = requireScope(auth, 'opportunities:write');
+    if (scopeError) return scopeError;
+    const verificationError = requireVerifiedEmail(auth);
+    if (verificationError) return verificationError;
     const userId = auth.user.id;
     const body = await request.json().catch(() => ({}));
     const reasons = Array.isArray(body.reasons) ? body.reasons.map(String) : [];

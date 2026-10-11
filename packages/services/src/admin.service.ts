@@ -384,6 +384,28 @@ export class AdminService {
     }
 
     if (action === 'PROMOTE_TO_TRACKED') {
+      const candidate = await query<{
+        status: string;
+        verdict: string;
+        confidence: string;
+        m_band: string;
+      }>(
+        `SELECT o.status, c.verdict, c.confidence, c.m_band
+         FROM opportunities o JOIN opportunity_cards c ON c.opportunity_id = o.id
+         WHERE o.id = $1`,
+        [opportunityId]
+      );
+      const row = candidate.rows[0];
+      if (!row) throw AppError.notFound('Opportunity not found.');
+      if (row.status !== 'CANDIDATE') throw AppError.badRequest('Only candidates can be promoted.');
+      if (!['BUILD_NOW', 'EARLY_BET'].includes(row.verdict) || row.confidence === 'LOW' || row.m_band === 'INSUFFICIENT') {
+        throw AppError.badRequest('Candidate cannot be promoted before the real observation pipeline produces a publishable verdict.');
+      }
+      await query(`UPDATE opportunities SET status = 'TRACKED', updated_at = NOW() WHERE id = $1`, [opportunityId]);
+      return { success: true, newStatus: 'TRACKED' };
+
+      /* Legacy promotion implementation intentionally unreachable. Promotion
+       * must never manufacture scores, SERP rows, or commercial evidence. */
       await transaction(async (client) => {
         // 1. Update opportunity status to TRACKED
         const updateRes = await client.query(

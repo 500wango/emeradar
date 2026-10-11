@@ -45,7 +45,12 @@ export function TrackRequest() {
         {t('feed.trackRequestDesc')}
       </p>
       <div className="mt-4 flex flex-col sm:flex-row gap-2">
+        <label htmlFor="track-request-query" className="sr-only">
+          {t('feed.trackRequestPlaceholder')}
+        </label>
         <input
+          id="track-request-query"
+          name="query"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           minLength={2}
@@ -56,13 +61,14 @@ export function TrackRequest() {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          aria-busy={pending}
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           {pending ? (isZh ? '正在保存…' : 'Saving…') : t('feed.trackRequestBtn')}
         </button>
       </div>
       {result && (
-        <p className="mt-3 text-xs text-slate-700 leading-relaxed">
+        <p className="mt-3 text-xs text-slate-700 leading-relaxed" role="status" aria-live="polite">
           {result.isNew
             ? isZh
               ? `已启动观测。发布裁决：${result.verdict}。在历史观测周期达标之前，它将保持在今日决策流之外。`
@@ -75,7 +81,7 @@ export function TrackRequest() {
           </Link>
         </p>
       )}
-      {error && <p className="mt-3 text-xs text-rose-700">{error}</p>}
+      {error && <p className="mt-3 text-xs text-rose-700" role="alert">{error}</p>}
     </form>
   );
 }

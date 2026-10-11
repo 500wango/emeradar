@@ -112,36 +112,42 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
 
         <form onSubmit={handleAddRss} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+            <label htmlFor="source-name" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
               监控源名称
             </label>
             <input
+              id="source-name"
+              name="name"
+              autoComplete="off"
               type="text"
               placeholder="如：Indie Hackers Tech / Substack"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             />
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+            <label htmlFor="source-url" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
               RSS Feed URL
             </label>
             <div className="flex gap-2">
               <input
+                id="source-url"
+                name="url"
+                autoComplete="url"
                 type="url"
                 placeholder="https://example.com/feed.xml"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 required
-                className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 font-mono"
               />
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition disabled:opacity-50 shrink-0"
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition disabled:opacity-50 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
               >
                 {submitting ? '添加中...' : '确认添加'}
               </button>
@@ -198,8 +204,11 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
                   {s.isActive ? '已激活' : '已暂停'}
                 </span>
                 <button
+                  type="button"
+                  aria-label={s.isActive ? `暂停 ${s.name}` : `激活 ${s.name}`}
+                  aria-pressed={s.isActive}
                   onClick={() => handleToggle(s.id, s.isActive)}
-                  className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none ${
+                  className={`w-11 h-6 rounded-full transition-colors relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${
                     s.isActive ? 'bg-emerald-500' : 'bg-slate-700'
                   }`}
                 >

@@ -9,7 +9,7 @@ Status: Draft ｜ 依赖：01 §7、03 §15、06 §11、14 ｜ 被依赖：16、
 **核心原则（01 §7.1）**：
 1. **公开 = 延迟 + 有结果**：实时、高价值的未关闭窗口属于付费 Pro 用户的核心权益；公开层仅发布已发生的事实、演进历程与最终战绩，绝不提前泄露实时窗口价值。
 2. **纯投影架构（Projection-only）**：公开页面绝不直接跨库读取受限业务表，而是由每日批处理流水线（S8）计算出的 `public_pages` 及公开投影物化视图生成，物理隔离内部数据。
-3. **真实数据呈现**：公开站（包括 Landing 页与战绩页）严禁使用抽象概念插画或模拟数据，必须使用真实产品界面与不可篡改的账本统计。账本还不能同时列出命中和失误时，Landing 不写预测准确率、不写未登记的查询体量、不写「Merkle 证明了判断正确」。允许写的是观测起始日、已追踪查询数、研究市场，以及指向 `/methodology` 与 `/track-record` 的链接。
+3. **真实数据呈现**：公开站（包括 Landing 页与战绩页）严禁使用抽象概念插画或模拟数据，必须使用真实产品界面、来源、观测日期和结果回流。前台不展示 Merkle、哈希链、只追加账本或密码学证明等内部实现；账本还不能同时列出命中和失误时，Landing 不写预测准确率、不写未登记的查询体量。允许写的是观测起始日、已追踪查询数、研究市场，以及指向 `/methodology` 与 `/track-record` 的链接。内部账本仅供后台审计与服务/API 使用。
 4. **质量门槛与防降权护栏**：Programmatic SEO 必须遵守严密的质量检查；不满足内容丰富度与独特性的页面强制输出 `noindex`，严禁产生低质薄内容。
 
 ---
@@ -18,11 +18,11 @@ Status: Draft ｜ 依赖：01 §7、03 §15、06 §11、14 ｜ 被依赖：16、
 
 | 路由路径 | 页面类型 | 渲染策略 | 数据源 | 核心转化目标 |
 |----------|----------|----------|--------|--------------|
-| `/` | 官网首页（Landing） | ISR（24h） | 平台聚合统计 + 真实账本片段 | 注册 / 预售转化 |
+| `/` | 官网首页（Landing） | ISR（24h） | 平台聚合统计 + 来源与结果片段 | 注册 / 预售转化 |
 | `/pricing` | 价格与套餐 | 静态（SSG） | `13-BILLING-RBAC` 配置快照 | Checkout 结账 |
 | `/methodology` | 方法论与证据规范 | 静态（SSG） | 00、05、06、07 规范公开摘要 | 建立专业信任 |
 | `/data-sources` | 数据源登记与合规 | 静态（SSG） | 04 登记表脱敏公开视图 | 消除合规疑虑 |
-| `/track-record` | 预测战绩公开大盘 | ISR（每日 S8 刷新） | `public.track_record_summary` + Episodes | 证明预测能力，驱动 Pro 转化 |
+| `/track-record` | 预测战绩公开大盘 | ISR（每日 S8 刷新） | `public.track_record_summary` + Episodes | 展示判断如何经受结果检验，驱动 Pro 转化 |
 | `/opportunities/[slug]` | 延迟机会公开页 | ISR / 按需生成 | `public_pages` (page_type='OPPORTUNITY') | 免费体验 → 注册解锁实时 Feed |
 | `/markets/[slug]` | 细分市场热度聚合页 | ISR（每周） | `public_pages` (page_type='MARKET') | 广谱长尾搜索获客 |
 | `/compare/[slug]` | 精选过期对比页 | ISR（按需） | `public_pages` (page_type='COMPARE') | 比较意图搜索获客 |
@@ -113,13 +113,13 @@ S6 账本更新完成
 所有公开页必须在 Next.js 服务端渲染输出标准的 JSON-LD 结构化数据，确保传统搜索引擎与 AI 检索代理（Perplexity、SearchGPT、Google AI Overviews）能够精确抽取事实。
 
 ### 6.1 战绩页（`/track-record`）
-注入 `Dataset` 结构，声明预测账本的开源性与不可篡改时间戳：
+注入 `Dataset` 结构，声明公开决策记录的时间范围、研究市场和结果指标；不要在结构化数据中暴露内部账本实现：
 ```json
 {
   "@context": "https://schema.org",
   "@type": "Dataset",
-  "name": "Emeradar Search Opportunity Prediction Ledger",
-  "description": "Append-only prediction ledger tracking search market formation with cryptographic Merkle checkpoints.",
+  "name": "Emeradar Search Opportunity Decision Outcomes",
+  "description": "Source-backed search opportunity decisions tracked against later market outcomes.",
   "license": "https://emeradar.com/methodology",
   "temporalCoverage": "2026-09-01/..",
   "spatialCoverage": "US",
@@ -156,7 +156,7 @@ S6 账本更新完成
 2. **主题内链架构（Hub and Spoke）**：
    - 每个市场主题页（Hub，如 `/markets/developer-tools`）自动聚合该主题下全部已公开的延迟机会（Spokes）；
    - 处于同一聚类（Cluster）内的机会页面之间互相呈现相关比较链接，形成网状互链；
-   - 每个延迟机会页面底部固定引导链接：“查看该机会最新的预测账本验证记录（Track Record）”。
+   - 每个延迟机会页面底部固定引导链接：“查看该机会的公开战绩与结果记录（Track Record）”。
 
 ---
 

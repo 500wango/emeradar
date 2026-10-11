@@ -69,7 +69,7 @@ Status: Draft for build ｜ 依赖：01 §1.7、05 §5.0、13 §4.4、15、16 �
 | 项目 | 1 | 50 |
 | 申请追踪 | 可以，只产生 `CANDIDATE` | 同左，不扣报告额度 |
 
-Team、开放 API、多席位不在结账页。`api_access` 首发为 false。
+Team workspace、开放 API、多席位不属于当前产品范围，也不出现在结账页。`api_access` 首发为 false。
 
 降级不删除已有项目和关注；超出上限的部分只读，告警按 13 停用多余规则。
 
