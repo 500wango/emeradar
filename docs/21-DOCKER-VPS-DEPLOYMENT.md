@@ -67,10 +67,10 @@ curl --fail --retry 12 --retry-delay 5 --retry-connrefused https://emeradar.com/
 - 不要执行 `docker compose down -v` 或删除数据卷。
 - 初始化 SQL 只对空目录执行；修改 `.env` 不会修改已有数据库密码，轮换需先修改数据库账号再同步环境配置。
 - 保持 PostgreSQL 主版本 16；升级主版本需要单独备份及迁移，不要直接替换镜像主版本。
-- 1.6GB 内存 VPS 不应同时运行 worker 和构建任务；cron 执行 worker 前应确保没有手工构建正在进行。
+- 当前生产机为 4 vCPU / 8GB。构建仍会占满 CPU，cron 执行 worker 前应确保没有手工构建正在进行。
 - 初始化失败先查看日志，不要删除已有数据卷试错。
 
-在部署目录备份：
+临时手工导出一份 dump：
 
 ```bash
 umask 077
@@ -80,7 +80,15 @@ docker compose -f docker-compose.prod.yml exec -T postgres \
   > "/opt/emeradar-backups/emeradar-$(date +%F-%H%M%S).dump"
 ```
 
-备份包含业务数据，应另存到受控的异地存储；同机备份不能应对 VPS 丢失。
+**这只是一次性导出，不是备份**：它留在同一台机器上，应对不了 VPS 丢失，也不会在失败时告警。异地在 R2 的每日自动备份、保留策略与恢复演练见 `25-BACKUP-AND-RESTORE.md`。
+
+## 每日备份
+
+`scripts/backup-to-r2.sh` 每天把数据库与 `.env` 打成加密归档上传到 Cloudflare R2。配置步骤、保留策略与恢复演练见 `25-BACKUP-AND-RESTORE.md`。
+
+```cron
+30 2 * * * cd /opt/emeradar && ./scripts/backup-to-r2.sh >> /var/log/emeradar-backup.log 2>&1
+```
 
 ## 每日 worker
 

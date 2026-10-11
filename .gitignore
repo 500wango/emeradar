@@ -13,7 +13,9 @@ build
 .env
 .env.local
 .env.*.local
+.backup.env
 !.env.example
+!.backup.env.example
 
 # Logs & scratch
 *.log
