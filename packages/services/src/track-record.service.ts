@@ -58,12 +58,23 @@ export class TrackRecordService {
         const eval90 = cohortEpisodes.filter((e) => e.outcome_90d === 'HIT' || e.outcome_90d === 'MISS');
         const hits90 = eval90.filter((e) => e.outcome_90d === 'HIT').length;
 
+        // The hit *counts* travel alongside the rate: docs/16 §3.1a forbids
+        // printing an accuracy percentage from a sample that contains hits but
+        // no misses, and the caller cannot tell the difference from the rate
+        // alone (a 100% rate is either a real clean sweep or an unevaluated
+        // cohort). Counts let the page decide.
         return {
           month,
           total: cohortEpisodes.length,
           hitRate30d: eval30.length > 0 ? `${Math.round((hits30 / eval30.length) * 1000) / 10}%` : '—',
           hitRate60d: eval60.length > 0 ? `${Math.round((hits60 / eval60.length) * 1000) / 10}%` : '—',
           hitRate90d: eval90.length > 0 ? `${Math.round((hits90 / eval90.length) * 1000) / 10}%` : '—',
+          hits30,
+          eval30: eval30.length,
+          hits60,
+          eval60: eval60.length,
+          hits90,
+          eval90: eval90.length,
           sampleSize: cohortEpisodes.length,
           status: eval60.length > 0 ? 'MATURED' : eval30.length > 0 ? 'EVALUATING' : 'ACCUMULATING',
         };
