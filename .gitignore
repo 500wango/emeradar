@@ -9,10 +9,10 @@ dist
 out
 build
 
-# Environment variables
+# Environment variables. `.env.*` also covers ad-hoc safety copies such as
+# .env.backup, which hold the same secrets and must never be committed.
 .env
-.env.local
-.env.*.local
+.env.*
 .backup.env
 !.env.example
 !.backup.env.example
