@@ -83,6 +83,7 @@ cd /opt/emeradar && ./scripts/backup-to-r2.sh
 ```bash
 cat > /etc/logrotate.d/emeradar-backup <<'EOF'
 /var/log/emeradar-backup.log {
+  su root syslog
   weekly
   rotate 8
   compress
@@ -91,6 +92,14 @@ cat > /etc/logrotate.d/emeradar-backup <<'EOF'
 }
 EOF
 ```
+
+`su root syslog` 不是可选项。Ubuntu 的 `/var/log` 是 `root:syslog` 且组可写，logrotate 会把"父目录组可写但没声明用哪个身份轮转"当成不安全配置**直接跳过**——看着装好了，其实永远不轮转，日志会一直涨。验证方式是干跑一次：
+
+```bash
+logrotate -d /etc/logrotate.d/emeradar-backup 2>&1 | grep -iE "error|considering"
+```
+
+没看到 `error:` 才算成。
 
 ## 3. 保留与防篡改
 
@@ -130,11 +139,19 @@ docker run -d --name restore-drill -e POSTGRES_PASSWORD=drill postgres:16-alpine
 sleep 8
 docker cp /tmp/restore/db.dump restore-drill:/tmp/db.dump
 docker exec -i restore-drill psql -U postgres -c 'CREATE DATABASE emeradar'
+
+# dump 里带着 `ALTER FUNCTION ... OWNER TO emeradar_app` 这类语句，角色不存在时
+# pg_restore 会在第一个就中止。演练容器是空的，必须先把这个角色建出来。
+docker exec -i restore-drill psql -U postgres -c \
+  "CREATE ROLE emeradar_app LOGIN PASSWORD 'drill'"
+
 docker exec -i restore-drill pg_restore -U postgres -d emeradar \
   --single-transaction --exit-on-error /tmp/db.dump
 ```
 
 `--exit-on-error` 很重要：它保证要么整库恢复成功，要么明确失败，不会留下一个"看起来恢复了但少了一半表"的库。
+
+生产环境里 `emeradar_app` 由 `docker/init-db.sql` 在初始化空数据卷时创建，所以正式恢复不会遇到这一步；只有演练用的空容器需要手工补。
 
 ### 4.3 核对
 
