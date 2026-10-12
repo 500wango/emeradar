@@ -92,7 +92,10 @@ describe('Opportunity Report Unit Tests', () => {
     assert.ok(html.includes('<style>'));
     assert.ok(html.includes('@media print'));
     assert.ok(html.includes('Shopify Sales Tax Calculator'));
-    assert.ok(html.includes('84.0'));
+    // 三轴只出档位：01-PRD.md F4 禁止把基点（8400）除以 100 渲染成 84.0 分。
+    assert.ok(html.includes('High'));
+    assert.ok(!html.includes('84.0'));
+    assert.ok(!html.includes('8400'));
   });
 
   it('classifies SERP homepage and inner-page URLs by pathname', () => {
@@ -206,7 +209,8 @@ describe('Opportunity Report Unit Tests', () => {
     const htmlZh = renderReportToHtml(reportZh);
     assert.ok(htmlZh.includes('<html lang="zh-CN">'));
     assert.ok(htmlZh.includes('商业机会深度研究报告：'));
-    assert.ok(htmlZh.includes('搜索需求评分 (D)'));
+    assert.ok(htmlZh.includes('搜索需求 (D)'));
+    assert.ok(htmlZh.includes('高（High）'));
     assert.ok(htmlZh.includes('商业变现验证 (M)'));
     assert.ok(htmlZh.includes('竞争进入窗口 (W)'));
     assert.ok(htmlZh.includes('中小开发者水下生态与技术壁垒审计'));
@@ -234,7 +238,8 @@ describe('Opportunity Report Unit Tests', () => {
 
     const htmlEn = renderReportToHtml(reportEn);
     assert.ok(htmlEn.includes('<html lang="en">'));
-    assert.ok(htmlEn.includes('Demand Score (D)'));
+    assert.ok(htmlEn.includes('Demand (D)'));
+    assert.ok(htmlEn.includes('High'));
     assert.ok(htmlEn.includes('Commercial (M)'));
     assert.ok(htmlEn.includes('Window (W)'));
     assert.ok(htmlEn.includes('Indie Competition & Defense Moat Audit'));

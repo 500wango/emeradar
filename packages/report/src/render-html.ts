@@ -7,6 +7,7 @@ import { Locale } from '@emeradar/core';
 import {
   formatVerdict,
   formatArchetype,
+  formatBand,
   formatExecutionClass,
   formatSearchIntent,
   formatResultType,
@@ -169,9 +170,10 @@ export function renderReportToHtml(report: OpportunityReportData): string {
   const { metadata, section1, section2, section3, section4, section5, section6 } = report;
   const isZh = metadata.locale === 'zh-CN';
 
-  const dPct = (metadata.scores.dBasisPoints / 100).toFixed(1);
-  const mPct = (metadata.scores.mBasisPoints / 100).toFixed(1);
-  const wPct = (metadata.scores.wBasisPoints / 100).toFixed(1);
+  // 只出档位：01-PRD.md F4 禁止把基点渲染成百分制。
+  const dBand = formatBand(metadata.scores.dBand, metadata.locale);
+  const mBand = formatBand(metadata.scores.mBand, metadata.locale);
+  const wBand = formatBand(metadata.scores.wBand, metadata.locale);
 
   const verdictBadgeClass =
     metadata.verdict === 'BUILD_NOW'
@@ -327,16 +329,16 @@ export function renderReportToHtml(report: OpportunityReportData): string {
 
   <div class="metrics-grid">
     <div class="metric-card">
-      <div class="metric-label">${isZh ? '搜索需求评分 (D)' : 'Demand Score (D)'}</div>
-      <div class="metric-val" style="color: #2563eb;">${dPct} <span style="font-size: 13px; color: #64748b;">/ 100</span></div>
+      <div class="metric-label">${isZh ? '搜索需求 (D)' : 'Demand (D)'}</div>
+      <div class="metric-val" style="color: #2563eb;">${esc(dBand)}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">${isZh ? '商业变现验证 (M)' : 'Commercial (M)'}</div>
-      <div class="metric-val" style="color: #16a34a;">${mPct} <span style="font-size: 13px; color: #64748b;">/ 100</span></div>
+      <div class="metric-val" style="color: #16a34a;">${esc(mBand)}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">${isZh ? '竞争进入窗口 (W)' : 'Window (W)'}</div>
-      <div class="metric-val" style="color: #ea580c;">${wPct} <span style="font-size: 13px; color: #64748b;">/ 100</span></div>
+      <div class="metric-val" style="color: #ea580c;">${esc(wBand)}</div>
     </div>
     <div class="metric-card">
       <div class="metric-label">${isZh ? '数据置信度' : 'Confidence'}</div>

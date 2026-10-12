@@ -3,6 +3,7 @@ import {
   Lifecycle,
   BuildArchetype,
   ExecutionClass,
+  Band,
   Locale,
 } from '@emeradar/core';
 import { IndieCompetitionAudit } from './types';
@@ -391,6 +392,40 @@ export function formatArchetype(
       return 'Content Site';
     default:
       return archetype;
+  }
+}
+
+/**
+ * 三轴档位的展示口径。
+ *
+ * 01-PRD.md F4 与 16-FRONTEND-UX-SPEC.md §3.1a 明令：D-M-W 只出档位，绝不把
+ * 基点渲染成百分制、绝不出综合分。导出的 Markdown / HTML 是同一份决策存证的
+ * 另一个出口，口径必须与产品内一致 —— 早先这里打的是 `xx / 100 分（基点）`。
+ *
+ * 早于档位留存的存量报告没有这三个字段，此时如实说明"未留存"，不回算档位
+ * （basis_points 无法唯一反推档位）。
+ */
+export function formatBand(band: Band | undefined, locale: Locale = 'en-US'): string {
+  if (!band) return locale === 'zh-CN' ? '未留存（早于档位留存）' : 'Not recorded';
+  if (locale === 'zh-CN') {
+    switch (band) {
+      case 'HIGH':
+        return '高（High）';
+      case 'MEDIUM':
+        return '中（Medium）';
+      case 'LOW':
+        return '低（Low）';
+      case 'INSUFFICIENT':
+        return '样本不足（Insufficient）';
+      default:
+        return band;
+    }
+  }
+  switch (band) {
+    case 'INSUFFICIENT':
+      return 'Insufficient';
+    default:
+      return band.charAt(0) + band.slice(1).toLowerCase();
   }
 }
 

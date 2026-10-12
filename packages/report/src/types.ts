@@ -1,6 +1,7 @@
 import {
   Verdict,
   Lifecycle,
+  Band,
   Confidence,
   BuildArchetype,
   ExecutionClass,
@@ -23,6 +24,14 @@ export interface OpportunityReportMetadata {
     dBasisPoints: number;
     mBasisPoints: number;
     wBasisPoints: number;
+    /**
+     * 三轴档位。产品内与导出物一律只出档位（01-PRD.md F4），基点仅作为
+     * 账本里的原始计量，不得渲染成百分制。可选是因为早于档位留存功能的
+     * 存量报告没有它们，而不是因为可以省略。
+     */
+    dBand?: Band;
+    mBand?: Band;
+    wBand?: Band;
     confidence: Confidence;
     confidenceScore: number;
   };

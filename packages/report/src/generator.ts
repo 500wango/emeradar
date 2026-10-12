@@ -16,6 +16,7 @@ import { ScoringOutput } from '@emeradar/scoring';
 import { Locale } from '@emeradar/core';
 import {
   getLocalizedOpportunityText,
+  formatBand,
   formatVerdict,
   formatArchetype,
   formatPricingModel,
@@ -144,6 +145,10 @@ export function generateOpportunityReport(
       dBasisPoints: input.scoring.dScore,
       mBasisPoints: input.scoring.mScore,
       wBasisPoints: input.scoring.wScore,
+      // 档位随账本封存，与基点一并带出：渲染层只许用档位。
+      dBand: input.scoring.dBand,
+      mBand: input.scoring.mBand,
+      wBand: input.scoring.wBand,
       confidence: input.scoring.confidence,
       confidenceScore: input.scoring.confidenceScore,
     },
@@ -260,9 +265,10 @@ export function generateOpportunityReport(
     hashVersion: input.hashVersion,
   };
 
-  const dPct = (input.scoring.dScore / 100).toFixed(1);
-  const mPct = (input.scoring.mScore / 100).toFixed(1);
-  const wPct = (input.scoring.wScore / 100).toFixed(1);
+  // 三轴一律以档位叙述：01-PRD.md F4 禁止把基点渲染成百分制，也禁止出现综合分。
+  const dBand = formatBand(input.scoring.dBand, locale);
+  const mBand = formatBand(input.scoring.mBand, locale);
+  const wBand = formatBand(input.scoring.wBand, locale);
 
   const rawWhyNow = getLocalizedOpportunityText(
     oppIdOrSlug,
@@ -286,8 +292,8 @@ export function generateOpportunityReport(
             input.scoring.verdict,
             'zh-CN',
             true
-          )}】。当前综合评分：搜索需求 ${dPct} 分（搜索量与聚合词增长良好），商业变现 ${mPct} 分（已证实存在付费竞品），竞争窗口 ${wPct} 分（Google 首页薄弱结果较多，新站切入阻力小）。`
-        : `Stored verdict for "${input.primaryQuery}" is ${input.scoring.verdict}. Demand ${input.scoring.dScore} basis points (${dPct}/100), commercial ${input.scoring.mScore} (${mPct}/100), window ${input.scoring.wScore} (${wPct}/100).`),
+          )}】。当前三轴档位：搜索需求 ${dBand}（搜索量与聚合词增长良好），商业变现 ${mBand}（已证实存在付费竞品），竞争窗口 ${wBand}（Google 首页薄弱结果较多，新站切入阻力小）。`
+        : `Stored verdict for "${input.primaryQuery}" is ${input.scoring.verdict}. Axis bands on file — demand ${dBand} (search volume and cluster growth), commercial ${mBand} (paid competitors verified), window ${wBand} (weak Top-10 results leave room for a new entrant).`),
     whyNow:
       rawWhyNow ||
       (isZh

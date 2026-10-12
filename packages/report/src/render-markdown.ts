@@ -8,6 +8,7 @@ import {
   formatVerdict,
   formatLifecycle,
   formatArchetype,
+  formatBand,
   formatExecutionClass,
   formatVerdictDescription,
   formatSearchIntent,
@@ -188,9 +189,10 @@ export function renderReportToMarkdown(report: OpportunityReportData): string {
   const { metadata, section1, section2, section3, section4, section5, section6 } = report;
   const isZh = metadata.locale === 'zh-CN';
 
-  const dPct = (metadata.scores.dBasisPoints / 100).toFixed(1);
-  const mPct = (metadata.scores.mBasisPoints / 100).toFixed(1);
-  const wPct = (metadata.scores.wBasisPoints / 100).toFixed(1);
+  // 只出档位：01-PRD.md F4 禁止把基点渲染成百分制。
+  const dBand = formatBand(metadata.scores.dBand, metadata.locale);
+  const mBand = formatBand(metadata.scores.mBand, metadata.locale);
+  const wBand = formatBand(metadata.scores.wBand, metadata.locale);
 
   if (isZh) {
     let md = `# 🎯 商业机会深度研究报告：${escapeMarkdown(metadata.title)}
@@ -203,15 +205,15 @@ export function renderReportToMarkdown(report: OpportunityReportData): string {
 
 ## 1. 📊 执行摘要与决策裁决 (Executive Summary)
 
-| 评估维度 | 指标与分值 | 通俗解读与说明 |
+| 评估维度 | 指标与档位 | 通俗解读与说明 |
 |:---|:---|:---|
 | **雷达综合裁决** | **${formatVerdict(metadata.verdict, 'zh-CN', true)}** | ${formatVerdictDescription(metadata.verdict, 'zh-CN')} |
 | **生命周期阶段** | \`${formatLifecycle(metadata.lifecycle, 'zh-CN')}\` | 当前商业机会在搜索生态中所处的红利窗口阶段 |
 | **推荐产品形态** | \`${formatArchetype(metadata.recommendedArchetype, 'zh-CN', true)}\` | 抢占该搜索需求阻力最小的产品架构形态 |
 | **执行复杂度等级** | \`${formatExecutionClass(metadata.executionClass, 'zh-CN')}\` | 推荐的开发周期与资源投入规模 |
-| **搜索需求指数 (D)** | **${dPct} / 100 分** (${metadata.scores.dBasisPoints} 基点) | 衡量美区 Google 真实搜索热度与相关聚合词增速 |
-| **商业变现验证 (M)** | **${mPct} / 100 分** (${metadata.scores.mBasisPoints} 基点) | 衡量赛道已有付费竞品、定价档位与实际在线收款能力 |
-| **竞争进入窗口 (W)** | **${wPct} / 100 分** (${metadata.scores.wBasisPoints} 基点) | 衡量 Google 前十名结果中薄弱劣质页面的占比（分越高越易渗透） |
+| **搜索需求 (D)** | **${dBand}** | 衡量美区 Google 真实搜索热度与相关聚合词增速 |
+| **商业变现验证 (M)** | **${mBand}** | 衡量赛道已有付费竞品、定价档位与实际在线收款能力 |
+| **竞争进入窗口 (W)** | **${wBand}** | 衡量 Google 前十名结果中薄弱劣质页面的占比（分越高越易渗透） |
 | **数据证据置信度** | \`${metadata.scores.confidence === 'HIGH' ? '高置信度 (已完成交叉验证)' : metadata.scores.confidence}\` | 统计样本规模与数据完备性评估 |
 
 ### 💡 核心战略论点
@@ -429,15 +431,15 @@ ${sim.assumptions.map((a) => `- 💡 ${a}`).join('\n')}
 
 ## 1. 📊 Executive Summary & Radar Verdict
 
-| Dimension | Metric / Value | Description |
+| Dimension | Metric / Band | Description |
 |-----------|----------------|-------------|
 | **Verdict** | **\`${metadata.verdict}\`** | ${formatVerdictDescription(metadata.verdict, 'en-US')} |
 | **Lifecycle** | \`${metadata.lifecycle}\` | Current opportunity evolution stage in search ecosystem |
 | **Recommended Archetype** | \`${formatArchetype(metadata.recommendedArchetype, 'en-US')}\` | Optimal product structure to capture search market |
 | **Execution Class** | \`${formatExecutionClass(metadata.executionClass, 'en-US')}\` | Development complexity and sprint timeline tier |
-| **Demand Score (D)** | **${dPct} / 100** (${metadata.scores.dBasisPoints} bps) | Search demand velocity & cluster growth |
-| **Commercial Signal (M)** | **${mPct} / 100** (${metadata.scores.mBasisPoints} bps) | Verified monetization & paid competition |
-| **Competitive Window (W)** | **${wPct} / 100** (${metadata.scores.wBasisPoints} bps) | SERP weakness & low incumbent resistance |
+| **Demand (D)** | **${dBand}** | Search demand velocity & cluster growth |
+| **Commercial (M)** | **${mBand}** | Verified monetization & paid competition |
+| **Competitive Window (W)** | **${wBand}** | SERP weakness & low incumbent resistance |
 | **Evidence Confidence** | \`${metadata.scores.confidence}\` | Verified statistical evidence confidence tier |
 
 ### Strategic Thesis
