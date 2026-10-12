@@ -70,7 +70,18 @@ for v in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET BACKUP_GP
 done
 [ ${#missing[@]} -eq 0 ] || fail "incomplete config in $ENV_FILE — missing: ${missing[*]}"
 
-export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+# The R2 token page shows two different credential sets, and the wrong one is
+# easy to grab: `Token value` (cfat_…) drives the Cloudflare REST API, while the
+# S3 access key is a bare 32-character hex string. Supplying the former gets an
+# opaque `400 BadRequest` from R2 — or `InvalidArgument: Credential access key
+# has length 53, should be 32` if you go looking — so check it here.
+case "$R2_ACCESS_KEY_ID" in
+  cfat_*) fail "R2_ACCESS_KEY_ID is a Cloudflare API token (cfat_…), not an S3 access key. Copy 'Access Key ID' instead — 32 hex characters." ;;
+esac
+[ ${#R2_ACCESS_KEY_ID} -eq 32 ] \
+  || fail "R2_ACCESS_KEY_ID must be 32 characters, got ${#R2_ACCESS_KEY_ID}"
+
+RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 command -v docker >/dev/null || fail "docker not found"
 command -v gpg >/dev/null || fail "gpg not found"
@@ -85,16 +96,32 @@ WORK=$(mktemp -d)
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# Credentials are passed as environment, never argv — argv is world-readable
-# via /proc while the container runs.
+# rclone's remote comes from RCLONE_CONFIG_<NAME>_* variables. Build them into a
+# private env-file and hand it to `docker run --env-file`, so the credentials
+# never enter the command line, where any process on the host could read them
+# straight out of /proc/<pid>/cmdline.
+#
+# The names matter: the config file defines R2_ACCESS_KEY_ID, NOT
+# RCLONE_CONFIG_R2_ACCESS_KEY_ID. The bare `-e RCLONE_CONFIG_R2_ACCESS_KEY_ID`
+# form copies a *same-named host variable*, so it silently passed nothing and
+# every request went out unsigned — R2 answers those with
+# `InvalidArgument: Authorization`, which reads like a bad key rather than a
+# missing one.
+(
+  umask 077
+  {
+    printf 'RCLONE_CONFIG_R2_TYPE=s3\n'
+    printf 'RCLONE_CONFIG_R2_PROVIDER=Cloudflare\n'
+    printf 'RCLONE_CONFIG_R2_ACL=private\n'
+    printf 'RCLONE_CONFIG_R2_ACCESS_KEY_ID=%s\n' "$R2_ACCESS_KEY_ID"
+    printf 'RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=%s\n' "$R2_SECRET_ACCESS_KEY"
+    printf 'RCLONE_CONFIG_R2_ENDPOINT=%s\n' "$RCLONE_CONFIG_R2_ENDPOINT"
+  } > "$WORK/rclone.env"
+)
+
 rclone() {
   docker run --rm \
-    -e RCLONE_CONFIG_R2_TYPE=s3 \
-    -e RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
-    -e RCLONE_CONFIG_R2_ACL=private \
-    -e RCLONE_CONFIG_R2_ACCESS_KEY_ID \
-    -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-    -e RCLONE_CONFIG_R2_ENDPOINT \
+    --env-file "$WORK/rclone.env" \
     -v "$WORK:/staging:ro" \
     "$RCLONE_IMAGE" "$@"
 }

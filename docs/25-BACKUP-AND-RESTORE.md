@@ -32,6 +32,16 @@
 2. R2 → Manage API Tokens → 建一个 token，权限给 **Object Read & Write**，范围限定到这**一个桶**。
 3. 记下 Account ID、Access Key ID、Secret Access Key。
 
+**创建结果页上会出现三个值，只有两个是 S3 凭据**，这一步很容易拿错：
+
+| 页面上的字段 | 填到哪 | 形态 |
+|---|---|---|
+| Access Key ID | `R2_ACCESS_KEY_ID` | 32 位十六进制 |
+| Secret Access Key | `R2_SECRET_ACCESS_KEY` | 64 位，**只显示这一次** |
+| Token value | **不用** | `cfat_` 开头，那是给 Cloudflare REST API 的 |
+
+把 `cfat_…` 填进 `R2_ACCESS_KEY_ID` 的话，R2 只回一个 `400 BadRequest`，看着像桶名或权限问题，实际是凭据类型不对（想确证可以手工跑一次 `rclone lsd`，它会直说 `Credential access key has length 53, should be 32`）。脚本现在会前置拦下这一种，直接告诉你是拿错了值。
+
 注意：**R2 的 token 没有"只写"这个选项**，它能读也能删。所以它是一把有实权的钥匙，不要进 git，泄露了就轮换。
 
 ### 2.2 配置加密口令
