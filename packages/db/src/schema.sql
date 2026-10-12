@@ -538,6 +538,55 @@ CREATE TABLE IF NOT EXISTS decisions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+/**
+ * 决策的可验证性。
+ *
+ * verdict_row_hash 是关键的一列：它存的是被引用裁决行的**内容指纹**。仅存
+ * verdict_id 只能证明"引用了某一行"，证明不了"引用的就是当时读到的那套理由"，
+ * 而 verdict_id 本身可被重新指向。有了内容指纹，decisions 就挂进了 verdicts
+ * 既有的哈希链 —— 而那条链有 ledger_checkpoints 的 Merkle 根做外部锚点，所以
+ * 这条链路的完整性是可被第三方独立复算的，不依赖本表自己的 row_hash。
+ *
+ * row_hash 是决策行自身的内容指纹（见 DecisionService.calculateDecisionRowHash），
+ * 用于发现内容漂移。它是**自指的**（指纹与内容同表），单独的证明力弱于
+ * verdict_row_hash，要真正锚定需要将来把 decisions 也纳入 checkpoint。
+ *
+ * 这里**刻意没有 prev_hash**：决策是不同用户在不同时刻各自做出的行为，没有天然的
+ * 全局顺序，硬造一条链只会把"不可伪造"降级成"按写入顺序不可伪造"。
+ *
+ * 两列都可空：存量行不回溯补算，与 verdicts 的 hash_version 处理一致 ——
+ * 伪造历史哈希比承认早期行没有哈希更糟。新行由服务层一律写入。
+ */
+ALTER TABLE decisions ADD COLUMN IF NOT EXISTS verdict_row_hash CHAR(64);
+ALTER TABLE decisions ADD COLUMN IF NOT EXISTS row_hash CHAR(64);
+
+-- 决策记录的不可改写性。
+--
+-- 只挡 UPDATE，**刻意不挡 DELETE**。改写是真正的威胁：要伪造一条用户从未做出的
+-- 授权，改 reasons 或 decision 就够了，删掉一行反而更容易被发现。而挡住 DELETE
+-- 有一个立刻兑现的代价 —— decisions.user_id 是 ON DELETE CASCADE，触发器会让
+-- `DELETE FROM users` 在任何做过决策的账号上直接失败，等于永久关闭注销与数据删除。
+-- 审计价值不足以换掉这项能力，所以这里只做减法。
+--
+-- 03 §18 承诺的"注销时把 decisions / projects 匿名化保留"需要 UPDATE 这两张表的
+-- user_id，届时这条触发器要开一个受控口子（例如仅在 users 已软删除时放行），
+-- 而不是直接把触发器删掉。
+--
+-- 旧的 trg_decisions_append_only 是同一轮里先写成 UPDATE+DELETE 的版本，改名后
+-- 必须显式清掉：DROP ... IF EXISTS 只清理新名字，旧触发器会留在已经跑过一遍的
+-- 库上继续挡 DELETE。
+DROP TRIGGER IF EXISTS trg_decisions_append_only ON decisions;
+DROP TRIGGER IF EXISTS trg_decisions_no_update ON decisions;
+CREATE TRIGGER trg_decisions_no_update
+BEFORE UPDATE ON decisions
+FOR EACH ROW
+EXECUTE FUNCTION prevent_ledger_modification();
+
+-- GO 的幂等性由服务层保证（同一 user/opportunity/verdict 只留一条）。这条索引
+-- 是它的物理依据：客户端先记决策再建项目，两次调用之间失败时重试不应堆积 GO。
+CREATE INDEX IF NOT EXISTS idx_decisions_go_lookup
+  ON decisions(user_id, opportunity_id, verdict_id) WHERE decision = 'GO';
+
 CREATE TABLE IF NOT EXISTS alert_rules (
   id TEXT PRIMARY KEY,                         -- alr_
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -611,6 +660,13 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS experiment_card_id TEXT REFERENCES
 CREATE INDEX IF NOT EXISTS idx_projects_experiment_card ON projects(experiment_card_id) WHERE experiment_card_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_user_experiment_card
   ON projects(user_id, experiment_card_id) WHERE experiment_card_id IS NOT NULL;
+
+-- 03 §9 的不变量 I6：一次 GO 决定至多对应一个项目。文档写了很久，物理约束一直
+-- 缺位 —— 这一轮把决策变成项目唯一的授权凭据之后，"一条决策被两次立项"必须真的
+-- 挡得住，否则 cite 就退化成弱引用。服务层在插入前给出可读的 409，这条索引是
+-- 并发下的兜底。存量行若已违反，建索引会直接失败并指名重复的 decision_id。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_decision
+  ON projects(decision_id) WHERE decision_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS gsc_connections (
   id TEXT PRIMARY KEY,

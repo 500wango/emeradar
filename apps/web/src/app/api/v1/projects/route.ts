@@ -42,6 +42,21 @@ export async function POST(request: NextRequest) {
         targetKeywords: body.targetKeywords,
       });
     } else if (body.opportunityId) {
+      // The decision is recorded by POST /decisions first; this route only
+      // consumes it. Without the id there is nothing to cite, and the project
+      // would be born with an unexplained provenance.
+      if (!body.decisionId) {
+        return NextResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Validation Error',
+            status: 400,
+            detail:
+              'decisionId is required: record the GO decision via POST /api/v1/decisions before creating the project.',
+          },
+          { status: 400 }
+        );
+      }
       project = await ProjectService.createProject(userId, {
         opportunityId: body.opportunityId,
         decisionId: body.decisionId,

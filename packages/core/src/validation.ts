@@ -44,9 +44,19 @@ export const scanSchema = z.object({
   archetype: z.nativeEnum(BuildArchetype).optional(),
 });
 
-/** POST /decisions records a pass (NO GO) on a tracked opportunity. */
+/**
+ * POST /decisions records the user's GO or PASS on a tracked opportunity.
+ *
+ * `verdictId` is required, and it is the caller's — not the server's — that
+ * names the verdict. The service used to pick "the latest verdict for this
+ * opportunity", which meant a decision could be filed against a ledger row the
+ * user had never seen: the rendered page and the recorded citation were chosen
+ * independently, and nothing could tell them apart afterwards.
+ */
 export const decisionSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200),
+  verdictId: z.string().trim().min(1).max(200),
+  decision: z.enum(['GO', 'PASS']),
   reasons: z.array(z.string().max(500)).max(20).optional(),
 });
 

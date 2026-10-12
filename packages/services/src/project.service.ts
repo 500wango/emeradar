@@ -6,7 +6,12 @@ import { lookup } from 'node:dns/promises';
 
 export interface CreateProjectInput {
   opportunityId: string;
-  decisionId?: string;
+  /**
+   * The GO decision that authorises this project. Required: a project is the
+   * downstream half of a decision, and the citation is what makes the ledger
+   * able to explain why the project exists.
+   */
+  decisionId: string;
   reportId?: string;
   title: string;
   domain?: string;
@@ -493,37 +498,54 @@ export class ProjectService {
       );
     }
 
-    // Ensure decision exists or create GO decision
-    let decisionId = input.decisionId;
-    if (!decisionId) {
-      const verdictRes = await query<{ id: string }>(
-        `SELECT id FROM verdicts WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
-        [input.opportunityId]
+    /**
+     * A project must cite the GO decision that authorised it.
+     *
+     * This block used to fabricate one: when the caller omitted `decisionId` the
+     * server looked up "the latest verdict for this opportunity" and inserted a
+     * GO on the user's behalf, with the reason "Direct project initiation".
+     * Every project created that way claimed an intent its owner had never
+     * expressed, and because the citation was invented server-side it could not
+     * be audited against anything the user actually saw. The decision path now
+     * has to run first and hand over a real id.
+     */
+    if (!input.decisionId) {
+      throw new EmeradarError(
+        ErrorCode.PRECONDITION_FAILED,
+        'A project must cite the GO decision it was created from. Record the decision first, then create the project with its decisionId.',
+        409
       );
-      const verdictId = verdictRes.rows[0]?.id;
-      if (!verdictId) {
-        throw new EmeradarError(
-          ErrorCode.PRECONDITION_FAILED,
-          'A project requires a persisted verdict. This opportunity is publishable only after the verdict ledger is written.',
-          409
-        );
-      }
+    }
 
-      const dcsId = `dcs_${Date.now()}`;
-      await query(
-        `INSERT INTO decisions (id, opportunity_id, user_id, decision, verdict_id, reasons, channel)
-         VALUES ($1, $2, $3, 'GO', $4, '{"Direct project initiation"}', 'WEB')`,
-        [dcsId, input.opportunityId, userId, verdictId]
+    const decisionRes = await query<{ id: string }>(
+      `SELECT id FROM decisions WHERE id = $1 AND user_id = $2 AND opportunity_id = $3 AND decision = 'GO'`,
+      [input.decisionId, userId, input.opportunityId]
+    );
+    if (decisionRes.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.FORBIDDEN,
+        'Decision does not belong to this user and opportunity.',
+        403
       );
-      decisionId = dcsId;
-    } else {
-      const decisionRes = await query<{ id: string }>(
-        `SELECT id FROM decisions WHERE id = $1 AND user_id = $2 AND opportunity_id = $3 AND decision = 'GO'`,
-        [decisionId, userId, input.opportunityId]
+    }
+    const decisionId = input.decisionId;
+
+    /**
+     * 不变量 I6（03 §9）：一次 GO 决定至多对应一个项目。
+     *
+     * 在插入前先查一遍，是为了把并发之外的常见路径 —— 用户重复点 GO —— 变成一句
+     * 能读懂的话，而不是把唯一索引的冲突泄漏成 500。索引本身仍然保留，负责并发。
+     */
+    const existingProject = await query<{ id: string }>(
+      `SELECT id FROM projects WHERE decision_id = $1`,
+      [decisionId]
+    );
+    if (existingProject.rows.length > 0) {
+      throw new EmeradarError(
+        ErrorCode.CONFLICT,
+        'You have already started a project from this decision.',
+        409
       );
-      if (decisionRes.rows.length === 0) {
-        throw new EmeradarError(ErrorCode.FORBIDDEN, 'Decision does not belong to this user and opportunity.', 403);
-      }
     }
 
     if (input.reportId) {
@@ -540,32 +562,45 @@ export class ProjectService {
 
     const projectId = `prj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const domain = normalizeProjectDomain(input.domain);
-    return transaction(async (client) => {
-      // Serialize the count and insert so concurrent GO clicks cannot bypass the limit.
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.opportunityId]);
-      const claimsRes = await client.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ARCHIVED'`,
-        [input.opportunityId]
-      );
-      const claimsCount = claimsRes.rows[0]?.count ?? 0;
-      const MAX_CLAIMS_PER_OPPORTUNITY = 5;
-      if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
+    try {
+      return await transaction(async (client) => {
+        // Serialize the count and insert so concurrent GO clicks cannot bypass the limit.
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.opportunityId]);
+        const claimsRes = await client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ARCHIVED'`,
+          [input.opportunityId]
+        );
+        const claimsCount = claimsRes.rows[0]?.count ?? 0;
+        const MAX_CLAIMS_PER_OPPORTUNITY = 5;
+        if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
+          throw new EmeradarError(
+            ErrorCode.PRECONDITION_FAILED,
+            `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
+            409
+          );
+        }
+        const res = await client.query<any>(
+          `INSERT INTO projects (
+            id, user_id, opportunity_id, decision_id, report_id,
+            title, domain, build_type, status, launch_date, target_keywords
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9)
+          RETURNING *`,
+          [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'LIGHTWEIGHT_TOOL', input.targetKeywords || []]
+        );
+        return res.rows[0];
+      });
+    } catch (error: any) {
+      // 上面的查重与这里的事务之间有窗口，并发下由 idx_projects_decision 兜底。
+      // 把唯一索引的冲突翻译成同一句 409，否则用户双击会看到 500。
+      if (error?.code === '23505' && String(error?.constraint ?? '') === 'idx_projects_decision') {
         throw new EmeradarError(
-          ErrorCode.PRECONDITION_FAILED,
-          `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
+          ErrorCode.CONFLICT,
+          'You have already started a project from this decision.',
           409
         );
       }
-      const res = await client.query<any>(
-        `INSERT INTO projects (
-          id, user_id, opportunity_id, decision_id, report_id,
-          title, domain, build_type, status, launch_date, target_keywords
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9)
-        RETURNING *`,
-        [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'LIGHTWEIGHT_TOOL', input.targetKeywords || []]
-      );
-      return res.rows[0];
-    });
+      throw error;
+    }
   }
 
   /**

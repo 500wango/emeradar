@@ -971,6 +971,8 @@ export interface TranslationDictionary {
   opportunityWorkspace: {
     backToFeed: string;
     goBlockReason: string;
+    /** Shown when the page has no sealed verdict, so nothing can be cited. */
+    noVerdictBlockReason: string;
     progressSignal: string;
     progressCandidate: string;
     progressObservation: string;

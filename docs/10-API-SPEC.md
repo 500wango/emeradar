@@ -121,7 +121,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 |------|------|------|
 | PUT / DELETE | `/opportunities/{id}/watch` | 关注 / 取消（幂等） |
 | GET | `/watchlist` | 我的关注及自上次查看的变化 |
-| POST | `/opportunities/{id}/decisions` | 体：`{ decision: GO|PASS, reason_code, note? }`；记录当时的 `verdict_id` |
+| POST | `/opportunities/{id}/decisions` | 体：`{ decision: GO\|PASS, verdict_id, reason_code, note? }`；`verdict_id` **必填**，由客户端给出它当下渲染的那一条裁决 |
 | GET / POST / PATCH / DELETE | `/opportunities/{id}/kill-criteria[/{kc}]` | 见 12 §5 |
 
 `reason_code`（PASS）：`NOT_MY_TOPIC` `TOO_COMPETITIVE` `WEAK_MONETIZATION` `TOO_MUCH_WORK` `NO_TIME` `DATA_DOUBT` `OTHER`；（GO）：`CLEAR_WINDOW` `MONEY_VALIDATED` `FITS_MY_SKILLS` `QUICK_WIN` `OTHER`。
@@ -138,7 +138,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 ### 4.5 Project 与 Outcome
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/projects` | 体：`{ decision_id, report_id?, build_type, domain?, target_keywords[], launch_date? }`；`decision_id` 必须是本人的 GO，自动绑定报告实现下游闭环 |
+| POST | `/projects` | 体：`{ decision_id, report_id?, build_type, domain?, target_keywords[], launch_date? }`；`decision_id` **必填**，必须是本人的 GO，缺失即拒绝（服务端不再代造决策）；一条决策至多一个项目（§9 I6） |
 | GET / PATCH | `/projects`、`/projects/{id}` | 列表 / 更新（状态、域名、上线日期、页面） |
 | POST | `/projects/{id}/gsc/connect` | 返回 Google OAuth `authorization_url` |
 | GET | `/gsc/callback` | OAuth 回调（服务端处理并重定向） |

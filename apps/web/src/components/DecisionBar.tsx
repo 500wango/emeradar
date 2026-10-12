@@ -10,6 +10,14 @@ interface DecisionBarProps {
   opportunityId: string;
   slug: string;
   title: string;
+  /**
+   * The ledger row currently on screen. Every decision cites it, so the record
+   * after the fact points at the exact reasoning the user acted on. `null` means
+   * the page has no sealed verdict to cite, and both buttons are disabled.
+   */
+  verdictId: string | null;
+  /** Carried through from the report studio so the project cites its report. */
+  reportId?: string | null;
   canGo: boolean;
   canExport: boolean;
   blockReason?: string;
@@ -19,6 +27,8 @@ export function DecisionBar({
   opportunityId,
   slug,
   title,
+  verdictId,
+  reportId,
   canGo,
   canExport,
   blockReason,
@@ -61,21 +71,41 @@ export function DecisionBar({
   }
 
   async function go() {
+    if (!verdictId) {
+      setError(t('opportunityDetail.goFailed'));
+      return;
+    }
     setPending('go');
     setError(null);
     setMessage(null);
     try {
-      const res = await fetch('/api/v1/projects', {
+      // Two calls, in this order, on purpose. The GO is recorded as a decision
+      // against the verdict on screen, and the project then cites that decision
+      // by id. Collapsing this into one request is what previously let the
+      // server invent a GO on the user's behalf when no decision was supplied —
+      // the citation existed but pointed at nothing the user had chosen.
+      const decisionRes = await fetch('/api/v1/decisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opportunityId, verdictId, decision: 'GO' }),
+      });
+      const decision = await decisionRes.json();
+      if (!decisionRes.ok) throw new Error(decision.detail || t('opportunityDetail.goFailed'));
+
+      const projectRes = await fetch('/api/v1/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           opportunityId,
+          decisionId: decision.id,
+          reportId: reportId ?? undefined,
           title,
           targetKeywords: [],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || t('opportunityDetail.goFailed'));
+      const project = await projectRes.json();
+      if (!projectRes.ok) throw new Error(project.detail || t('opportunityDetail.goFailed'));
+
       router.push('/projects');
     } catch (err: any) {
       setError(err.message);
@@ -88,6 +118,10 @@ export function DecisionBar({
       setError(t('opportunityDetail.passReasonRequired'));
       return;
     }
+    if (!verdictId) {
+      setError(t('opportunityDetail.passFailed'));
+      return;
+    }
     setPending('pass');
     setError(null);
     setMessage(null);
@@ -95,7 +129,7 @@ export function DecisionBar({
       const res = await fetch('/api/v1/decisions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opportunityId, reasons }),
+        body: JSON.stringify({ opportunityId, verdictId, decision: 'PASS', reasons }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || t('opportunityDetail.passFailed'));
@@ -124,7 +158,7 @@ export function DecisionBar({
           type="button"
           variant="primary"
           onClick={go}
-          disabled={!canGo || pending !== null}
+          disabled={!canGo || !verdictId || pending !== null}
         >
           <Check className="w-4 h-4" />
           {t('opportunityDetail.goBtn')}
@@ -139,7 +173,7 @@ export function DecisionBar({
           }}
           aria-expanded={passOpen}
           aria-controls="pass-reasons"
-          disabled={pending !== null}
+          disabled={!verdictId || pending !== null}
         >
           <X className="w-4 h-4" />
           {t('opportunityDetail.passBtn')}
@@ -165,7 +199,7 @@ export function DecisionBar({
         )}
       </div>
 
-      {!canGo && blockReason && (
+      {(!canGo || !verdictId) && blockReason && (
         <p className="text-xs text-warn bg-warn/10 border border-warn/40 rounded-sm px-3 py-2 max-w-md">
           {blockReason}
         </p>
@@ -204,7 +238,7 @@ export function DecisionBar({
             variant="danger"
             size="sm"
             onClick={pass}
-            disabled={pending !== null}
+            disabled={!verdictId || pending !== null}
             className="mt-3"
           >
             {t('opportunityDetail.confirmPass')}

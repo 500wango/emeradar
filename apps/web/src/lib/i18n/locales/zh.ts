@@ -992,6 +992,7 @@ export const zh: TranslationDictionary = {
   opportunityWorkspace: {
     backToFeed: '返回商业机会决策流',
     goBlockReason: '在成为正式发布的 BUILD NOW 或 EARLY BET 之前，GO 立项按钮保持锁定。初次观测仅为持续追踪。',
+    noVerdictBlockReason: '这条机会还没有封存的裁决记录，决策无法引用任何依据，因此暂时不能立项。等待下一次观测写入账本。',
     progressSignal: '信号',
     progressCandidate: '候选',
     progressObservation: '持续观察',

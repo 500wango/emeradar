@@ -992,6 +992,7 @@ export const en: TranslationDictionary = {
   opportunityWorkspace: {
     backToFeed: 'Back to Opportunity Feed',
     goBlockReason: 'GO stays off until this record is a published BUILD NOW or EARLY BET. A first observation is only tracking.',
+    noVerdictBlockReason: 'This opportunity has no sealed verdict yet, so a decision would have nothing to cite. It unlocks once the next observation is written to the ledger.',
     progressSignal: 'Signal',
     progressCandidate: 'Candidate',
     progressObservation: 'Observation',

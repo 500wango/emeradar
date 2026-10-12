@@ -261,10 +261,9 @@ flowchart TD
 未修但已记录（均为本期之前既有，与配色重构无关）：
 
 - `ReportStudioClient` 的英文分支有 12 处直接渲染枚举原值（如 `COMMERCIAL_INVESTIGATION`、`HOMEPAGE_DIRECT`），只有中文分支走 `formatXxx()`。英文用户看到的是 SCREAMING_SNAKE。
-- `DecisionBar` 的 GO 按钮只向 `POST /api/v1/projects` 发 `opportunityId` / `title` / `targetKeywords`，而该接口本身接受 `decisionId` 与 `reportId`。§3.3 要求立项携带当次裁决，目前这条溯源链是断的。
 - `Navbar` 没有移动端菜单（主导航为 `hidden md:flex`，无汉堡入口），窄屏下只能靠页脚与页内链接导航。
 
-（第 5 条原为「`/logo-preview` 在产品内无任何引用」，该页已随 §5.4 删除。）
+（第 5 条原为「`/logo-preview` 在产品内无任何引用」，该页已随 §5.4 删除。另一条原为「`DecisionBar` 只发 `opportunityId` / `title` / `targetKeywords`，溯源链是断的」，已随 §5.5 修复并移出本清单。）
 
 ### 5.4 浅色化与机制收口（2026-10-12）
 
@@ -296,3 +295,30 @@ flowchart TD
 - `/public/opportunities/[slug]` 当前 404：`/sitemap.xml` 只列出 `/`、`/methodology`、`/terms`、`/track-record`，即库里没有已公开发布的机会记录，该路由没有可渲染的对象。
 
 **遗留（本次未动，与配色无关）**：`Logo` 的 `variant="full"` 与 `variant="icon"` 两个分支在应用内无调用点；`LanguageSwitcher` 的 `toggle` 变体内部硬编码 `中文` / `EN` 而非走字典；`/admin/users` 的新建用户浮层没有 `role="dialog"` / `aria-modal`；§5.3 末尾那份「未修但已记录」清单里除 `/logo-preview` 之外的各项仍然成立。
+
+### 5.5 决策溯源链修复（2026-10-12）
+
+§5.3 记录过一条「溯源链是断的」，当时并按**规范符合性瑕疵**归档。复核后确认定性错了：它不是瑕疵，是**产品的核心主张没有闭环**——「机会证据验证器 → 决策 → 项目结果回流」这条链在「决策」与「项目」之间是断开的，而这是 24 号文档 §2 的 P0 首发闭环本身。
+
+**断在哪**：`DecisionBar` 的 GO 只发 `opportunityId` / `title` / `targetKeywords`；`ProjectService.createProject` 见 `decisionId` 缺失，就自己查「该机会最新的裁决」并**替用户插一条 GO**（理由写死 `Direct project initiation`）。于是：项目永远引向一条用户没做过的决策；`decisions` 表里躺着大量用户从未表达的「意图」；`projects.report_id` 恒为 NULL，因为研报工作室那个「创建跟踪项目」指向 `/projects?new=…&reportId=…`，而 `/projects` 不读 searchParams。`decisions` 与它引用的 `verdicts` 行之间没有任何可复算的联系。
+
+**为什么没被更早发现**：`createProject` 在自己那一层有完整前置校验（发布资格、配额、决策归属、报告归属），单测全绿；`DecisionService.pass` 也自洽。每一段都对，接缝才断。而验收一直是**按模块**做的——配色/对比度/无障碍/路由覆盖——没有一次把「点 GO」到「项目落库」整条跑通。这是流程缺口，不是某个用例写漏了。
+
+**改法**（分层，每层只做自己那件事）：
+
+1. **契约**：`decisionSchema` 新增必填 `verdictId` 与必填 `decision: 'GO' | 'PASS'`，`reasons` 保持可选（只有 PASS 需要，该规则在服务层，因为它取决于 decision 取值）。
+2. **服务**：`DecisionService.pass` → `DecisionService.record(userId, { opportunityId, verdictId, decision, reasons })`。裁决必须属于该机会，但**不要求是最新的一条**——钉住用户实际读到的那一行才是目的，拒绝稍旧的裁决只会把调用方推回猜测。落库时一并写入 `verdict_row_hash`（被引用裁决行的内容指纹）与 `row_hash`（本行内容指纹）。GO 对 `(user, opportunity, verdict)` **幂等**：客户端是两步调用，中间失败重试不该堆积 GO；PASS 不去重，理由是可以改的判断。
+3. **服务**：`createProject` 删掉伪造分支，`decisionId` 变为必填；查重后拒绝同一条决策立第二个项目（不变量 I6）。
+4. **视图**：`DecisionBar` 两步提交——先 `POST /api/v1/decisions` 拿 `id`，再 `POST /api/v1/projects` 携带它；新增 `verdictId` / `reportId` 两个 props，`verdictId` 为 null 时 GO 与 PASS 双双锁定。
+5. **路由**：机会工作台接受 `?reportId=`，在**渲染期**校验归属（不属于本人/本机会就丢弃）。放在渲染期而不是提交期，是因为放提交期会让决策先落账、项目后失败，留下一条没有项目的 GO。
+6. **链接**：研报工作室的「创建跟踪项目」改为 `/opportunities/{slug}?reportId={id}#decide`，工作台因此新增 `id="decide"` 锚点。`projects.report_id` 不再是 NULL。
+7. **物理约束**：`decisions` 加 `verdict_row_hash` / `row_hash` 两列（可空，存量行不回溯补算，与 `verdicts.hash_version` 的处理一致）；`projects(decision_id)` 加部分唯一索引，把 I6 从文档落实成约束。
+
+**两条刻意的不对称，都写进了注释**：
+
+- **`decisions` 只挡 UPDATE，不挡 DELETE。** 改写是真正的威胁；而 `decisions.user_id` 是 `ON DELETE CASCADE`，一旦连 DELETE 也挡，任何做过决策的账号就**再也注销不掉**（`DELETE FROM users` 会因触发器中止）。审计价值不足以换掉这项能力。副作用是 03 §18 那句「注销时把 decisions / projects 匿名化保留」目前只有 UPDATE 能实现，而触发器正挡着——真要落地需要开一个受控口子（例如仅在 `users` 已软删除时放行），已记在 schema 注释里。
+- **`decisions` 没有 `prev_hash`。** 决策是不同用户在不同时刻各自做出的行为，没有天然全局顺序，硬造链只会把「不可伪造」降级成「按写入顺序不可伪造」。真正接上外部锚点的是 `verdict_row_hash`：它把决策挂进 `verdicts` 既有的哈希链，而那条链有 `ledger_checkpoints` 的 Merkle 根可被第三方复算。本表自己的 `row_hash` 是自指的，证明力弱一档，这一点没有含糊过去。
+
+**核验方式**：新增 `packages/services/test/decision-traceability.test.ts`（9 条）。它**自建一次性数据库**而不是复用开发库——夹具必须造两条裁决才能验证「钉的是哪一条」，而 `verdicts` 只追加，写进开发库就是往账本里塞两条永远删不掉的假裁决。连接串从 `@emeradar/db` 的连接池取（turbo 默认不把 `DATABASE_URL` 透传进测试进程），并在改写后断言 `current_database()` 就是那个一次性库，防止夹具静默落到开发库上。
+
+浏览器端另跑了一遍真流程（生产构建 + `next start`）：登录 PRO 账号 → 机会工作台（带 `?reportId=`）→ 点 GO → 落库检查：`decisions.verdict_id` 正是该页渲染的那一条、`verdict_row_hash` 与该 `verdicts.row_hash` 相等（可复算）、`projects.decision_id` 指回该决策、`projects.report_id` 非空。随后复检：连点第二次 GO 不改库、只报「已经用这条决策建过项目」；PASS 录入理由成功；带一个不属于本人的 `reportId` 打开工作台，该参数被丢弃且落库仍是 NULL，不报错。

@@ -15,9 +15,13 @@ export async function POST(request: NextRequest) {
     if (verificationError) return verificationError;
     const userId = auth.user.id;
     const body = parseInput(decisionSchema, await request.json().catch(() => ({})));
-    const reasons = body.reasons ?? [];
 
-    const decision = await DecisionService.pass(userId, body.opportunityId, reasons);
+    const decision = await DecisionService.record(userId, {
+      opportunityId: body.opportunityId,
+      verdictId: body.verdictId,
+      decision: body.decision,
+      reasons: body.reasons ?? [],
+    });
     return NextResponse.json(decision, { status: 201 });
   } catch (error: any) {
     if (error instanceof AppError) {

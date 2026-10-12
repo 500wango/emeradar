@@ -650,8 +650,13 @@ export function ReportStudioClient({
               <p className="mt-1 text-xs text-fg-muted">{t('report.readyDesc')}</p>
             </div>
 
+            {/* Back to the workbench and its decision bar, carrying this report
+                so the project cites it. This used to link to
+                `/projects?new=…&reportId=…`, which nothing read: the projects
+                page takes no searchParams, so the click landed on a plain list
+                and both the intent and the report id were dropped. */}
             <Link
-              href={`/projects?new=${metadata.opportunityId}&reportId=${reportId}`}
+              href={`/opportunities/${opportunitySlug}?reportId=${reportId}#decide`}
               className={cn(buttonVariants({ variant: 'primary', size: 'md' }), 'shrink-0')}
             >
               <FolderPlus className="h-4 w-4" />

@@ -747,3 +747,5 @@ create table audit_log (
 ## 18. 保留与删除
 - 用户删除账户：软删除 `users`；级联删除 `user_preferences`、`api_keys`、`notification_channels`、`opportunity_reports`、`gsc_connections`、令牌；`decisions` 与 `projects` 匿名化保留（去除 `user_id` 关联），因其构成校准数据；`audit_log` 中的 `actor_id` 替换为哈希。
 - 账本与快照不含个人数据，永久保留。
+
+> **实现与本节不一致（2026-10-12 核对）**：`decisions.user_id` 与 `projects.user_id` 的实际外键是 `ON DELETE CASCADE`，不是「匿名化保留」；且两列都是 `NOT NULL`，`UPDATE ... SET user_id = NULL` 这条路也走不通。因此当前可实现的口径只有「硬删」，与本节写的软化口径相左。另外 `decisions` 上有一条只挡 UPDATE 的触发器（见 `schema.sql` 的说明），真要落地匿名化需要给它开受控口子。本节应按实际口径改写，或按本节改实现 —— 二者选一，不要维持现状。

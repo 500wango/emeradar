@@ -13,6 +13,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
+import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
 import { CommercialProofPanel } from '@/components/CommercialProofPanel';
@@ -29,14 +30,17 @@ import { cn } from '@/lib/cn';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ reportId?: string | string[] }>;
 }
 
 const TH = 'py-2.5 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em]';
 
 export default async function OpportunityWorkspacePage({
   params,
+  searchParams,
 }: OpportunityWorkspacePageProps) {
   const { slug } = await params;
+  const { reportId: reportIdParam } = await searchParams;
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect(`/login?next=${encodeURIComponent(`/opportunities/${slug}`)}`);
@@ -78,11 +82,37 @@ export default async function OpportunityWorkspacePage({
 
   const isBuildNow = opportunity.verdict === 'BUILD_NOW';
   const isEarlyBet = opportunity.verdict === 'EARLY_BET';
-  const canGo =
+  const publishable =
     opportunity.status === 'TRACKED' &&
     (isBuildNow || isEarlyBet) &&
     opportunity.confidence !== 'LOW';
-  const blockReason = canGo ? undefined : t('opportunityWorkspace.goBlockReason');
+
+  // 决定必须引用用户当下看到的那一行账本。没有 row 就没有可引用的依据，
+  // 两个按钮都保持锁定 —— 服务端也拒绝无依据的决策。
+  const verdictId: string | null = latestVerdict?.id ?? null;
+  const canGo = publishable && verdictId !== null;
+  const canExport = publishable;
+  const blockReason = canGo
+    ? undefined
+    : verdictId === null
+    ? t('opportunityWorkspace.noVerdictBlockReason')
+    : t('opportunityWorkspace.goBlockReason');
+
+  /**
+   * 研报工作室的「创建跟踪项目」带着 reportId 跳回来，由这一页转交给 DecisionBar，
+   * 最终写进 projects.report_id。校验放在渲染期而不是提交期：否则决策已经落账
+   * 才发现报告不属于本人，会留下一条没有项目的 GO。
+   */
+  let reportId: string | null = null;
+  const candidateReportId = Array.isArray(reportIdParam) ? reportIdParam[0] : reportIdParam;
+  if (candidateReportId) {
+    const reportRes = await query<{ id: string }>(
+      `SELECT id FROM opportunity_reports
+       WHERE id = $1 AND user_id = $2 AND opportunity_id = $3`,
+      [candidateReportId, session.user.id, opportunity.id]
+    );
+    reportId = reportRes.rows[0]?.id ?? null;
+  }
 
   const confidenceTone =
     opportunity.confidence === 'HIGH'
@@ -116,7 +146,10 @@ export default async function OpportunityWorkspacePage({
       </Link>
 
       {/* Sticky Decision Bar (docs/16 §3.3-1) */}
-      <div className="sticky top-16 z-30 -mx-4 sm:-mx-6 lg:-mx-8 mb-6 border-b border-line bg-canvas/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+      <div
+        id="decide"
+        className="sticky top-16 z-30 -mx-4 sm:-mx-6 lg:-mx-8 mb-6 scroll-mt-20 border-b border-line bg-canvas/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8"
+      >
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <VerdictBadge verdict={opportunity.verdict as Verdict} size="sm" />
@@ -145,12 +178,10 @@ export default async function OpportunityWorkspacePage({
             opportunityId={opportunity.id}
             slug={opportunity.slug}
             title={opportunity.title}
+            verdictId={verdictId}
+            reportId={reportId}
             canGo={canGo}
-            canExport={
-              opportunity.status === 'TRACKED' &&
-              (isBuildNow || isEarlyBet) &&
-              opportunity.confidence !== 'LOW'
-            }
+            canExport={canExport}
             blockReason={blockReason}
           />
         </div>
