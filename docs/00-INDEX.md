@@ -33,6 +33,7 @@
 | 23 | COMPETITIVE-EVOLUTION-AND-EXECUTION-PLAN | 竞品对标演进与实施计划 (Sprint 1~4) | 产品、全员 |
 | 24 | PRODUCT-IMPROVEMENT-PLAN | 产品审查后的 P0/P1 改进顺序、验收与发布门槛 | 产品、全员 |
 | 25 | BACKUP-AND-RESTORE | 备份放哪、怎么确认可用、出事怎么恢复 | 运维 |
+| 26 | SECURITY-AUDIT | 生产主机对外暴露什么、加固了什么、怎么验证、还剩什么 | 运维 |
 
 ## 2. 依赖关系
 

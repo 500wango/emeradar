@@ -118,3 +118,15 @@ worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。�
 仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 web/Caddy → 重试 HTTPS 登录页检查。worker 镜像同步更新，任务由 cron 触发。保留数据卷，不做全局镜像清理。
 
 工作流会重置受 Git 管理的文件；Compose/Dockerfile 修改要提交，私有配置只放服务器 `.env`。查看 Actions 结果确认部署，push 成功不等于上线。
+
+部署依赖**公钥**登录。生产已关闭密码登录与端口转发（见下节），`appleboy/ssh-action` 走密钥，不受影响。
+
+## 主机加固
+
+新 VPS 建好后必须补上这一层，当前生产状态与验证证据见 `26-SECURITY-AUDIT.md`。三条要点：
+
+1. **SSH**：`PermitRootLogin prohibit-password` + `PasswordAuthentication no`。注意 sshd 对同名关键字**取第一个值**、`sshd_config.d/*.conf` 按文件名字典序展开，所以要改的不只是新增的 `99-hardening.conf`，还包括排在它前面的 `50-cloud-init.conf`，并加 `/etc/cloud/cloud.cfg.d/` 覆盖防止 cloud-init 在后续启动时写回。
+2. **主机防火墙**：`INPUT` 默认 drop，且源站 80/443 **只放行 Cloudflare 官方网段**，否则直连源站 IP 可绕过 CDN。Docker 发布的端口经 DNAT 走 `FORWARD`、不经过 `INPUT`，必须同时写 `DOCKER-USER` 链，且每条规则用 `-i eth0` 限定，避免误伤容器出网。放行 sing-box 的全部入站端口。
+3. **fail2ban**：`backend = polling`（默认 systemd 后端的 journalmatch 与本机 `ssh.service` 单元名对不上，会静默失效）、`mode = normal`。
+
+**一体机拓扑特有的一条**：客户端流量经本机 sing-box 出网，因此连本机公网 IP 时源 IP 就是它自己。fail2ban 的 `ignoreip` **必须**包含本机公网地址，否则会把运维方自己封在门外。详见 `26-SECURITY-AUDIT.md` §6。
