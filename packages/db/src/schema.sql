@@ -467,7 +467,14 @@ CREATE TABLE IF NOT EXISTS ledger_checkpoints (
   merkle_root CHAR(64) NOT NULL,
   final_row_hash CHAR(64) NOT NULL,
   checkpoint_hash CHAR(64),
+  -- 预留列，**当前没有任何签名实现**：pipeline 每次写入的都是字面量 'unsigned'，
+  -- 全仓没有任何代码读过它。留着是为了将来接 KMS/离线私钥时不必改表，但请勿把它
+  -- 当作签名读 —— 看到 'unsigned' 是常态，不是异常。真正在起作用的完整性锚点是
+  -- merkle_root + checkpoint_hash 的逐日链，可由 /api/v1/public/verify-ledger 重算。
   signature TEXT NOT NULL DEFAULT '',
+  -- 名字是错的：只由 DEFAULT NOW() 填充，即**写入时刻**，从没有任何代码在写入前
+  -- 校验过什么。真实的校验按需发生（AdminService.getPipelineOverview 的
+  -- recomputed 字段、TrackRecordService.verifyCheckpoint），结果不落库。
   verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ALTER TABLE ledger_checkpoints ADD COLUMN IF NOT EXISTS checkpoint_hash CHAR(64);
@@ -564,13 +571,15 @@ ALTER TABLE decisions ADD COLUMN IF NOT EXISTS row_hash CHAR(64);
 --
 -- 只挡 UPDATE，**刻意不挡 DELETE**。改写是真正的威胁：要伪造一条用户从未做出的
 -- 授权，改 reasons 或 decision 就够了，删掉一行反而更容易被发现。而挡住 DELETE
--- 有一个立刻兑现的代价 —— decisions.user_id 是 ON DELETE CASCADE，触发器会让
--- `DELETE FROM users` 在任何做过决策的账号上直接失败，等于永久关闭注销与数据删除。
--- 审计价值不足以换掉这项能力，所以这里只做减法。
+-- 会关掉两件事：测试夹具的 `DELETE FROM users` 清理（这是唯一还在走 CASCADE 的
+-- 路径），以及将来真正的擦除请求（GDPR 式硬删）—— 审计价值不足以换掉它们。
 --
--- 03 §18 承诺的"注销时把 decisions / projects 匿名化保留"需要 UPDATE 这两张表的
--- user_id，届时这条触发器要开一个受控口子（例如仅在 users 已软删除时放行），
--- 而不是直接把触发器删掉。
+-- 注意"注销"当前**不是** CASCADE 路径：账户删除是软删（admin.service.ts 把
+-- users.status 置为 DELETED 并终止会话），应用代码里没有 `DELETE FROM users`。
+-- 因此 03 §18 承诺的"注销时把 decisions / projects 匿名化保留"实际上只做到了
+-- "保留"：行还在，user_id 仍指向那个已软删的账号，并没有匿名化。要落地匿名化
+-- 需要 UPDATE 这张表的 user_id，届时这条触发器要开一个受控口子（例如仅在对应
+-- users 行已软删除时放行），而不是直接把触发器删掉。
 --
 -- 旧的 trg_decisions_append_only 是同一轮里先写成 UPDATE+DELETE 的版本，改名后
 -- 必须显式清掉：DROP ... IF EXISTS 只清理新名字，旧触发器会留在已经跑过一遍的
@@ -596,6 +605,20 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 每日流水线只求值 VERDICT_CHANGE 与 WINDOW_CLOSING（见 services/src/alert-triggers.ts），
+-- 而创建入口从前放行了全部四种，于是可能已经存在一批永远不响的规则。把它们置为
+-- 停用：停用状态在规则列表里看得见，静默失效看不见。实现到位之后再让用户自行开启。
+--
+-- ⚠️ 这条语句是**临时补丁**，不是不变式。等 EVALUATED_RULE_TYPES 增加新类型时，
+-- 必须把对应取值从这里删掉 —— 否则下一次迁移会把用户刚建好的规则又悄悄停用一次，
+-- 正是这条语句想消灭的那类故障。四种都实现之后整条删除。
+--
+-- CHECK 约束**不跟着收窄**：schema.sql 是整体应用的，把取值删掉之后，用今天这份
+-- schema 去恢复一份含历史行的生产转储会直接违反约束而中止。应用层的策略（拒绝创建）
+-- 与 schema 层的取值集合是两件事，前者先收，后者等历史行清干净再收。
+UPDATE alert_rules SET is_active = false
+ WHERE is_active = true AND rule_type IN ('NEW_ENTRANT','KILL_CRITERIA');
 
 CREATE TABLE IF NOT EXISTS alert_events (
   id TEXT PRIMARY KEY,

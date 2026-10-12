@@ -3,6 +3,7 @@ import { AppError } from '@emeradar/core';
 import { randomBytes } from 'node:crypto';
 import { AuthService } from './auth.service';
 import { AuditService } from './audit.service';
+import { TrackRecordService } from './track-record.service';
 import {
   discoverSources,
   generateDiscoveryIntents,
@@ -78,7 +79,25 @@ export interface AdminPipelineOverview {
     obsDate: string;
     merkleRoot: string;
     totalRecords: number;
-    verifiedAt: string;
+    /**
+     * 检查点**写入**的时刻，不是校验时刻。底层的 `ledger_checkpoints.verified_at`
+     * 列只由 `DEFAULT NOW()` 填充，从没有任何代码在写入前校验过它 —— 名字是错的。
+     * 真实的校验结果是同一对象里的 `recomputed`。
+     */
+    recordedAt: string;
+    /**
+     * 拿库里存的行重算这一天的结果。
+     *
+     * `null` 表示**重算没跑成**（与 `verified: false` 的"跑通了但对不上"是两回事，
+     * 页面必须分开显示 —— 把"不知道"渲染成"通过"正是这块面板原先的问题）。
+     */
+    recomputed: {
+      verified: boolean;
+      /** 重算出的默克尔根；与 `merkleRoot` 不等时页面可直接并排显示。 */
+      calculatedMerkleRoot: string;
+      /** 实际参与重算的行数；与 `totalRecords` 不等本身就是证据缺口。 */
+      rowCount: number;
+    } | null;
   } | null;
   recentCollectorRuns: Array<{
     id: string;
@@ -164,7 +183,12 @@ export class AdminService {
     );
     const costTodayUsd = parseFloat(costRes.rows[0]?.total_cost || '0');
 
-    // 3. Latest ledger checkpoint
+    // 3. 最新账本检查点 —— 连同**重算结果**一起返回
+    //
+    // 这块面板原先只读 merkle_root，再配一个写死的绿勾"存证完整"。那是断言，不是
+    // 验证：任何一行被改写、任何一天的行残缺，绿勾照样亮。这里改成真的按库里存的
+    // 行重算一遍（复用公开验证端点 `/api/v1/public/verify-ledger` 走的同一段逻辑），
+    // 把结论交给页面显示。
     const ckpRes = await query<{
       obs_date: string;
       merkle_root: string;
@@ -176,12 +200,33 @@ export class AdminService {
        ORDER BY obs_date DESC
        LIMIT 1`
     );
+
+    let recomputed: {
+      verified: boolean;
+      calculatedMerkleRoot: string;
+      rowCount: number;
+    } | null = null;
+    if (ckpRes.rows[0]) {
+      try {
+        const v = await TrackRecordService.verifyCheckpoint(ckpRes.rows[0].obs_date);
+        recomputed = {
+          verified: v.verified,
+          calculatedMerkleRoot: v.calculatedMerkleRoot,
+          rowCount: v.rowCount,
+        };
+      } catch {
+        // 保留 null：重算没跑成 ≠ 重算发现不一致。页面据此显示"无法重算"。
+        recomputed = null;
+      }
+    }
+
     const latestCkp = ckpRes.rows[0]
       ? {
           obsDate: ckpRes.rows[0].obs_date,
           merkleRoot: ckpRes.rows[0].merkle_root,
           totalRecords: ckpRes.rows[0].total_records,
-          verifiedAt: ckpRes.rows[0].verified_at,
+          recordedAt: ckpRes.rows[0].verified_at,
+          recomputed,
         }
       : null;
 

@@ -14,12 +14,15 @@ export const dynamic = 'force-dynamic';
  * The public ledger view.
  *
  * The one rule this page exists to honour: a rate is only printed when the
- * sample behind it contains both hits and misses. An unevaluated cohort and a
- * flawless one both produce "100%" from the service, so every rate on this page
- * goes through `accuracy()` first, which falls back to the raw `hits/total`
- * counts — those can never be mistaken for a track record.
+ * sample behind it contains both hits and misses.
+ *
+ * The service now owns that rule — `TrackRecordService` returns `null` rather
+ * than a rate for an empty or one-sided sample, so the public API and the
+ * homepage telemetry are covered too, not just this page. `accuracy()` stays as
+ * the second line of defence: it never trusts a rate string, and falls back to
+ * the raw `hits/total` counts, which can never be mistaken for a track record.
  */
-function accuracy(hits: number | undefined, evaluated: number | undefined, rate: string | undefined) {
+function accuracy(hits: number | undefined, evaluated: number | undefined, rate: string | null | undefined) {
   const total = evaluated ?? 0;
   const hit = hits ?? 0;
   if (total === 0) return '—';
@@ -48,7 +51,7 @@ export default async function TrackRecordPage() {
   const { t } = await getServerI18n();
 
   const checkpoint = checkpoints[0];
-  const overallRate = accuracy(stats.hitsCount, stats.evaluatedEpisodes, stats.hitRate30d ?? undefined);
+  const overallRate = accuracy(stats.hitsCount, stats.evaluatedEpisodes, stats.hitRate30d);
 
   return (
     <PageFrame width="full">

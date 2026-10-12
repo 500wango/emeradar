@@ -1035,8 +1035,8 @@ export const en: TranslationDictionary = {
     sprint14: '14-day sprint',
     recommendedStack: 'Recommended Stack',
     openReport: 'Open Deep Research Report',
-    killCriteriaTitle: 'Automated Kill Criteria',
-    killCriteriaDesc: 'Hard rules that invalidate this opportunity',
+    killCriteriaTitle: 'Kill Criteria',
+    killCriteriaDesc: 'Pre-declared exit thresholds — compare them yourself; not yet evaluated automatically',
   },
   painPoints: {
     title: 'Source-labeled mentions',

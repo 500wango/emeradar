@@ -43,6 +43,29 @@ row_hash = SHA-256( prev_hash ‖ JCS(row_without_row_hash) )
 - 同一 `obs_date` 内按 `opportunity_id` 升序串联；
 - 每日第一行的 `prev_hash` = 前一日 checkpoint 的 `checkpoint_hash`；账本第一日为 32 字节零值的十六进制。
 
+> **实现与本行不一致（2026-10-12 核对）**：`pipeline.ts` 取的是前一日检查点的
+> **`final_row_hash`**（即前一日最后一行的 `row_hash`），不是 `checkpoint_hash`：
+> ```ts
+> const prevRowHash = prevCkp.final_row_hash || GENESIS_PREV_HASH;
+> const prevCheckpointHash = prevCkp.checkpoint_hash || prevRowHash;
+> ```
+> 两种取法都能自洽，差别只在"跨日链接的是行链还是检查点链"。**此处不改实现** ——
+> 改它等于重算整条行链，会让已经对外发布过的每一个默克尔根与 `checkpoint_hash`
+> 全部失效，而"可被任何人复算"正是账本存在的理由。已知的代价是：本行按字面读会
+> 得到一个与线上账本不符的验证器。
+>
+> 校验侧的权威口径**就是实现**，且已被 `services/test/admin-ledger-integrity.test.ts`
+> 钉住（手工构造一天完好账本 → 重算必须通过）。要收敛这处分歧，只能走"从某一日起
+> 切换 + 记账本代次"的路子，属于独立议题。
+
+> **已修复的验证缺陷（2026-10-12）**：`TrackRecordService.verifyCheckpoint` 曾把
+> 当日**最后一行**的 `row_hash` 当作 `prev_checkpoint_hash` 传给
+> `calculateCheckpointHash`（变量在遍历中被改写）。后果是**账本第一日永远验不过**
+> —— 那一天没有前一日检查点，`?? prevRowHash` 落到被污染的值上；前一日
+> `checkpoint_hash` 为 NULL 的天同理。公开验证端点 `/api/v1/public/verify-ledger`
+> 与后台"账本完整性"面板都走这条路径，也就是说第一天会一直被报成不一致。已改为
+> 在遍历前就固定 `prevRowHash` / `prevCheckpointHash`，与 `pipeline.ts` 逐字对应。
+
 ### 4.3 每日 Checkpoint
 ```text
 merkle_root     = MerkleRoot( [row_hash…]，按 opportunity_id 排序，叶/节点哈希按 RFC 6962 前缀规则 )

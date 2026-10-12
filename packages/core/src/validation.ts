@@ -62,8 +62,14 @@ export const decisionSchema = z.object({
 
 export const alertRuleSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200),
-  // Mirrors AlertRuleType in @emeradar/services (core cannot import services).
-  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT', 'KILL_CRITERIA']),
+  /**
+   * Only the types the daily pipeline actually evaluates. `NEW_ENTRANT` and
+   * `KILL_CRITERIA` used to be accepted here and were never evaluated by
+   * anything — a subscription that could only ever be silent. They are rejected
+   * at this layer so the contract stops offering them; `AlertService` returns
+   * the explanation.
+   */
+  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING']),
   frequency: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']).optional(),
 });
 

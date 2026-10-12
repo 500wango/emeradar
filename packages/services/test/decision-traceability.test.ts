@@ -1,16 +1,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
-import path from 'node:path';
-import { Client } from 'pg';
+import { makeDisposableDb } from './helpers/disposable-db';
 
 /**
  * 决策溯源：裁决账本与用户真正落地的项目之间的那个接缝。
  *
- * 这套用例自己建一个一次性数据库，而不是复用 pnpm db:migrate 那个库。原因是
- * verdicts 是只追加的：夹具要造两条裁决才能验证"决策锚定的是哪一条"，而只追加
- * 触发器保证那两行永远删不掉。写进开发库就等于往账本里塞两条永远不会消失的假
- * 裁决 —— 而账本是产品对外的可信度本身。一次性库让夹具可以随便造、随便丢。
+ * 这套用例自己建一个一次性数据库（见 helpers/disposable-db.ts），而不是复用
+ * `pnpm db:migrate` 那个库。原因是 verdicts 是只追加的：夹具要造两条裁决才能验证
+ * "决策锚定的是哪一条"，而只追加触发器保证那两行永远删不掉。写进开发库就等于往
+ * 账本里塞两条永远不会消失的假裁决 —— 而账本是产品对外的可信度本身。
  *
  * 为什么要在这里做端到端而不是只测纯函数：这一轮修掉的缺陷正是"每个模块各自
  * 看起来都对、串起来才断"。老的 createProject 在自己那一层有完整的前置校验，
@@ -18,8 +16,7 @@ import { Client } from 'pg';
  * 项目服务、两个 API 路由和视图层串起来跑，才看得见那条凭空出现的授权。
  */
 
-const VERIFY_DB = `emeradar_decision_test_${process.pid}`;
-const SCHEMA_PATH = path.resolve(__dirname, '../../db/src/schema.sql');
+const harness = makeDisposableDb('emeradar_decision_test');
 
 const OPP = 'opp_decision_test';
 const OPP_OTHER = 'opp_decision_test_other';
@@ -29,29 +26,8 @@ const VERDICT_V1 = 'vdt_decision_test_v1';
 const VERDICT_V2 = 'vdt_decision_test_v2';
 const VERDICT_OTHER = 'vdt_decision_test_other';
 
-let db: typeof import('@emeradar/db');
-let services: typeof import('../src');
-/** 维护库连接串，在连接池被改写之前捕获。 */
-let baseUrl = '';
-let available = false;
-let skipReason = '';
-
-/** 连到维护库执行建库/删库。 */
-async function withMaintenance(baseUrl: string, sql: string): Promise<{ ok: boolean; code?: string }> {
-  const client = new Client({ connectionString: baseUrl });
-  await client.connect();
-  try {
-    await client.query(sql);
-    return { ok: true };
-  } catch (error: any) {
-    return { ok: false, code: error?.code };
-  } finally {
-    await client.end();
-  }
-}
-
 async function seedFixture() {
-  const { query } = db;
+  const { query } = harness.db;
 
   // plans 是 subscriptions 的外键目标，schema.sql 不含数据行（seed.ts 才写）。
   await query(
@@ -127,62 +103,17 @@ async function expectError(fn: () => Promise<unknown>, status: number, what: str
 
 describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   before(async () => {
-    db = await import('@emeradar/db');
-
-    // 连接串从连接池自己取，而不是读 process.env：`dotenv` 只有 @emeradar/db 声明了，
-    // 而且 turbo 默认不把 DATABASE_URL 透传进测试进程（`pnpm test` 根命令下它是空的）。
-    // 池在构造时就固定了连接串，所以这里必须在**它建立任何连接之前**改写 options。
-    const resolved = db.pool.options.connectionString;
-    if (!resolved) {
-      skipReason = '连接池没有配置连接串';
-      return;
-    }
-    assert.strictEqual(db.pool.totalCount, 0, '连接池已经建立过连接，无法再指向一次性数据库');
-    assert.strictEqual(db.pool.idleCount, 0, '连接池已有空闲连接，无法再指向一次性数据库');
-    baseUrl = resolved;
-
-    const verifyUrl = `${resolved.replace(/\/[^/]*$/, '')}/${VERIFY_DB}`;
-    const created = await withMaintenance(baseUrl, `CREATE DATABASE "${VERIFY_DB}"`);
-    if (!created.ok) {
-      // 没有建库权限时跳过，而不是让整套用例红掉 —— 但跳过的原因必须是显式的。
-      skipReason = `无法创建一次性数据库（SQLSTATE ${created.code}）`;
-      return;
-    }
-
-    const client = new Client({ connectionString: verifyUrl });
-    await client.connect();
-    try {
-      await client.query(fs.readFileSync(SCHEMA_PATH, 'utf8'));
-    } finally {
-      await client.end();
-    }
-
-    db.pool.options.connectionString = verifyUrl;
-    process.env.DATABASE_URL = verifyUrl;
-    services = await import('../src');
-
-    // 若上面的改写没有生效，下面的断言会立刻发现 —— 绝不能让夹具悄悄落到开发库上，
-    // 那会把几条假裁决永久写进只追加的账本。
-    const actual = (await db.query<{ name: string }>(`SELECT current_database() AS name`)).rows[0]?.name;
-    assert.strictEqual(
-      actual,
-      VERIFY_DB,
-      '连接池没有指向一次性数据库；本套用例拒绝在别的库上运行'
-    );
-
-    await seedFixture();
-    available = true;
+    await harness.setup();
+    if (harness.available) await seedFixture();
   });
 
   after(async () => {
-    // 池的销毁必须先于删库，否则连接还挂着，DROP DATABASE 拿不到独占锁。
-    if (available) await db.closePool();
-    if (baseUrl) await withMaintenance(baseUrl, `DROP DATABASE IF EXISTS "${VERIFY_DB}" WITH (FORCE)`);
+    await harness.teardown();
   });
 
   it('GO 把决策锚定在用户当时看到的那一条裁决上', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService, calculateDecisionRowHash } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService, calculateDecisionRowHash } = harness.services;
 
     const decision = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -192,7 +123,7 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     assert.strictEqual(decision.verdictId, VERDICT_V1);
 
     const row = (
-      await db.query<any>(`SELECT * FROM decisions WHERE id = $1`, [decision.id])
+      await harness.db.query<any>(`SELECT * FROM decisions WHERE id = $1`, [decision.id])
     ).rows[0];
     assert.strictEqual(row.verdict_id, VERDICT_V1, '存下的不是被引用的那一条裁决');
     assert.strictEqual(
@@ -219,8 +150,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('同一 (用户, 机会, 裁决) 的 GO 幂等，换一条裁决才是新决策', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService } = harness.services;
 
     const first = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -243,8 +174,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('PASS 需要至少一个合法理由，非法理由被丢弃而不是存下来', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService } = harness.services;
 
     await expectError(
       () => DecisionService.record(USER, { opportunityId: OPP, verdictId: VERDICT_V1, decision: 'PASS', reasons: [] }),
@@ -269,15 +200,15 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
       decision: 'PASS',
       reasons: ['DEMAND_TOO_THIN', 'BOGUS'],
     });
-    const row = (await db.query<any>(`SELECT reasons FROM decisions WHERE id = $1`, [passed.id])).rows[0];
+    const row = (await harness.db.query<any>(`SELECT reasons FROM decisions WHERE id = $1`, [passed.id])).rows[0];
     assert.deepStrictEqual(row.reasons, ['DEMAND_TOO_THIN'], '非法理由没有被过滤');
   });
 
   it('引用不属于该机会的裁决会被拒绝', async (t) => {
-    if (!available) return t.skip(skipReason);
+    if (!harness.available) return t.skip(harness.skipReason);
     await expectError(
       () =>
-        services.DecisionService.record(USER, {
+        harness.services.DecisionService.record(USER, {
           opportunityId: OPP,
           verdictId: VERDICT_OTHER,
           decision: 'GO',
@@ -288,8 +219,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('项目引用 GO 决策落库，并带上报告', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService, ProjectService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService, ProjectService } = harness.services;
 
     const decision = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -306,8 +237,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('同一条 GO 不能立出第二个项目（不变量 I6）', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService, ProjectService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService, ProjectService } = harness.services;
 
     const decision = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -322,7 +253,7 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
       '同一条决策二次立项'
     );
 
-    const projects = await db.query<{ count: number }>(
+    const projects = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM projects WHERE decision_id = $1`,
       [decision.id]
     );
@@ -330,10 +261,10 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('缺少 decisionId 时拒绝立项，而不是替用户伪造一条 GO', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { ProjectService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { ProjectService } = harness.services;
 
-    const before = await db.query<{ count: number }>(
+    const before = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM decisions WHERE opportunity_id = $1`,
       [OPP]
     );
@@ -344,7 +275,7 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
       '无 decisionId 立项'
     );
 
-    const after = await db.query<{ count: number }>(
+    const after = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM decisions WHERE opportunity_id = $1`,
       [OPP]
     );
@@ -356,8 +287,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
   });
 
   it('不能借他人的决策立项，也不能用 PASS 立项', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService, ProjectService } = services;
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService, ProjectService } = harness.services;
 
     const go = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -383,9 +314,9 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     );
   });
 
-  it('决策行不可改写，但仍可删除（注销与级联依赖这一点）', async (t) => {
-    if (!available) return t.skip(skipReason);
-    const { DecisionService } = services;
+  it('决策行不可改写，但仍可删除', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { DecisionService } = harness.services;
 
     const decision = await DecisionService.record(USER, {
       opportunityId: OPP,
@@ -394,18 +325,20 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     });
 
     await assert.rejects(
-      () => db.query(`UPDATE decisions SET reasons = '{OTHER}' WHERE id = $1`, [decision.id]),
+      () => harness.db.query(`UPDATE decisions SET reasons = '{OTHER}' WHERE id = $1`, [decision.id]),
       (error: any) => error?.code === '0A000',
       '决策行被允许改写'
     );
 
-    // DELETE 必须放行：decisions.user_id 是 ON DELETE CASCADE，一旦连删除也挡，
-    // 任何做过决策的账号就再也注销不掉。
-    await db.query(`DELETE FROM decisions WHERE id = $1`, [decision.id]);
-    const remaining = await db.query<{ count: number }>(
+    // DELETE 必须放行。注意这**不是**在保护账号注销 —— 注销是软删
+    // （admin.service.ts 把 users.status 置为 DELETED），应用代码里没有
+    // `DELETE FROM users`。放行 DELETE 是为了保住测试夹具的清理路径，以及
+    // 将来真正的擦除请求（硬删）不至于被永久堵死。
+    await harness.db.query(`DELETE FROM decisions WHERE id = $1`, [decision.id]);
+    const remaining = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM decisions WHERE id = $1`,
       [decision.id]
     );
-    assert.strictEqual(remaining.rows[0].count, 0, '决策行删不掉，账号注销会被永久卡住');
+    assert.strictEqual(remaining.rows[0].count, 0, '决策行删不掉');
   });
 });

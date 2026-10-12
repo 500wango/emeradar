@@ -2,6 +2,34 @@
 
 Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 
+> ## ⚠️ 实现与本规格不一致（2026-10-12 核对）
+>
+> 本规格描述的是**一套还没建起来的系统**。已落地的是一条窄得多的旧路径，两者不是
+> "实现不全"，而是**模型不同**：规格按"订阅触发器组合"建模，代码按"一个 `rule_type`
+> 单值"建模。逐条对照：
+>
+> | 规格 | 实现现状 |
+> |---|---|
+> | §2 八条内置触发器，用户在规则里订阅**组合** | `alert_rules.rule_type` 是**单值**列，一行 = 一个 `(user, opportunity, rule_type)` |
+> | §2 触发器名 `VERDICT_CHANGED` / `WINDOW_CLOSING_ENTERED` | 库里和代码里是 `VERDICT_CHANGE` / `WINDOW_CLOSING` —— **同义不同名**，对不上号 |
+> | §2 阈值来自 `alert_thresholds`（版本化） | **该表在 `schema.sql` 里不存在**，任何位置都没有 |
+> | §2 八条触发器全部可求值 | 只有 `VERDICT_CHANGE` 与 `WINDOW_CLOSING` 有求值路径（`services/src/alert-triggers.ts`）。其余在创建规则时被显式 400 拒绝 |
+> | §3 `params` JSON（triggers/scope/verdict_filter/min_confidence/digest） | 无此列；`alert_rules` 只有 `rule_type` / `frequency` / `is_active`。`scope`、`verdict_filter`、`min_confidence`、模板概念均不存在 |
+> | §4 `alert_events` 生成 + `dedupe_key` 去重 + `deliveries` 投递记录 | `alert_events` 表**建了但零读写**；流水线直接 `INSERT INTO notifications`，去重靠 `ON CONFLICT (id) DO NOTHING`；`dedupe_key` 与 `deliveries` 不存在 |
+> | §5.1 谓词 `{field, operator, value}` | `kill_criteria.predicate_dsl` 实际存的是 `{metric, op, threshold}` —— **不同构**，改写谓词要么迁移数据要么改规格 |
+> | §5.3 `evaluateKillPredicate`（位于 `@emeradar/scoring`） | **不存在**。`predicate_dsl` 只被写入、从不被读取；`kill_criteria.status` 里的 `TRIGGERED` 也**没有任何写入点**（`opportunity.service` 的 `killCriteriaTriggered` 因此恒为 0） |
+> | §6.1 Email + Webhook 渠道 | `notification_channels` 表**建了但零读写**；唯一在用的投递是站内 `notifications` 列表 |
+>
+> **已做的收敛（不改变上述差距）**：创建入口不再放行 `NEW_ENTRANT` / `KILL_CRITERIA`
+> （订阅一个永远不会响的规则比不提供更糟），并有一条幂等语句把库里既有的这类
+> 活跃规则置为停用；面向用户的"自动叫停"文案改成"需人工对照"。
+>
+> **待裁决**：本规格是**目标态**（那就要按它重建，`rule_type` 单值模型整体废弃）还是
+> **过度设计**（那就要按实现现状重写 §2–§6，删掉 `alert_thresholds` 之类的空头承诺）。
+> 在裁决之前，任何按本规格实现的代码都会与线上表结构打架 —— 请先选一边。
+> 另外 `en.ts` 的套餐文案 `webhookDelivery: 'In-app notifications & email digests'`
+> 承诺了 Email 摘要与 Webhook，二者都没有实现，属于同一处的对外失实。
+
 ## 1. 目的与范围
 定义 Watchlist 的变化如何被检测、Kill criteria 如何表达与求值、告警如何去重 / 限流 / 投递。首发渠道：Email + 通用 Webhook（01 F9）。
 

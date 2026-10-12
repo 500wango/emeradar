@@ -1035,8 +1035,8 @@ export const zh: TranslationDictionary = {
     sprint14: '14 天冲刺',
     recommendedStack: '推荐技术栈',
     openReport: '打开完整深度研究报告',
-    killCriteriaTitle: '自动化叫停撤出条件',
-    killCriteriaDesc: '触发即判定机会失效的刚性规则',
+    killCriteriaTitle: '叫停撤出条件',
+    killCriteriaDesc: '预先声明的失效阈值 —— 需人工对照，系统尚未自动求值',
   },
   painPoints: {
     title: '来源标注提及',

@@ -27,6 +27,61 @@ interface PipelineOpsClientProps {
   initialOverview: AdminPipelineOverview;
 }
 
+/**
+ * 最新检查点的真实校验结论。
+ *
+ * 原先这里是写死的一行绿字"默克尔树 SHA-256 存证完整"，无论库里是什么都照亮
+ * —— 连一个检查点都没有时也亮。断言不等于验证，所以现在显示服务端**按存储行
+ * 重算**出来的结果，四种状态分开渲染：没检查点 / 重算没跑成 / 重算通过 /
+ * 重算不一致。
+ */
+function CheckpointVerdict({
+  checkpoint,
+}: {
+  checkpoint: AdminPipelineOverview['latestCheckpoint'];
+}) {
+  if (!checkpoint) {
+    return (
+      <p className="flex items-center gap-1 text-[11px] font-semibold text-fg-subtle">
+        <Database className="h-3 w-3" />
+        <span>尚无检查点</span>
+      </p>
+    );
+  }
+
+  if (!checkpoint.recomputed) {
+    return (
+      <p className="flex items-center gap-1 text-[11px] font-semibold text-warn">
+        <XCircle className="h-3 w-3" />
+        <span>无法重算 —— 该项未通过校验，不等于通过</span>
+      </p>
+    );
+  }
+
+  if (checkpoint.recomputed.verified) {
+    return (
+      <p className="flex items-center gap-1 text-[11px] font-semibold text-signal">
+        <CheckCircle2 className="h-3 w-3" />
+        <span>重算通过 · {checkpoint.recomputed.rowCount} 行</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px] font-semibold text-danger">
+      <p className="flex items-center gap-1">
+        <XCircle className="h-3 w-3" />
+        <span>重算不一致 —— 存储根与重算根不符</span>
+      </p>
+      <p className="font-mono text-[10px] font-normal text-fg-subtle">
+        存储 {checkpoint.merkleRoot.slice(0, 12)}… / 重算{' '}
+        {checkpoint.recomputed.calculatedMerkleRoot.slice(0, 12)}… ·{' '}
+        {checkpoint.recomputed.rowCount}/{checkpoint.totalRecords} 行
+      </p>
+    </div>
+  );
+}
+
 export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
   const [overview, setOverview] = useState<AdminPipelineOverview>(initialOverview);
   const [runningTask, setRunningTask] = useState<string | null>(null);
@@ -173,10 +228,7 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
           <p className="truncate font-mono text-[10px] text-fg-subtle">
             Root: {overview.latestCheckpoint?.merkleRoot.slice(0, 16) || 'None'}...
           </p>
-          <p className="flex items-center gap-1 text-[11px] font-semibold text-signal">
-            <CheckCircle2 className="h-3 w-3" />
-            <span>默克尔树 SHA-256 存证完整</span>
-          </p>
+          <CheckpointVerdict checkpoint={overview.latestCheckpoint} />
         </Panel>
       </div>
 

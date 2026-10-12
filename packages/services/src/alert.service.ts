@@ -1,12 +1,13 @@
 import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
+import {
+  type AlertRuleType,
+  UNIMPLEMENTED_RULE_TYPES,
+  isEvaluatedRuleType,
+} from './alert-triggers';
 
-export type AlertRuleType =
-  | 'VERDICT_CHANGE'
-  | 'WINDOW_CLOSING'
-  | 'NEW_ENTRANT'
-  | 'KILL_CRITERIA';
+export type { AlertRuleType };
 
 export interface CreateAlertRuleInput {
   opportunityId: string;
@@ -39,6 +40,22 @@ export class AlertService {
     userId: string,
     input: CreateAlertRuleInput
   ): Promise<any> {
+    /**
+     * 只能订阅真的会被求值的类型。
+     *
+     * 从前这里放行全部四种，而每日流水线只求值 VERDICT_CHANGE —— 用户能建出
+     * NEW_ENTRANT / KILL_CRITERIA 规则，规则安静地躺在库和列表页里，永远不响。
+     * 静默失效比明确的"暂不支持"更糟：用户以为自己被盯着。
+     */
+    if (!isEvaluatedRuleType(input.ruleType)) {
+      throw new EmeradarError(
+        ErrorCode.VALIDATION_ERROR,
+        UNIMPLEMENTED_RULE_TYPES[input.ruleType] ??
+          `Unsupported alert rule type: ${input.ruleType}`,
+        400
+      );
+    }
+
     const opportunityRes = await query<{ id: string }>(
       `SELECT o.id
        FROM opportunities o

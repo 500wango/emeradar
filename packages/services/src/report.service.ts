@@ -184,7 +184,7 @@ export class ReportService {
 
       // Fetch Kill Criteria
       let kcRes = await query<any>(
-        `SELECT rule_code as code, description as rule, 'Automated threshold trigger' as rationale
+        `SELECT rule_code as code, description as rule, 'Stated threshold, checked by you' as rationale
          FROM kill_criteria
          WHERE opportunity_id = $1`,
         [opp.id]
@@ -200,7 +200,7 @@ export class ReportService {
           [`kc_${opp.id}_serp`, opp.id, `kc_${opp.id}_decay`]
         );
         kcRes = await query<any>(
-          `SELECT rule_code as code, description as rule, 'Automated threshold trigger' as rationale
+          `SELECT rule_code as code, description as rule, 'Stated threshold, checked by you' as rationale
            FROM kill_criteria
            WHERE opportunity_id = $1`,
           [opp.id]

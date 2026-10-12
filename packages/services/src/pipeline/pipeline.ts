@@ -18,6 +18,7 @@ import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
+import { evaluateAlertTrigger } from '../alert-triggers';
 import { discoverAutocompleteCandidates } from './discover-candidates';
 
 const PIPELINE_LOCK_ID = 481516;
@@ -314,24 +315,35 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       id: string;
       user_id: string;
       opportunity_id: string;
+      rule_type: string;
       email: string;
     }>(
-      `SELECT r.id, r.user_id, r.opportunity_id, u.email
+      `SELECT r.id, r.user_id, r.opportunity_id, r.rule_type, u.email
        FROM alert_rules r
        JOIN users u ON u.id = r.user_id
-       WHERE r.is_active = true AND r.rule_type = 'VERDICT_CHANGE'`
+       WHERE r.is_active = true`
     );
 
     for (const rule of rulesRes.rows) {
-      const match = publishable.find(
-        (item) =>
-          item.opportunityId === rule.opportunity_id &&
-          item.previousVerdict &&
-          item.previousVerdict !== item.output.verdict
-      );
+      // 求值只看已发布（publishable）的观测：未发布意味着证据链不完整或采集失败，
+      // 拿它去判定"裁决变了"会发出基于残缺数据的告警。未实现的类型返回 null，
+      // 这里显式跳过 —— 创建入口已经拒绝了它们，走到这里说明库里有历史行。
+      const match = publishable.find((item) => item.opportunityId === rule.opportunity_id);
       if (!match) continue;
-      const title = `Verdict changed: ${match.title}`;
-      const body = `${match.primaryQuery} moved from ${match.previousVerdict} to ${match.output.verdict}. ${match.whyNowSummary}`;
+      const fires = evaluateAlertTrigger(rule.rule_type, {
+        verdict: match.output.verdict,
+        previousVerdict: match.previousVerdict,
+      });
+      if (fires !== true) continue;
+
+      const title =
+        rule.rule_type === 'WINDOW_CLOSING'
+          ? `Entry window closing: ${match.title}`
+          : `Verdict changed: ${match.title}`;
+      const body =
+        rule.rule_type === 'WINDOW_CLOSING'
+          ? `${match.primaryQuery} entered WINDOW_CLOSING. ${match.whyNowSummary}`
+          : `${match.primaryQuery} moved from ${match.previousVerdict} to ${match.output.verdict}. ${match.whyNowSummary}`;
       await client.query(
         `INSERT INTO notifications (id, user_id, title, body, opportunity_id)
          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,

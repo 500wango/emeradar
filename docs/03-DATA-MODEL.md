@@ -748,4 +748,10 @@ create table audit_log (
 - 用户删除账户：软删除 `users`；级联删除 `user_preferences`、`api_keys`、`notification_channels`、`opportunity_reports`、`gsc_connections`、令牌；`decisions` 与 `projects` 匿名化保留（去除 `user_id` 关联），因其构成校准数据；`audit_log` 中的 `actor_id` 替换为哈希。
 - 账本与快照不含个人数据，永久保留。
 
-> **实现与本节不一致（2026-10-12 核对）**：`decisions.user_id` 与 `projects.user_id` 的实际外键是 `ON DELETE CASCADE`，不是「匿名化保留」；且两列都是 `NOT NULL`，`UPDATE ... SET user_id = NULL` 这条路也走不通。因此当前可实现的口径只有「硬删」，与本节写的软化口径相左。另外 `decisions` 上有一条只挡 UPDATE 的触发器（见 `schema.sql` 的说明），真要落地匿名化需要给它开受控口子。本节应按实际口径改写，或按本节改实现 —— 二者选一，不要维持现状。
+> **实现与本节不一致（2026-10-12 核对，当日修正）**：
+>
+> 1. **注销走的不是 CASCADE**。账户删除是软删：`admin.service.ts` 把 `users.status` 置为 `DELETED` 并终止该用户全部会话；应用代码里**没有** `DELETE FROM users`（只有测试夹具在用）。所以 `ON DELETE CASCADE` 这条链在本节描述的注销场景里根本不会触发。
+> 2. **因此「匿名化保留」只做到了「保留」**。行确实还在，但 `user_id` 仍指向那个已软删的账号 —— 既没有级联删除，也没有去除关联。`decisions.user_id` / `projects.user_id` 又都是 `NOT NULL`，`UPDATE ... SET user_id = NULL` 也无从落地；真要匿名化得先决定匿名成什么（占位账号？哈希？），本节没写。
+> 3. `decisions` 上有一条只挡 UPDATE 的触发器（理由见 `schema.sql`），匿名化的 UPDATE 会被它拦下，需要开受控口子。
+>
+> 待办：把本节第 1 条按实际口径改写（列出真正软删/保留的表），并就第 2 条选定匿名化口径。第 1 条清单里除了 `decisions` / `projects` 之外的级联项，同样是本节写的、实现里没有的 —— 一并核对。

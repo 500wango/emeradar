@@ -8,6 +8,18 @@ import {
   LedgerRowRecord,
 } from '@emeradar/ledger';
 
+/**
+ * 单边样本不出比率 —— docs/16 §3.1a 的强制口径，导出的纯函数便于直接测。
+ *
+ * "有命中、无未命中" 与 "有未命中、无命中" 都算单边：前者可能只是一个还没被
+ * 证伪的样本，后者是样本量不足。两者都不能支撑一个百分比。计数照常返回，
+ * 调用方要展示就只能展示 `hits/evaluated`。
+ */
+export function rateIfTwoSided(hitCount: number, evaluatedCount: number): string | null {
+  if (evaluatedCount === 0 || hitCount === 0 || hitCount === evaluatedCount) return null;
+  return `${Math.round((hitCount / evaluatedCount) * 1000) / 10}%`;
+}
+
 export class TrackRecordService {
   /**
    * Get public track record summary, historical episodes, and checkpoints
@@ -36,8 +48,16 @@ export class TrackRecordService {
       (e) => e.outcome_30d === 'HIT' || e.outcome_30d === 'MISS'
     );
     const hits = evaluated.filter((e) => e.outcome_30d === 'HIT').length;
-    const hitRate30d =
-      evaluated.length > 0 ? Math.round((hits / evaluated.length) * 1000) / 10 : null;
+
+    /**
+     * 单边样本不出比率，这条规则在**服务层**，不只在页面上。
+     *
+     * 此前它只写在 `/track-record` 的 `accuracy()` 里，于是任何绕过页面的消费方
+     * —— 公开 API `/api/v1/public/track-record`、首页遥测
+     * `observatory/telemetry.ts`、以及任何第三方 —— 拿到的仍是 `1/1 = 100%`。
+     * 比率是产品可信度本身，不能靠"调用方记得自己拦"。
+     */
+    const hitRate30d = rateIfTwoSided(hits, evaluated.length);
 
     // 2. Cohort Hit-Rate Matrix (grouped by predicted_at month)
     const cohortMap = new Map<string, any[]>();
@@ -58,17 +78,15 @@ export class TrackRecordService {
         const eval90 = cohortEpisodes.filter((e) => e.outcome_90d === 'HIT' || e.outcome_90d === 'MISS');
         const hits90 = eval90.filter((e) => e.outcome_90d === 'HIT').length;
 
-        // The hit *counts* travel alongside the rate: docs/16 §3.1a forbids
-        // printing an accuracy percentage from a sample that contains hits but
-        // no misses, and the caller cannot tell the difference from the rate
-        // alone (a 100% rate is either a real clean sweep or an unevaluated
-        // cohort). Counts let the page decide.
+        // The hit *counts* travel alongside the rate: a null rate is either
+        // "nothing evaluated yet" or "one-sided sample", and the caller cannot
+        // tell which from the rate alone. Counts let the page say which.
         return {
           month,
           total: cohortEpisodes.length,
-          hitRate30d: eval30.length > 0 ? `${Math.round((hits30 / eval30.length) * 1000) / 10}%` : '—',
-          hitRate60d: eval60.length > 0 ? `${Math.round((hits60 / eval60.length) * 1000) / 10}%` : '—',
-          hitRate90d: eval90.length > 0 ? `${Math.round((hits90 / eval90.length) * 1000) / 10}%` : '—',
+          hitRate30d: rateIfTwoSided(hits30, eval30.length),
+          hitRate60d: rateIfTwoSided(hits60, eval60.length),
+          hitRate90d: rateIfTwoSided(hits90, eval90.length),
           hits30,
           eval30: eval30.length,
           hits60,
@@ -99,7 +117,7 @@ export class TrackRecordService {
         totalPredictions: episodes.length,
         evaluatedEpisodes: evaluated.length,
         hitsCount: hits,
-        hitRate30d: hitRate30d === null ? null : `${hitRate30d}%`,
+        hitRate30d,
         activeWatchlistCount: Number(watchlistRes.rows[0]?.count ?? 0),
       },
       episodes,
@@ -148,6 +166,19 @@ export class TrackRecordService {
     );
     const storedCheckpointHash = checkpointRow.rows[0]?.checkpoint_hash ?? null;
 
+    // 链的两个起点必须在遍历**之前**固定下来，且必须与写入时用的那两个一致
+    // （见 pipeline 的 prevRowHash / prevCheckpointHash，取法逐字对应）：
+    //
+    //   行链起点  = 前一日的链尾行哈希，账本第一日为 GENESIS
+    //   检查点输入 = 前一日的 checkpoint_hash，退化到行链起点
+    //
+    // 从前这里是在遍历**之后**读 `previousHash` —— 那个变量已经被循环改写成
+    // "当日最后一行的 row_hash"。于是账本第一日（没有前一日检查点）永远算不出
+    // 写入时那个 checkpoint_hash，公开验证对第一天恒报失败；前一日 checkpoint_hash
+    // 为 NULL 的那些天同理。改了会让已发布的默克尔根失效，所以写入侧不动，这里对齐。
+    const prevRowHash = previousCheckpointRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
+    const prevCheckpointHash = previousCheckpointRes.rows[0]?.checkpoint_hash || prevRowHash;
+
     // Fetch verdicts for that date sorted by opportunity_id
     const verdictsRes = await query<LedgerRowRecord>(
       `SELECT opportunity_id, obs_date::text, scoring_config_version, verdict, lifecycle,
@@ -159,7 +190,7 @@ export class TrackRecordService {
       [obsDate]
     );
 
-    let previousHash = previousCheckpointRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
+    let previousHash = prevRowHash;
     const rowHashes: string[] = [];
     let rowsValid = true;
     for (const row of verdictsRes.rows) {
@@ -182,12 +213,7 @@ export class TrackRecordService {
     const expectedCheckpointHash =
       storedCheckpointHash === null
         ? null
-        : calculateCheckpointHash(
-            previousCheckpointRes.rows[0]?.checkpoint_hash || previousHash,
-            obsDate,
-            rowHashes.length,
-            calculatedRoot
-          );
+        : calculateCheckpointHash(prevCheckpointHash, obsDate, rowHashes.length, calculatedRoot);
     const checkpointValid =
       expectedCheckpointHash === null ||
       expectedCheckpointHash.toLowerCase() === storedCheckpointHash!.toLowerCase();
