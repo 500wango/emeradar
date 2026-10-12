@@ -9,9 +9,19 @@ import {
   Globe,
 } from 'lucide-react';
 import { AdminSourceItem } from '@emeradar/services';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Field';
+import { Panel } from '@/components/ui/Panel';
 
 interface SourcesClientProps {
   initialSources: AdminSourceItem[];
+}
+
+function riskTone(level: string): BadgeTone {
+  if (level === 'LOW') return 'signal';
+  if (level === 'HIGH') return 'danger';
+  return 'warn';
 }
 
 export function SourcesClient({ initialSources }: SourcesClientProps) {
@@ -101,38 +111,38 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-          <Radio className="w-6 h-6 text-amber-400" />
+        <h1 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight text-fg">
+          <Radio className="h-6 w-6 text-warn" />
           <span>采集源与 RSS 监控配置</span>
         </h1>
-        <p className="mt-1 text-xs text-slate-400 font-mono">
-          Configure Autonomous Discovery Channels & Target RSS Feeds
+        <p className="mt-1 font-mono text-xs text-fg-subtle">
+          Configure Autonomous Discovery Channels &amp; Target RSS Feeds
         </p>
       </div>
 
       {message && (
-        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="flex items-center gap-2 rounded-sm border border-signal/40 bg-signal/10 p-4 text-xs font-semibold text-signal">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>{message}</span>
         </div>
       )}
 
       {/* Add New RSS Source Form */}
-      <div className="bg-slate-800/60 border border-slate-700/80 rounded-3xl p-6 sm:p-8">
-        <h2 className="text-base font-bold text-white flex items-center gap-2 mb-2">
-          <Plus className="w-4 h-4 text-amber-400" />
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <h2 className="mb-2 flex items-center gap-2 text-base font-bold text-fg">
+          <Plus className="h-4 w-4 text-warn" />
           <span>新增独立开发者 / 技术生态 RSS 监控源</span>
         </h2>
-        <p className="text-xs text-slate-400 mb-6">
+        <p className="mb-6 text-xs text-fg-muted">
           添加外部讨论源后，雷达每日执行 `discover` 时将自动抓取该源的最新文章并派生搜索意图。
         </p>
 
-        <form onSubmit={handleAddRss} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <form onSubmit={handleAddRss} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <label htmlFor="source-name" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+            <label htmlFor="source-name" className="mb-1.5 block text-[11px] font-semibold text-fg-subtle">
               监控源名称
             </label>
-            <input
+            <Input
               id="source-name"
               name="name"
               autoComplete="off"
@@ -141,16 +151,15 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             />
           </div>
 
           <div className="sm:col-span-2">
-            <label htmlFor="source-url" className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+            <label htmlFor="source-url" className="mb-1.5 block text-[11px] font-semibold text-fg-subtle">
               RSS Feed URL
             </label>
             <div className="flex gap-2">
-              <input
+              <Input
                 id="source-url"
                 name="url"
                 autoComplete="url"
@@ -159,52 +168,46 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 required
-                className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 font-mono"
+                className="flex-1 font-mono"
               />
-              <button
-                type="submit"
-                disabled={submitting}
-                className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition disabled:opacity-50 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
-              >
+              <Button type="submit" size="sm" disabled={submitting} className="shrink-0">
                 {submitting ? '添加中...' : '确认添加'}
-              </button>
+              </Button>
             </div>
           </div>
         </form>
-      </div>
+      </Panel>
 
       {/* Sources List */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 sm:p-8">
-        <h2 className="text-base font-bold text-white flex items-center gap-2 mb-4">
-          <Globe className="w-4 h-4 text-blue-400" />
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-fg">
+          <Globe className="h-4 w-4 text-accent" />
           <span>系统采集源清单 ({sources.length})</span>
         </h2>
 
-        <div className="divide-y divide-slate-800">
+        <div className="divide-y divide-line">
           {sources.map((s) => (
             <div
               key={s.id}
-              className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              className="flex flex-col justify-between gap-4 py-4 sm:flex-row sm:items-center"
             >
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-line bg-surface-2 text-fg-muted">
                   {s.type === 'DISCOVERY' ? (
-                    <Rss className="w-4 h-4 text-amber-400" />
+                    <Rss className="h-4 w-4 text-warn" />
                   ) : (
-                    <Radio className="w-4 h-4 text-blue-400" />
+                    <Radio className="h-4 w-4 text-accent" />
                   )}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white">{s.name}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 font-mono">
-                      {s.type}
-                    </span>
-                    <span className="text-[10px] font-semibold text-emerald-400 font-mono">
-                      Risk: {s.tosRiskLevel}
-                    </span>
+                {/* min-w-0 + flex-wrap：名字旁边挂着两枚 nowrap 徽章，下面还有一行
+                    可能很长的 mono URL；不放开收缩与换行，375 下整页横向滚出 37px。 */}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-fg">{s.name}</span>
+                    <Badge tone="neutral">{s.type}</Badge>
+                    <Badge tone={riskTone(s.tosRiskLevel)}>Risk: {s.tosRiskLevel}</Badge>
                   </div>
-                  <p className="text-xs text-slate-400 font-mono mt-1">
+                  <p className="mt-1 break-all font-mono text-xs text-fg-subtle">
                     ID: {s.id}
                     {s.config?.url && ` · ${s.config.url}`}
                   </p>
@@ -214,8 +217,8 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
               {/* Toggle Switch */}
               <div className="flex items-center gap-3 self-end sm:self-center">
                 <span
-                  className={`text-xs font-mono font-semibold ${
-                    s.isActive ? 'text-emerald-400' : 'text-slate-500'
+                  className={`font-mono text-xs font-semibold ${
+                    s.isActive ? 'text-signal' : 'text-fg-subtle'
                   }`}
                 >
                   {s.isActive ? '已激活' : '已暂停'}
@@ -226,12 +229,12 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
                   aria-pressed={s.isActive}
                   onClick={() => handleToggle(s.id, s.isActive)}
                   disabled={processingId === s.id}
-                  className={`w-11 h-6 rounded-full transition-colors relative focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:opacity-50 disabled:cursor-not-allowed ${
-                    s.isActive ? 'bg-emerald-500' : 'bg-slate-700'
+                  className={`relative h-6 w-11 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    s.isActive ? 'border-signal bg-signal' : 'border-line-control bg-surface-2'
                   }`}
                 >
                   <span
-                    className={`block w-4 h-4 rounded-full bg-white transition-transform ${
+                    className={`block h-4 w-4 rounded-full bg-solid transition-transform ${
                       s.isActive ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
@@ -240,7 +243,7 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
             </div>
           ))}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

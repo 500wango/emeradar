@@ -22,7 +22,12 @@ import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { planLabelKey } from '@/lib/plan-display';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { cn } from '@/lib/cn';
 
+/**
+ * Colours come from semantic tokens only, so the markup carries no theme
+ * assumptions of its own.
+ */
 export function Navbar() {
   const pathname = usePathname();
   const { user, isLoading, logout } = useAuth();
@@ -59,85 +64,73 @@ export function Navbar() {
   // Colour stays per-tier; the wording comes from the shared mapping so a legacy
   // TEAM account reads "Legacy plan" here too instead of the raw enum.
   const tierBadgeClasses: Record<string, string> = {
-    TEAM: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200',
-    PRO: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
-    FREE: 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200',
+    TEAM: 'bg-surface-2 text-fg-muted border-line',
+    PRO: 'bg-signal/10 text-signal border-signal/40',
+    FREE: 'bg-surface-2 text-fg-muted border-line',
   };
   const currentTier = user?.tier ?? 'PRO';
   const currentTierClasses = tierBadgeClasses[currentTier] ?? tierBadgeClasses.FREE;
   const currentTierLabel = t(planLabelKey(currentTier));
 
+  const navItem = 'px-3.5 py-2 text-sm rounded-sm transition-colors flex items-center gap-1.5';
+  const navActive = 'bg-accent/10 text-accent font-semibold';
+  const navIdle = 'text-fg-muted font-medium hover:text-accent hover:bg-surface-2';
+  const navIcon = 'h-4 w-4 shrink-0 opacity-70';
+
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <header className="sticky top-0 z-50 border-b border-line bg-surface/90 backdrop-blur-md">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
           {/* Logo & Brand */}
           <div className="flex items-center gap-8">
-            <Link href="/" className="flex items-center group py-1">
+            <Link href="/" className="group flex items-center py-1">
               <Logo
                 variant="header"
-                className="h-9 w-auto group-hover:opacity-95 transition-opacity"
+                className="h-7 w-auto transition-opacity group-hover:opacity-95 sm:h-9"
                 idPrefix="nav"
               />
             </Link>
 
             {/* Nav Links */}
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden items-center gap-1 md:flex">
               {isAdmin ? (
                 <>
                   <Link
                     href="/admin"
-                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/admin'
-                        ? 'text-amber-700 bg-amber-50 font-bold'
-                        : 'text-slate-700 hover:text-amber-700 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/admin' ? navActive : navIdle)}
                   >
-                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    <ShieldAlert className={navIcon} />
                     <span>{isZh ? '流水线大屏' : 'Pipeline Ops'}</span>
                   </Link>
                   <Link
                     href="/admin/candidates"
-                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/admin/candidates'
-                        ? 'text-emerald-700 bg-emerald-50 font-bold'
-                        : 'text-slate-700 hover:text-emerald-700 hover:bg-slate-50'
-                    }`}
+                    className={cn(
+                      navItem,
+                      pathname === '/admin/candidates' ? navActive : navIdle
+                    )}
                   >
-                    <Layers className="w-4 h-4 text-emerald-600" />
+                    <Layers className={navIcon} />
                     <span>{isZh ? '候选池治理' : 'Candidate Pool'}</span>
                   </Link>
                   <Link
                     href="/admin/sources"
-                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/admin/sources'
-                        ? 'text-blue-700 bg-blue-50 font-bold'
-                        : 'text-slate-700 hover:text-blue-700 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/admin/sources' ? navActive : navIdle)}
                   >
-                    <Radio className="w-4 h-4 text-blue-600" />
+                    <Radio className={navIcon} />
                     <span>{isZh ? '采集源配置' : 'Sources & Feeds'}</span>
                   </Link>
                   <Link
                     href="/admin/users"
-                    className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/admin/users'
-                        ? 'text-purple-700 bg-purple-50 font-bold'
-                        : 'text-slate-700 hover:text-purple-700 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/admin/users' ? navActive : navIdle)}
                   >
-                    <Users className="w-4 h-4 text-purple-600" />
+                    <Users className={navIcon} />
                     <span>{isZh ? '用户与权限' : 'Users & Access'}</span>
                   </Link>
                   <Link
                     href="/feed"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname.startsWith('/feed')
-                        ? 'text-slate-900 bg-slate-100 font-semibold'
-                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname.startsWith('/feed') ? navActive : navIdle)}
                   >
-                    <Radar className="w-4 h-4 text-slate-400" />
+                    <Radar className={navIcon} />
                     <span>{isZh ? '前台预览' : 'Live Feed'}</span>
                   </Link>
                 </>
@@ -145,67 +138,51 @@ export function Navbar() {
                 <>
                   <Link
                     href="/feed"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+                    className={cn(
+                      navItem,
                       pathname.startsWith('/feed') || pathname.startsWith('/opportunities')
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                        ? navActive
+                        : navIdle
+                    )}
                   >
-                    <Radar className="w-4 h-4 text-blue-500" />
+                    <Radar className={navIcon} />
                     {t('nav.opportunities')}
                   </Link>
                   <Link
                     href="/track-record"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/track-record'
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/track-record' ? navActive : navIdle)}
                   >
-                    <FileCheck2 className="w-4 h-4 text-emerald-500" />
+                    <FileCheck2 className={navIcon} />
                     {t('nav.trackRecord')}
                   </Link>
                   <Link
                     href="/projects"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/projects'
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/projects' ? navActive : navIdle)}
                   >
-                    <FolderKanban className="w-4 h-4 text-indigo-500" />
+                    <FolderKanban className={navIcon} />
                     {t('nav.projects')}
                   </Link>
                   <Link
                     href="/alerts"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/alerts'
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/alerts' ? navActive : navIdle)}
                   >
-                    <Bell className="w-4 h-4 text-amber-500" />
+                    <Bell className={navIcon} />
                     {t('nav.alerts')}
                   </Link>
                   <Link
                     href="/methodology"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      pathname === '/methodology'
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                    className={cn(navItem, pathname === '/methodology' ? navActive : navIdle)}
                   >
                     {t('nav.methodology')}
                   </Link>
                   <Link
                     href="/pricing"
-                    className={`px-3.5 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                      pathname === '/pricing' || pathname === '/billing'
-                        ? 'text-blue-600 bg-blue-50/70 font-semibold'
-                        : 'text-slate-700 hover:text-blue-600 hover:bg-slate-50'
-                    }`}
+                    className={cn(
+                      navItem,
+                      pathname === '/pricing' || pathname === '/billing' ? navActive : navIdle
+                    )}
                   >
-                    <CreditCard className="w-4 h-4 text-slate-400" />
+                    <CreditCard className={navIcon} />
                     {t('nav.pricing')}
                   </Link>
                 </>
@@ -214,11 +191,19 @@ export function Navbar() {
           </div>
 
           {/* User & Auth Actions & Language Switcher */}
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* The dropdown variant carries a text label; below `sm` it plus the
+                auth buttons together overran the bar and crushed them, so the
+                label collapses to the compact `EN / 中文` toggle there. */}
+            <div className="hidden sm:block">
+              <LanguageSwitcher />
+            </div>
+            <div className="sm:hidden">
+              <LanguageSwitcher variant="minimal" />
+            </div>
 
             {isLoading ? (
-              <div className="h-8 w-24 bg-slate-100 animate-pulse rounded-full" />
+              <div className="h-8 w-24 animate-pulse rounded-full bg-surface-2" />
             ) : user ? (
               <>
                 {/* Tier badge removed from navbar — visible in profile dropdown only */}
@@ -230,39 +215,45 @@ export function Navbar() {
                     onClick={() => setDropdownOpen(!dropdownOpen)}
                     aria-expanded={dropdownOpen}
                     aria-controls="account-menu"
-                    className="flex items-center gap-2 pl-2 sm:pl-3 py-1 pr-1.5 rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    className="flex items-center gap-2 rounded-full border border-line-control py-1 pl-2 pr-1.5 transition-colors hover:border-accent hover:bg-surface-2 sm:pl-3"
                   >
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs flex items-center justify-center shadow-sm">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-fg">
                       {initials}
                     </div>
-                    <span className="text-xs font-semibold text-slate-700 hidden sm:inline max-w-[120px] truncate">
+                    <span className="hidden max-w-[120px] truncate text-xs font-semibold text-fg-muted sm:inline">
                       {user.displayName || user.email.split('@')[0]}
                     </span>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    <ChevronDown className="h-3.5 w-3.5 text-fg-subtle" />
                   </button>
 
                   {/* Dropdown Menu */}
                   {dropdownOpen && (
-                    <div id="account-menu" className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-200/50 py-2 z-50">
+                    <div
+                      id="account-menu"
+                      className="absolute right-0 z-50 mt-2 w-64 rounded-sm border border-line bg-surface py-2 shadow-xl"
+                    >
                       {/* User Info Header */}
-                      <div className="px-4 py-3 border-b border-slate-100">
-                        <div className="text-xs font-bold text-slate-900 truncate">
+                      <div className="border-b border-line px-4 py-3">
+                        <div className="truncate text-xs font-bold text-fg">
                           {user.displayName || 'Builder'}
                         </div>
-                        <div className="text-[11px] text-slate-500 truncate">{user.email}</div>
+                        <div className="truncate text-[11px] text-fg-subtle">{user.email}</div>
                         <div className="mt-2 flex items-center gap-1.5">
                           {isAdmin ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 uppercase tracking-wider">
+                            <span className="rounded-sm bg-warn px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-warn-fg">
                               SYSTEM ADMIN
                             </span>
                           ) : (
                             <>
                               <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${currentTierClasses}`}
+                                className={cn(
+                                  'rounded-sm border px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em]',
+                                  currentTierClasses
+                                )}
                               >
                                 {currentTierLabel}
                               </span>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                              <span className="rounded-sm bg-surface-2 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
                                 {user.role}
                               </span>
                             </>
@@ -275,37 +266,37 @@ export function Navbar() {
                         <div className="py-1">
                           <Link
                             href="/admin"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50/50 hover:bg-amber-100/60 transition"
+                            className="flex items-center gap-2.5 bg-accent/10 px-4 py-2 text-xs font-bold text-accent transition-colors hover:bg-accent/15"
                           >
-                            <ShieldAlert className="w-4 h-4 text-amber-600" />
+                            <ShieldAlert className="h-4 w-4" />
                             <span>{isZh ? '雷达运维大屏' : 'Pipeline Dashboard'}</span>
                           </Link>
                           <Link
                             href="/admin/candidates"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-emerald-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Layers className="w-4 h-4 text-slate-400" />
+                            <Layers className="h-4 w-4 text-fg-subtle" />
                             <span>{isZh ? '候选生态位治理' : 'Candidate Pool'}</span>
                           </Link>
                           <Link
                             href="/admin/sources"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Radio className="w-4 h-4 text-slate-400" />
+                            <Radio className="h-4 w-4 text-fg-subtle" />
                             <span>{isZh ? '采集源与 RSS 配置' : 'Sources & Feeds'}</span>
                           </Link>
                           <Link
                             href="/admin/users"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-purple-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Users className="w-4 h-4 text-slate-400" />
+                            <Users className="h-4 w-4 text-fg-subtle" />
                             <span>{isZh ? '用户与权限治理' : 'Users & Permissions'}</span>
                           </Link>
                           <Link
                             href="/feed"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Radar className="w-4 h-4 text-slate-400" />
+                            <Radar className="h-4 w-4 text-fg-subtle" />
                             <span>{isZh ? '前台决策流预览' : 'Browse Live Feed'}</span>
                           </Link>
                         </div>
@@ -313,43 +304,43 @@ export function Navbar() {
                         <div className="py-1">
                           <Link
                             href="/settings"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Settings className="w-4 h-4 text-slate-400" />
+                            <Settings className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.accountSettings')}</span>
                           </Link>
                           <Link
                             href="/projects"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <FolderKanban className="w-4 h-4 text-slate-400" />
+                            <FolderKanban className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.myProjects')}</span>
                           </Link>
                           <Link
                             href="/alerts"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Bell className="w-4 h-4 text-slate-400" />
+                            <Bell className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.alerts')}</span>
                           </Link>
                           <Link
                             href="/billing"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <CreditCard className="w-4 h-4 text-slate-400" />
+                            <CreditCard className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.billing')}</span>
                           </Link>
                         </div>
                       )}
 
                       {/* Logout */}
-                      <div className="pt-1 border-t border-slate-100">
+                      <div className="border-t border-line pt-1">
                         <button
                           type="button"
                           onClick={logout}
-                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-rose-600 hover:bg-rose-50 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+                          className="flex w-full items-center gap-2.5 px-4 py-2 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
                         >
-                          <LogOut className="w-4 h-4 text-rose-500" />
+                          <LogOut className="h-4 w-4" />
                           <span>{t('nav.logout')}</span>
                         </button>
                       </div>
@@ -361,13 +352,13 @@ export function Navbar() {
               <div className="flex items-center gap-2">
                 <Link
                   href="/login"
-                  className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition"
+                  className="whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                 >
                   {t('nav.login')}
                 </Link>
                 <Link
                   href="/register"
-                  className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition"
+                  className="whitespace-nowrap rounded-full bg-accent px-3.5 py-1.5 text-xs font-semibold text-accent-fg transition-colors hover:brightness-110"
                 >
                   {t('nav.signup')}
                 </Link>

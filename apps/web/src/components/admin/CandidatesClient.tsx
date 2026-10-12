@@ -11,6 +11,10 @@ import {
   RotateCw,
 } from 'lucide-react';
 import { AdminCandidateItem } from '@emeradar/services';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Field';
+import { Panel } from '@/components/ui/Panel';
 
 interface CandidatesClientProps {
   initialItems: AdminCandidateItem[];
@@ -77,38 +81,43 @@ export function CandidatesClient({ initialItems, total: initialTotal }: Candidat
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-            <Layers className="w-6 h-6 text-emerald-400" />
+          <h1 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight text-fg">
+            <Layers className="h-6 w-6 text-signal" />
             <span>候选生态位池治理 (Candidate Pool)</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-400 font-mono">
-            {total} items in observation pool · Filter out noise & promote high-potential niches
+          <p className="mt-1 font-mono text-xs text-fg-subtle">
+            {total} items in observation pool · Filter out noise &amp; promote high-potential niches
           </p>
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => fetchCandidates()}
           disabled={loading}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
         >
-          <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RotateCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
           <span>刷新列表</span>
-        </button>
+        </Button>
       </div>
 
       {/* Action Notification Message */}
       {actionMessage && (
-        <div role="status" aria-live="polite" className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-sm border border-signal/40 bg-signal/10 p-4 text-xs font-semibold text-signal"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>{actionMessage}</span>
         </div>
       )}
 
       {/* Search Bar */}
-      <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-4">
+      <Panel tone="raised" className="p-4">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -117,9 +126,9 @@ export function CandidatesClient({ initialItems, total: initialTotal }: Candidat
           className="flex gap-3"
         >
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
             <label htmlFor="candidate-search" className="sr-only">搜索候选标题或关键词</label>
-            <input
+            <Input
               id="candidate-search"
               name="search"
               autoComplete="off"
@@ -127,96 +136,94 @@ export function CandidatesClient({ initialItems, total: initialTotal }: Candidat
               placeholder="搜索候选标题、长尾关键词..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+              className="pl-10"
             />
           </div>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
-          >
+          <Button type="submit" size="sm" className="shrink-0">
             筛选
-          </button>
+          </Button>
         </form>
-      </div>
+      </Panel>
 
       {/* Candidate List */}
       {candidates.length === 0 ? (
-        <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-12 text-center">
-          <Layers className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-400">未找到符合条件的候选机会</p>
-        </div>
+        <Panel tone="raised" className="p-12 text-center">
+          <Layers className="mx-auto mb-3 h-8 w-8 text-fg-subtle" />
+          <p className="text-sm text-fg-muted">未找到符合条件的候选机会</p>
+        </Panel>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {candidates.map((cand) => {
             const isProcessing = processingId === cand.id;
             return (
-              <div
+              <Panel
                 key={cand.id}
-                className="bg-slate-800/50 border border-slate-700/70 hover:border-slate-600 rounded-2xl p-5 flex flex-col justify-between transition shadow-sm"
+                tone="raised"
+                className="flex flex-col justify-between p-5 transition hover:border-accent"
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-mono">
-                      {cand.discoverySource || 'SNIFFER'}
-                    </span>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
-                      <Clock className="w-3 h-3 text-slate-500" />
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <Badge tone="neutral">{cand.discoverySource || 'SNIFFER'}</Badge>
+                    <div className="flex items-center gap-1.5 font-mono text-[10px] text-fg-subtle">
+                      <Clock className="h-3 w-3" />
                       <span>已观察 {cand.observationDays} 天</span>
                     </div>
                   </div>
 
-                  <h3 className="text-sm font-bold text-white leading-snug">
+                  <h2 className="text-sm font-bold leading-snug text-fg">
                     {cand.title}
-                  </h3>
-                  <p className="text-xs text-blue-400 font-mono mt-1">
+                  </h2>
+                  <p className="mt-1 font-mono text-xs text-accent">
                     `{cand.primaryQuery}`
                   </p>
 
                   {cand.candidateReason && (
-                    <div className="mt-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-300 leading-relaxed">
-                      <span className="font-semibold text-slate-400 block mb-0.5">
+                    <div className="mt-3 rounded-sm border border-line bg-canvas p-3 text-[11px] leading-relaxed text-fg-muted">
+                      <span className="mb-0.5 block font-semibold text-fg-subtle">
                         💡 发现理由 / 意图背景:
                       </span>
                       {cand.candidateReason}
                     </div>
                   )}
 
-                  <div className="mt-3 flex items-center gap-2 text-[10px] font-mono text-slate-400">
-                    <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                  <div className="mt-3 flex items-center gap-2 font-mono text-[10px] text-fg-subtle">
+                    <span className="rounded-sm border border-line bg-surface-2 px-2 py-0.5">
                       形态: {cand.recommendedArchetype}
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                    <span className="rounded-sm border border-line bg-surface-2 px-2 py-0.5">
                       规模: {cand.executionClass}
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                    <span className="rounded-sm border border-line bg-surface-2 px-2 py-0.5">
                       地区: {cand.marketCountry}
                     </span>
                   </div>
                 </div>
 
                 {/* Moderation Actions */}
-                <div className="mt-5 pt-3 border-t border-slate-700/60 flex items-center justify-between gap-2">
-                  <button
+                <div className="mt-5 flex items-center justify-between gap-2 border-t border-line pt-3">
+                  <Button
                     type="button"
+                    variant="danger"
+                    size="sm"
                     onClick={() => handleModerate(cand.id, 'ARCHIVE', cand.title)}
                     disabled={isProcessing}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
                     <span>废弃归档</span>
-                  </button>
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
+                    variant="primary"
+                    size="sm"
                     onClick={() => handleModerate(cand.id, 'PROMOTE_TO_TRACKED', cand.title)}
                     disabled={isProcessing}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-sm transition disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
                   >
-                    <Rocket className="w-3.5 h-3.5" />
+                    <Rocket className="h-3.5 w-3.5" />
                     <span>提前批准发布至 Feed</span>
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Panel>
             );
           })}
         </div>

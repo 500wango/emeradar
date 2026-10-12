@@ -5,15 +5,28 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
 
 const BUILD_TYPES = ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS', 'CONTENT_SITE', 'DIRECTORY'];
 const MARKETS = ['US'];
 const TOPICS = ['developer_tools', 'finance', 'marketing', 'operations', 'creator_tools'];
 
+/** A selectable hairline card. The native control stays inside the label so the
+ *  whole card is keyboard reachable without a synthetic role. */
+const optionCard = (selected: boolean) =>
+  cn(
+    'flex cursor-pointer items-center gap-3 border px-4 py-3 text-sm transition-colors',
+    selected
+      ? 'border-accent bg-accent/10 text-fg'
+      : 'border-line-control text-fg-muted hover:border-accent hover:text-fg'
+  );
+
 export function OnboardingForm({ initialPreferences }: { initialPreferences: any }) {
   const router = useRouter();
   const { updatePreferences } = useAuth();
-  const { isZh } = useI18n();
+  const { t } = useI18n();
   const [step, setStep] = useState(0);
   const [buildTypes, setBuildTypes] = useState<string[]>(initialPreferences.preferredBuildTypes || []);
   const [markets, setMarkets] = useState<string[]>(initialPreferences.preferredMarkets || ['US']);
@@ -22,16 +35,19 @@ export function OnboardingForm({ initialPreferences }: { initialPreferences: any
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const labels = isZh
-    ? ['选择出货形态', '选择研究市场', '设置时间预算', '选择关注主题']
-    : ['Choose a build shape', 'Choose a research market', 'Set your time budget', 'Choose topics'];
+  const labels = [
+    t('onboarding.step1'),
+    t('onboarding.step2'),
+    t('onboarding.step3'),
+    t('onboarding.step4'),
+  ];
 
   async function complete() {
     setSaving(true); setError(null);
     try {
       await updatePreferences({ preferredBuildTypes: buildTypes, preferredMarkets: markets, preferredTimeBudget: timeBudget, topics, onboardingCompleted: true });
       router.push('/feed');
-    } catch (err: any) { setError(err.message || (isZh ? '保存偏好失败。' : 'Could not save preferences.')); } finally { setSaving(false); }
+    } catch (err: any) { setError(err.message || t('onboarding.saveError')); } finally { setSaving(false); }
   }
 
   function toggle(list: string[], value: string, setter: (next: string[]) => void) {
@@ -40,25 +56,100 @@ export function OnboardingForm({ initialPreferences }: { initialPreferences: any
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-xl items-center px-6 py-12">
-      <section className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">{isZh ? '首次设置' : 'First-run setup'}</p>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900">{isZh ? '让决策流符合你的构建约束' : 'Tune the decision feed to your constraints'}</h1>
-        <p className="mt-2 text-sm text-slate-500">{labels[step]}</p>
-        <ol className="mt-6 flex gap-2" aria-label={isZh ? '设置步骤' : 'Setup steps'}>{labels.map((_, index) => <li key={index} aria-current={index === step ? 'step' : undefined} className={`h-1.5 flex-1 rounded-full ${index <= step ? 'bg-blue-600' : 'bg-slate-200'}`}><span className="sr-only">{index === step ? (isZh ? '当前步骤' : 'Current step') : ''} {index + 1}</span></li>)}</ol>
+      <Panel className="w-full p-6 sm:p-8">
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+          {t('onboarding.eyebrow')}
+        </p>
+        <h1 className="mt-3 font-display text-2xl font-bold text-fg">{t('onboarding.title')}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-fg-muted">{labels[step]}</p>
+        <ol className="mt-6 flex gap-2" aria-label={t('onboarding.stepsAria')}>
+          {labels.map((_, index) => (
+            <li
+              key={index}
+              aria-current={index === step ? 'step' : undefined}
+              className={cn('h-1 flex-1', index <= step ? 'bg-accent' : 'bg-line')}
+            >
+              <span className="sr-only">
+                {index === step ? t('onboarding.currentStep') : ''} {index + 1}
+              </span>
+            </li>
+          ))}
+        </ol>
 
         <div className="mt-8 space-y-3">
-          {step === 0 && BUILD_TYPES.map((value) => <label key={value} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={buildTypes.includes(value)} onChange={() => toggle(buildTypes, value, setBuildTypes)} />{value}</label>)}
-          {step === 1 && MARKETS.map((value) => <label key={value} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700"><input type="checkbox" checked={markets.includes(value)} onChange={() => toggle(markets, value, setMarkets)} />{value} / en-US</label>)}
-          {step === 2 && ['WEEKEND', 'TWO_WEEKS', 'ONE_MONTH'].map((value) => <label key={value} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700"><input type="radio" name="time-budget" checked={timeBudget === value} onChange={() => setTimeBudget(value)} />{value}</label>)}
-          {step === 3 && TOPICS.map((value) => <label key={value} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={topics.includes(value)} onChange={() => toggle(topics, value, setTopics)} />{value.replace('_', ' ')}</label>)}
+          {step === 0 &&
+            BUILD_TYPES.map((value) => (
+              <label key={value} className={optionCard(buildTypes.includes(value))}>
+                <input
+                  type="checkbox"
+                  checked={buildTypes.includes(value)}
+                  onChange={() => toggle(buildTypes, value, setBuildTypes)}
+                />
+                {value}
+              </label>
+            ))}
+          {step === 1 &&
+            MARKETS.map((value) => (
+              <label key={value} className={optionCard(markets.includes(value))}>
+                <input
+                  type="checkbox"
+                  checked={markets.includes(value)}
+                  onChange={() => toggle(markets, value, setMarkets)}
+                />
+                {value} / en-US
+              </label>
+            ))}
+          {step === 2 &&
+            ['WEEKEND', 'TWO_WEEKS', 'ONE_MONTH'].map((value) => (
+              <label key={value} className={optionCard(timeBudget === value)}>
+                <input
+                  type="radio"
+                  name="time-budget"
+                  checked={timeBudget === value}
+                  onChange={() => setTimeBudget(value)}
+                />
+                {value}
+              </label>
+            ))}
+          {step === 3 &&
+            TOPICS.map((value) => (
+              <label key={value} className={optionCard(topics.includes(value))}>
+                <input
+                  type="checkbox"
+                  checked={topics.includes(value)}
+                  onChange={() => toggle(topics, value, setTopics)}
+                />
+                {value.replace('_', ' ')}
+              </label>
+            ))}
         </div>
 
-        {error && <p className="mt-4 text-sm text-rose-700" role="alert">{error}</p>}
+        {error && <p className="mt-4 text-sm text-danger" role="alert">{error}</p>}
         <div className="mt-8 flex justify-between gap-3">
-          <button type="button" onClick={() => setStep((current) => Math.max(0, current - 1))} disabled={step === 0 || saving} className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-700 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">{isZh ? '上一步' : 'Back'}</button>
-          {step < labels.length - 1 ? <button type="button" onClick={() => setStep((current) => Math.min(labels.length - 1, current + 1))} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">{isZh ? '下一步' : 'Next'}<ArrowRight className="h-4 w-4" /></button> : <button type="button" onClick={complete} disabled={saving} className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"><CheckCircle2 className="h-4 w-4" />{saving ? (isZh ? '保存中' : 'Saving') : (isZh ? '进入决策流' : 'Open the feed')}</button>}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setStep((current) => Math.max(0, current - 1))}
+            disabled={step === 0 || saving}
+          >
+            {t('onboarding.back')}
+          </Button>
+          {step < labels.length - 1 ? (
+            <Button
+              type="button"
+              onClick={() => setStep((current) => Math.min(labels.length - 1, current + 1))}
+            >
+              {t('onboarding.next')}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button type="button" variant="secondary" onClick={complete} disabled={saving}>
+              <CheckCircle2 className="h-4 w-4" />
+              {saving ? t('onboarding.saving') : t('onboarding.finish')}
+            </Button>
+          )}
         </div>
-      </section>
+      </Panel>
     </main>
   );
 }

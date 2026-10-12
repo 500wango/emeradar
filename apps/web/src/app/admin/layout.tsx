@@ -11,6 +11,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { getServerI18n } from '@/lib/i18n/server';
+import { Badge } from '@/components/ui/Badge';
+import { buttonVariants } from '@/components/ui/Button';
 
 export default async function AdminLayout({
   children,
@@ -22,78 +24,65 @@ export default async function AdminLayout({
     notFound();
   }
 
-  const { isZh } = await getServerI18n();
+  const { t } = await getServerI18n();
+
+  const navItems = [
+    { href: '/admin', icon: Activity, label: t('admin.navPipeline'), iconTone: 'text-accent' },
+    { href: '/admin/candidates', icon: Layers, label: t('admin.navCandidates'), iconTone: 'text-signal' },
+    { href: '/admin/sources', icon: Radio, label: t('admin.navSources'), iconTone: 'text-warn' },
+    { href: '/admin/users', icon: Users, label: t('admin.navUsers'), iconTone: 'text-info' },
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col">
+    <div className="flex flex-col bg-canvas text-fg">
       {/* Top Admin Bar */}
-      <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur-md">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-                  <ShieldAlert className="w-5 h-5" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-sm border border-warn/40 bg-warn/20 text-warn">
+                  <ShieldAlert className="h-5 w-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-black tracking-wide text-white">
+                    <span className="font-mono text-sm font-black tracking-wide text-fg">
                       EMERADAR OPS
                     </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                      {session.user.role}
-                    </span>
+                    <Badge tone="warn">{session.user.role}</Badge>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-mono">
-                    Radar Command & Governance Console
+                  <p className="font-mono text-[10px] text-fg-subtle">
+                    Radar Command &amp; Governance Console
                   </p>
                 </div>
               </div>
 
               {/* Navigation Tabs */}
-              <nav className="hidden md:flex items-center gap-1.5 ml-6 pl-6 border-l border-slate-800">
-                <Link
-                  href="/admin"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition flex items-center gap-1.5"
-                >
-                  <Activity className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{isZh ? '流水线与大屏' : 'Pipeline & Health'}</span>
-                </Link>
-                <Link
-                  href="/admin/candidates"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition flex items-center gap-1.5"
-                >
-                  <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isZh ? '候选池治理' : 'Candidate Pool'}</span>
-                </Link>
-                <Link
-                  href="/admin/sources"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition flex items-center gap-1.5"
-                >
-                  <Radio className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{isZh ? '采集源配置' : 'Sources & Feeds'}</span>
-                </Link>
-                <Link
-                  href="/admin/users"
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800/80 transition flex items-center gap-1.5"
-                >
-                  <Users className="w-3.5 h-3.5 text-purple-400" />
-                  <span>{isZh ? '用户与权限' : 'Users & Access'}</span>
-                </Link>
+              <nav className="ml-6 hidden items-center gap-1.5 border-l border-line pl-6 md:flex">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                    >
+                      <Icon className={`h-3.5 w-3.5 ${item.iconTone}`} />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
               </nav>
             </div>
 
             {/* Back to User Portal */}
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 hidden sm:inline font-mono">
+              <span className="hidden font-mono text-xs text-fg-subtle sm:inline">
                 {session.user.email}
               </span>
-              <Link
-                href="/feed"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 bg-slate-800/80 hover:bg-slate-700 hover:text-white border border-slate-700 transition"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>{isZh ? '返回前台' : 'Back to App'}</span>
+              <Link href="/feed" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>{t('admin.backToApp')}</span>
               </Link>
             </div>
           </div>
@@ -101,12 +90,12 @@ export default async function AdminLayout({
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
         {children}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800 py-4 text-center text-xs text-slate-500 font-mono">
+      <footer className="border-t border-line py-4 text-center font-mono text-xs text-fg-subtle">
         Emeradar Operations Console · Strictly Restricted Access
       </footer>
     </div>

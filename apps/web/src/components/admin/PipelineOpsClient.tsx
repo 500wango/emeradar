@@ -17,6 +17,11 @@ import {
 } from 'lucide-react';
 import { AdminPipelineOverview } from '@emeradar/services';
 import { safeExternalUrl } from '@/lib/format';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Meter } from '@/components/ui/Meter';
+import { Panel } from '@/components/ui/Panel';
+import { Stat } from '@/components/ui/Stat';
 
 interface PipelineOpsClientProps {
   initialOverview: AdminPipelineOverview;
@@ -80,333 +85,307 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
     (overview.costTodayUsd / overview.dailyBudgetLimitUsd) * 100
   );
 
+  const runStatusTone = (status: string): BadgeTone =>
+    status === 'SUCCESS' ? 'signal' : status === 'RUNNING' ? 'info' : 'danger';
+
   return (
     <div className="space-y-8">
       {/* Header with Refresh */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-            <Activity className="w-6 h-6 text-blue-400" />
-            <span>雷达运行态势 & 流水线调度</span>
+          <h1 className="flex items-center gap-2 font-display text-2xl font-bold tracking-tight text-fg">
+            <Activity className="h-6 w-6 text-accent" />
+            <span>雷达运行态势 &amp; 流水线调度</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-400 font-mono">
-            Radar Health Watermark & Autonomous Execution Hub
+          <p className="mt-1 font-mono text-xs text-fg-subtle">
+            Radar Health Watermark &amp; Autonomous Execution Hub
           </p>
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={refreshData}
           disabled={isRefreshing}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
         >
-          <RotateCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <RotateCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
           <span>刷新大屏</span>
-        </button>
+        </Button>
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Candidate Pool */}
-        <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              候选生态位池
-            </span>
-            <Layers className="w-4 h-4 text-amber-400" />
+        <Panel tone="raised" className="flex flex-col gap-3 p-5">
+          <div className="flex items-start justify-between">
+            <Stat
+              value={overview.opportunityStats.candidate}
+              unit="个处于观测期"
+              label="CANDIDATE POOL"
+              tone="warn"
+            />
+            <Layers className="h-4 w-4 text-warn" />
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-amber-400">
-              {overview.opportunityStats.candidate}
-            </span>
-            <span className="text-xs text-slate-400">个处于观测期</span>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-400">
-            全网长尾词嗅探沉淀的原始候选
-          </p>
-        </div>
+          <p className="text-[11px] text-fg-subtle">全网长尾词嗅探沉淀的原始候选</p>
+        </Panel>
 
         {/* Tracked / Published */}
-        <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              已发布决策
-            </span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <Panel tone="raised" className="flex flex-col gap-3 p-5">
+          <div className="flex items-start justify-between">
+            <Stat
+              value={overview.opportunityStats.tracked}
+              unit="个高置信度"
+              label="PUBLISHED"
+              tone="signal"
+            />
+            <CheckCircle2 className="h-4 w-4 text-signal" />
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-400">
-              {overview.opportunityStats.tracked}
-            </span>
-            <span className="text-xs text-slate-400">个高置信度</span>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-400">
-            已进入前台 Feed 供构建者消费
-          </p>
-        </div>
+          <p className="text-[11px] text-fg-subtle">已进入前台 Feed 供构建者消费</p>
+        </Panel>
 
         {/* Cost Watermark */}
-        <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              今日 API 成本水位
-            </span>
-            <DollarSign className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-white font-mono">
-              ${overview.costTodayUsd.toFixed(2)}
-            </span>
-            <span className="text-xs text-slate-400">
-              / ${overview.dailyBudgetLimitUsd.toFixed(2)} 熔断线
-            </span>
-          </div>
-          {/* Progress bar */}
-          <div className="mt-3 w-full bg-slate-700/80 h-1.5 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${
-                costPercentage > 80 ? 'bg-rose-500' : 'bg-blue-500'
-              }`}
-              style={{ width: `${Math.max(5, costPercentage)}%` }}
+        <Panel tone="raised" className="flex flex-col gap-3 p-5">
+          <div className="flex items-start justify-between">
+            <Stat
+              value={`$${overview.costTodayUsd.toFixed(2)}`}
+              unit={`/ $${overview.dailyBudgetLimitUsd.toFixed(2)} 熔断线`}
+              label="API COST TODAY"
             />
+            <DollarSign className="h-4 w-4 text-fg-muted" />
           </div>
-        </div>
+          <Meter
+            value={overview.costTodayUsd}
+            max={overview.dailyBudgetLimitUsd}
+            tone={costPercentage > 80 ? 'warn' : 'accent'}
+          />
+        </Panel>
 
         {/* Ledger Integrity */}
-        <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              审计账本最新存证
-            </span>
-            <ShieldCheck className="w-4 h-4 text-indigo-400" />
+        <Panel tone="raised" className="flex flex-col gap-3 p-5">
+          <div className="flex items-start justify-between">
+            <Stat
+              value={overview.latestCheckpoint?.obsDate || 'GENESIS'}
+              label="LEDGER CHECKPOINT"
+            />
+            <ShieldCheck className="h-4 w-4 text-info" />
           </div>
-          <div className="mt-3">
-            <div className="text-sm font-bold text-white font-mono">
-              {overview.latestCheckpoint?.obsDate || 'Genesis'}
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono mt-1 truncate">
-              Root: {overview.latestCheckpoint?.merkleRoot.slice(0, 16) || 'None'}...
-            </p>
-          </div>
-          <p className="mt-2 text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" />
+          <p className="truncate font-mono text-[10px] text-fg-subtle">
+            Root: {overview.latestCheckpoint?.merkleRoot.slice(0, 16) || 'None'}...
+          </p>
+          <p className="flex items-center gap-1 text-[11px] font-semibold text-signal">
+            <CheckCircle2 className="h-3 w-3" />
             <span>默克尔树 SHA-256 存证完整</span>
           </p>
-        </div>
+        </Panel>
       </div>
 
       {/* Interactive Trigger Hub */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 sm:p-8">
-        <div className="max-w-2xl mb-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Play className="w-4 h-4 text-amber-400 fill-amber-400" />
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="mb-6 max-w-2xl">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+            <Play className="h-4 w-4 fill-warn text-warn" />
             <span>流水线一键调度指挥台</span>
           </h2>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-fg-muted">
             无需通过 SSH 登录服务器，直接在后台手动调度采集、意图派生与每日打分存证。
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Step 1: Discover */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <Panel tone="sunken" className="flex flex-col justify-between p-4">
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-blue-400 block mb-1">
+              <span className="mb-1 block font-mono text-[10px] font-black uppercase tracking-[0.14em] text-accent">
                 STEP 01
               </span>
-              <h3 className="text-sm font-bold text-white">捕获全网新信号</h3>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <h3 className="text-sm font-bold text-fg">捕获全网新信号</h3>
+              <p className="mt-1 text-[11px] text-fg-subtle">
                 从 Hacker News、RSS 源嗅探最新技术与产品讨论
               </p>
             </div>
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={() => handleTrigger('discover', '全网信号捕获 (discover)')}
               disabled={!!runningTask}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+              className="mt-4 w-full"
             >
               {runningTask === '全网信号捕获 (discover)' ? (
                 <>
-                  <RotateCw className="w-3 h-3 animate-spin" />
+                  <RotateCw className="h-3 w-3 animate-spin" />
                   <span>执行中...</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3 h-3 fill-white" />
+                  <Play className="h-3 w-3" />
                   <span>运行 Discover</span>
                 </>
               )}
-            </button>
-          </div>
+            </Button>
+          </Panel>
 
           {/* Step 2: Generate Intents */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <Panel tone="sunken" className="flex flex-col justify-between p-4">
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 block mb-1">
+              <span className="mb-1 block font-mono text-[10px] font-black uppercase tracking-[0.14em] text-info">
                 STEP 02
               </span>
-              <h3 className="text-sm font-bold text-white">派生搜索意图</h3>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <h3 className="text-sm font-bold text-fg">派生搜索意图</h3>
+              <p className="mt-1 text-[11px] text-fg-subtle">
                 将讨论信号转化为 50 个潜在长尾搜索意图假设
               </p>
             </div>
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={() => handleTrigger('generate-intents', '意图假设派生 (generate-intents)')}
               disabled={!!runningTask}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+              className="mt-4 w-full"
             >
               {runningTask === '意图假设派生 (generate-intents)' ? (
                 <>
-                  <RotateCw className="w-3 h-3 animate-spin" />
+                  <RotateCw className="h-3 w-3 animate-spin" />
                   <span>执行中...</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3 h-3 fill-white" />
+                  <Play className="h-3 w-3" />
                   <span>生成意图假设</span>
                 </>
               )}
-            </button>
-          </div>
+            </Button>
+          </Panel>
 
           {/* Step 3: Validate Intents */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <Panel tone="sunken" className="flex flex-col justify-between p-4">
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block mb-1">
+              <span className="mb-1 block font-mono text-[10px] font-black uppercase tracking-[0.14em] text-warn">
                 STEP 03
               </span>
-              <h3 className="text-sm font-bold text-white">验证联想词与供给</h3>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <h3 className="text-sm font-bold text-fg">验证联想词与供给</h3>
+              <p className="mt-1 text-[11px] text-fg-subtle">
                 实时请求 Google Suggest 与 SERP 探测供给缺口
               </p>
             </div>
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={() => handleTrigger('validate-intents', '联想与供给验证 (validate-intents)')}
               disabled={!!runningTask}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+              className="mt-4 w-full"
             >
               {runningTask === '联想与供给验证 (validate-intents)' ? (
                 <>
-                  <RotateCw className="w-3 h-3 animate-spin" />
+                  <RotateCw className="h-3 w-3 animate-spin" />
                   <span>执行中...</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3 h-3 fill-white" />
+                  <Play className="h-3 w-3" />
                   <span>验证意图假设</span>
                 </>
               )}
-            </button>
-          </div>
+            </Button>
+          </Panel>
 
           {/* Step 4: Run Daily */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+          <Panel tone="sunken" className="flex flex-col justify-between p-4">
             <div>
-              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 block mb-1">
+              <span className="mb-1 block font-mono text-[10px] font-black uppercase tracking-[0.14em] text-signal">
                 STEP 04
               </span>
-              <h3 className="text-sm font-bold text-white">执行每日综合打分</h3>
-              <p className="text-[11px] text-slate-400 mt-1">
+              <h3 className="text-sm font-bold text-fg">执行每日综合打分</h3>
+              <p className="mt-1 text-[11px] text-fg-subtle">
                 全量候选 D/M/W 算分、晋升 Tracked 并封存账本
               </p>
             </div>
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={() => handleTrigger('run-daily', '每日全量流水线 (run-daily)')}
               disabled={!!runningTask}
-              className="mt-4 w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+              className="mt-4 w-full"
             >
               {runningTask === '每日全量流水线 (run-daily)' ? (
                 <>
-                  <RotateCw className="w-3 h-3 animate-spin" />
+                  <RotateCw className="h-3 w-3 animate-spin" />
                   <span>执行中...</span>
                 </>
               ) : (
                 <>
-                  <Play className="w-3 h-3 fill-white" />
+                  <Play className="h-3 w-3" />
                   <span>执行今日流水线</span>
                 </>
               )}
-            </button>
-          </div>
+            </Button>
+          </Panel>
         </div>
 
         {/* Live Terminal Output Console */}
         {terminalOutput && (
-          <div className="mt-6 rounded-2xl bg-black/90 border border-slate-800 overflow-hidden shadow-2xl">
-            <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
+          <Panel tone="sunken" className="mt-6 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-mono font-bold text-slate-300">
+                <Terminal className="h-4 w-4 text-signal" />
+                <span className="font-mono text-xs font-bold text-fg-muted">
                   Worker Execution Output Console
                 </span>
               </div>
               {terminalExitCode !== null && (
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    terminalExitCode === 0
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                  }`}
-                >
+                <Badge tone={terminalExitCode === 0 ? 'signal' : 'danger'}>
                   Exit Code: {terminalExitCode}
-                </span>
+                </Badge>
               )}
             </div>
-            <pre className="p-4 text-xs font-mono text-emerald-300/90 max-h-72 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+            <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-signal">
               {terminalOutput}
             </pre>
-          </div>
+          </Panel>
         )}
-      </div>
+      </Panel>
 
       {/* Recent Collector Runs */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 sm:p-8">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
-          <Database className="w-4 h-4 text-blue-400" />
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-fg">
+          <Database className="h-4 w-4 text-accent" />
           <span>最近采集任务日志 (Collector Runs)</span>
         </h2>
 
         {overview.recentCollectorRuns.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4">暂无采集历史记录</p>
+          <p className="py-4 text-xs text-fg-subtle">暂无采集历史记录</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase font-mono text-[10px]">
-                  <th className="pb-3 font-semibold">采集源</th>
-                  <th className="pb-3 font-semibold">状态</th>
-                  <th className="pb-3 font-semibold">采集条数</th>
-                  <th className="pb-3 font-semibold">启动时间</th>
-                  <th className="pb-3 font-semibold">完成时间</th>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">SOURCE</th>
+                  <th className="pb-3 font-semibold">STATUS</th>
+                  <th className="pb-3 font-semibold">ITEMS</th>
+                  <th className="pb-3 font-semibold">STARTED</th>
+                  <th className="pb-3 font-semibold">FINISHED</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
+              <tbody className="divide-y divide-line font-mono">
                 {overview.recentCollectorRuns.map((run) => (
-                  <tr key={run.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-3 font-medium text-white">
+                  <tr key={run.id} className="transition hover:bg-surface-2">
+                    <td className="py-3 font-medium text-fg">
                       {run.sourceName}
                     </td>
                     <td className="py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-                          run.status === 'SUCCESS'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : run.status === 'RUNNING'
-                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                        }`}
-                      >
-                        {run.status === 'SUCCESS' && <CheckCircle2 className="w-3 h-3" />}
-                        {run.status === 'FAILED' && <XCircle className="w-3 h-3" />}
+                      <Badge tone={runStatusTone(run.status)}>
+                        {run.status === 'SUCCESS' && <CheckCircle2 className="h-3 w-3" />}
+                        {run.status === 'FAILED' && <XCircle className="h-3 w-3" />}
                         {run.status}
-                      </span>
+                      </Badge>
                     </td>
-                    <td className="py-3 text-slate-300">
+                    <td className="py-3 text-fg-muted">
                       {run.itemsCollected} items
                     </td>
-                    <td className="py-3 text-slate-400">
+                    <td className="py-3 text-fg-subtle">
                       {new Date(run.startedAt).toLocaleString('zh-CN')}
                     </td>
-                    <td className="py-3 text-slate-400">
+                    <td className="py-3 text-fg-subtle">
                       {run.finishedAt ? new Date(run.finishedAt).toLocaleString('zh-CN') : '-'}
                     </td>
                   </tr>
@@ -415,47 +394,45 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
             </table>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Live Ingested Discovery Signals */}
-      <div className="bg-slate-800/40 border border-slate-800 rounded-3xl p-6 sm:p-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Radio className="w-4 h-4 text-purple-400" />
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+            <Radio className="h-4 w-4 text-info" />
             <span>最新全网捕获原始商业信号 (Live Discovery Stream)</span>
           </h2>
-          <span className="text-[11px] text-slate-400 font-mono">
+          <span className="font-mono text-[11px] text-fg-subtle">
             {overview.latestDiscoverySignals?.length || 0} 条实时条目
           </span>
         </div>
 
         {!overview.latestDiscoverySignals || overview.latestDiscoverySignals.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4">
+          <p className="py-4 text-xs text-fg-subtle">
             暂无采集条目，请在上方 STEP 01 点击「全网信号捕获」触发采集。
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase font-mono text-[10px]">
-                  <th className="pb-3 font-semibold">信号标题</th>
-                  <th className="pb-3 font-semibold">采集信源</th>
-                  <th className="pb-3 font-semibold">入库时间</th>
-                  <th className="pb-3 font-semibold text-right">原文直达</th>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">SIGNAL</th>
+                  <th className="pb-3 font-semibold">PROVIDER</th>
+                  <th className="pb-3 font-semibold">COLLECTED</th>
+                  <th className="pb-3 text-right font-semibold">SOURCE</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-line">
                 {overview.latestDiscoverySignals.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-3 font-medium text-slate-200 max-w-md truncate">
+                  <tr key={item.id} className="transition hover:bg-surface-2">
+                    <td className="max-w-md truncate py-3 font-medium text-fg">
                       {item.title}
                     </td>
                     <td className="py-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono">
-                        {item.provider}
-                      </span>
+                      <Badge tone="info">{item.provider}</Badge>
                     </td>
-                    <td className="py-3 text-slate-400 font-mono text-[11px]">
+                    <td className="py-3 font-mono text-[11px] text-fg-subtle">
                       {item.collectedAt ? new Date(item.collectedAt).toLocaleString('zh-CN') : '-'}
                     </td>
                     <td className="py-3 text-right">
@@ -464,13 +441,13 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                           href={safeExternalUrl(item.sourceUrl) ?? '#'}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline font-mono"
+                          className="inline-flex items-center gap-1 font-mono text-[11px] text-accent hover:underline"
                         >
                           <span>查看</span>
-                          <ExternalLink className="w-3 h-3" />
+                          <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
-                        <span className="text-slate-600">-</span>
+                        <span className="text-fg-subtle">-</span>
                       )}
                     </td>
                   </tr>
@@ -479,7 +456,7 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
             </table>
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }

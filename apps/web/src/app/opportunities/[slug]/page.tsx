@@ -21,10 +21,17 @@ import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
 import { getServerI18n } from '@/lib/i18n/server';
 import { safeExternalUrl } from '@/lib/format';
+import { PageFrame } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
+import { Badge, VerdictBadge, AxisBadge, type Verdict } from '@/components/ui/Badge';
+import { buttonVariants } from '@/components/ui/Button';
+import { cn } from '@/lib/cn';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
 }
+
+const TH = 'py-2.5 px-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em]';
 
 export default async function OpportunityWorkspacePage({
   params,
@@ -43,7 +50,7 @@ export default async function OpportunityWorkspacePage({
     notFound();
   }
 
-  const { isZh, t, locale } = await getServerI18n();
+  const { t, locale } = await getServerI18n();
 
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
 
@@ -54,11 +61,9 @@ export default async function OpportunityWorkspacePage({
     const translated = t(key);
     return translated !== key ? translated : value;
   };
-  const bandLabel = (band: string) => label('bands', band);
   const verdictLabel = (verdict: string) => label('verdicts', verdict);
   const archetypeLabel = (arch: string) => label('archetypes', arch);
   const executionClassLabel = (cls: string) => label('executionClasses', cls);
-  const confidenceLabel = (c: string) => label('confidenceLevels', c);
 
   // 判定依据：latestVerdict 是账本里的那一行，不是卡片投影。
   // 留存口径与报告/卡片共用 deriveBasisState，避免三处各判各的。
@@ -77,73 +82,63 @@ export default async function OpportunityWorkspacePage({
     opportunity.status === 'TRACKED' &&
     (isBuildNow || isEarlyBet) &&
     opportunity.confidence !== 'LOW';
-  const blockReason = canGo
-    ? undefined
-    : (isZh
-        ? '在成为正式发布的 BUILD NOW 或 EARLY BET 之前，GO 立项按钮保持锁定。初次观测仅为持续追踪。'
-        : 'GO stays off until this record is a published BUILD NOW or EARLY BET. A first observation is only tracking.');
+  const blockReason = canGo ? undefined : t('opportunityWorkspace.goBlockReason');
 
-  const progressSteps = isZh
-    ? [
-        ['信号', true],
-        ['候选', true],
-        ['持续观察', opportunity.status === 'TRACKED'],
-        ['D / M / W 门控', opportunity.status === 'TRACKED'],
-        ['公开预测', opportunity.status === 'TRACKED' && Boolean(latestVerdict)],
-      ]
-    : [
-        ['Signal', true],
-        ['Candidate', true],
-        ['Observation', opportunity.status === 'TRACKED'],
-        ['D / M / W gate', opportunity.status === 'TRACKED'],
-        ['Public prediction', opportunity.status === 'TRACKED' && Boolean(latestVerdict)],
-      ];
+  const confidenceTone =
+    opportunity.confidence === 'HIGH'
+      ? 'signal'
+      : opportunity.confidence === 'MEDIUM'
+      ? 'info'
+      : 'warn';
+
+  const progressSteps: Array<[string, boolean]> = [
+    [t('opportunityWorkspace.progressSignal'), true],
+    [t('opportunityWorkspace.progressCandidate'), true],
+    [t('opportunityWorkspace.progressObservation'), opportunity.status === 'TRACKED'],
+    [t('opportunityWorkspace.progressGate'), opportunity.status === 'TRACKED'],
+    [
+      t('opportunityWorkspace.progressPrediction'),
+      opportunity.status === 'TRACKED' && Boolean(latestVerdict),
+    ],
+  ];
+
+  const weakCount = serpResults.filter((r: any) => r.is_weak).length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <PageFrame width="full">
       {/* Back to Feed Link */}
       <Link
         href="/feed"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 mb-6 transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-fg-muted hover:text-fg mb-6 transition-colors"
       >
         <ChevronLeft className="w-4 h-4" />
-        <span>{isZh ? '返回商业机会决策流' : 'Back to Opportunity Feed'}</span>
+        <span>{t('opportunityWorkspace.backToFeed')}</span>
       </Link>
 
-      {/* Hero Decision Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 shadow-sm mb-10">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100">
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-bold ${
-                  isBuildNow
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    : isEarlyBet
-                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                    : 'bg-amber-100 text-amber-800 border border-amber-200'
-                }`}
-              >
-                {verdictLabel(opportunity.verdict)}
+      {/* Sticky Decision Bar (docs/16 §3.3-1) */}
+      <div className="sticky top-16 z-30 -mx-4 sm:-mx-6 lg:-mx-8 mb-6 border-b border-line bg-canvas/90 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <VerdictBadge verdict={opportunity.verdict as Verdict} size="sm" />
+            <AxisBadge axis="d" band={opportunity.d_band ?? '—'} />
+            <AxisBadge axis="m" band={opportunity.m_band ?? '—'} />
+            <AxisBadge axis="w" band={opportunity.w_band ?? '—'} />
+            <Badge tone={confidenceTone}>{opportunity.confidence ?? '—'}</Badge>
+            <Badge tone="neutral">
+              {opportunity.market_country} · {opportunity.research_language}
+            </Badge>
+            <Badge tone="neutral">{label('lifecycles', opportunity.lifecycle)}</Badge>
+            <span className="hidden min-w-0 items-center gap-2 lg:flex">
+              {/* shrink-0 + nowrap: the label must not break. "WHY NOW" split over
+                  two lines the moment the badge row squeezed this column; the
+                  truncated summary is the part that should absorb the pressure. */}
+              <span className="shrink-0 whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+                WHY NOW
               </span>
-              <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                {label('lifecycles', opportunity.lifecycle)}
+              <span className="max-w-md truncate text-xs text-fg-muted">
+                {opportunity.why_now_summary}
               </span>
-              <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                {opportunity.market_country} ({opportunity.research_language})
-              </span>
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              {opportunity.title}
-            </h1>
-
-            <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-              <span>{isZh ? '核心种子查询词:' : 'Primary Seed Query:'}</span>
-              <code className="text-slate-800 bg-slate-100 px-2 py-0.5 rounded font-mono font-medium">
-                {opportunity.primary_query}
-              </code>
-            </div>
+            </span>
           </div>
 
           <DecisionBar
@@ -159,97 +154,129 @@ export default async function OpportunityWorkspacePage({
             blockReason={blockReason}
           />
         </div>
+      </div>
+
+      {/* Hero Title Block */}
+      <Panel brackets className="p-6 md:p-8 mb-10">
+        <div className="pb-6 border-b border-line">
+          <h1 className="text-2xl sm:text-3xl font-display font-extrabold text-fg tracking-tight">
+            {opportunity.title}
+          </h1>
+          <div className="mt-2 text-xs text-fg-subtle flex items-center gap-2">
+            <span>{t('opportunityWorkspace.primarySeedQuery')}</span>
+            <code className="text-fg bg-surface-2 border border-line px-2 py-0.5 rounded-sm font-mono font-medium">
+              {opportunity.primary_query}
+            </code>
+          </div>
+        </div>
 
         {/* D-M-W Metric Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
-              <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
-              <span>{isZh ? '需求评分 (D)' : 'Demand Score (D)'}</span>
+          <div className="p-4 rounded-sm bg-surface-2 border border-line">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-fg-muted">
+              <TrendingUp className="w-3.5 h-3.5 text-axis-d" />
+              <span>{t('opportunityWorkspace.demandScore')}</span>
             </div>
-            <div className="text-2xl font-bold text-blue-600 mt-1">{bandLabel(opportunity.d_band)}</div>
-            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '需求等级' : 'Demand band'}</div>
+            <div className="font-mono text-2xl font-bold text-axis-d mt-1">
+              {opportunity.d_band ?? '—'}
+            </div>
+            <div className="text-[11px] text-fg-subtle mt-1">
+              {t('opportunityWorkspace.demandBand')}
+            </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{isZh ? '商业验证 (M)' : 'Commercial (M)'}</span>
+          <div className="p-4 rounded-sm bg-surface-2 border border-line">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-fg-muted">
+              <Sparkles className="w-3.5 h-3.5 text-axis-m" />
+              <span>{t('opportunityWorkspace.commercialScore')}</span>
             </div>
-            <div className="text-2xl font-bold text-emerald-600 mt-1">{bandLabel(opportunity.m_band)}</div>
-            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '商业等级' : 'Commercial band'}</div>
+            <div className="font-mono text-2xl font-bold text-axis-m mt-1">
+              {opportunity.m_band ?? '—'}
+            </div>
+            <div className="text-[11px] text-fg-subtle mt-1">
+              {t('opportunityWorkspace.commercialBand')}
+            </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
-              <Zap className="w-3.5 h-3.5 text-amber-600" />
-              <span>{isZh ? '进入窗口 (W)' : 'Window (W)'}</span>
+          <div className="p-4 rounded-sm bg-surface-2 border border-line">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-fg-muted">
+              <Zap className="w-3.5 h-3.5 text-axis-w" />
+              <span>{t('opportunityWorkspace.windowScore')}</span>
             </div>
-            <div className="text-2xl font-bold text-amber-600 mt-1">{bandLabel(opportunity.w_band)}</div>
-            <div className="text-[11px] text-slate-500 mt-1">{isZh ? '窗口等级' : 'Window band'}</div>
+            <div className="font-mono text-2xl font-bold text-axis-w mt-1">
+              {opportunity.w_band ?? '—'}
+            </div>
+            <div className="text-[11px] text-fg-subtle mt-1">
+              {t('opportunityWorkspace.windowBand')}
+            </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              <span>{isZh ? '证据置信度' : 'Evidence Level'}</span>
+          <div className="p-4 rounded-sm bg-surface-2 border border-line">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-fg-muted">
+              <ShieldCheck className="w-3.5 h-3.5 text-info" />
+              <span>{t('opportunityWorkspace.evidenceLevel')}</span>
             </div>
-            <div className="text-2xl font-bold text-indigo-600 mt-1">
-              {confidenceLabel(opportunity.confidence)}
+            <div className="mt-1.5">
+              <Badge tone={confidenceTone} size="sm">
+                {opportunity.confidence ?? '—'}
+              </Badge>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">
-              {opportunity.confidence === 'LOW' ? (isZh ? '历史周期不足' : 'Not enough history') : (isZh ? '置信度充足' : 'Evidence confidence')}
+            <div className="text-[11px] text-fg-subtle mt-1">
+              {opportunity.confidence === 'LOW'
+                ? t('opportunityWorkspace.notEnoughHistory')
+                : t('opportunityWorkspace.evidenceConfidence')}
             </div>
           </div>
         </div>
 
         {/* 判定依据：把"为什么是它"和结论摆在一起，而不是只给一个标签 */}
         {latestVerdict && (
-          <div className="mt-6 pt-5 border-t border-slate-100">
+          <div className="mt-6 pt-5 border-t border-line">
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <h2 className="text-sm font-bold text-slate-900">
+              <h2 className="text-sm font-bold text-fg">
                 🧭 {t('report.decisionBasisTitle')}
               </h2>
               {basisRetained && basisCompensated && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                  ⚠️ {t('report.decisionBasisCompensatedTitle')}
-                </span>
+                <Badge tone="warn">⚠️ {t('report.decisionBasisCompensatedTitle')}</Badge>
               )}
             </div>
 
             {!basisRetained ? (
-              <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-4">
+              <p className="text-xs text-fg-muted leading-relaxed bg-surface-2 border border-line rounded-sm p-4">
                 {t('report.decisionBasisNotRetained')}
               </p>
             ) : (
-              <div className="text-xs text-slate-700 space-y-3">
+              <div className="text-xs text-fg-muted space-y-3">
                 {basisCompensated && (
-                  <p className="p-3 rounded-lg bg-amber-50 border-l-4 border-amber-500 text-amber-900 leading-relaxed">
+                  <p className="p-3 rounded-sm bg-warn/10 border-l-4 border-warn text-warn leading-relaxed">
                     {t('report.decisionBasisCompensatedDesc')}
                   </p>
                 )}
 
                 <ul className="space-y-1">
                   <li>
-                    <strong>{t('report.sealedVerdict')}</strong>：
-                    <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                    <strong className="text-fg">{t('report.sealedVerdict')}</strong>：
+                    <span className="ml-1 px-1.5 py-0.5 rounded-sm bg-surface-2 border border-line font-mono">
                       {verdictLabel(latestVerdict.verdict)}
                     </span>
                   </li>
                   {basisRawDiffers && (
                     <li>
-                      <strong>{t('report.rawVerdict')}</strong>：
-                      <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                      <strong className="text-fg">{t('report.rawVerdict')}</strong>：
+                      <span className="ml-1 px-1.5 py-0.5 rounded-sm bg-surface-2 border border-line font-mono">
                         {verdictLabel(basisRawVerdict)}
                       </span>
-                      <span className="text-slate-500"> （{t('report.rawVerdictNote')}）</span>
+                      <span className="text-fg-subtle"> （{t('report.rawVerdictNote')}）</span>
                     </li>
                   )}
                   {basisRules.length > 0 && (
                     <li>
-                      <strong>{t('report.rulesTriggered')}</strong>：
+                      <strong className="text-fg">{t('report.rulesTriggered')}</strong>：
                       {basisRules.map((rule) => (
-                        <span key={rule} className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 font-mono">
+                        <span
+                          key={rule}
+                          className="ml-1 px-1.5 py-0.5 rounded-sm bg-surface-2 border border-line font-mono"
+                        >
                           {rule}
                         </span>
                       ))}
@@ -258,25 +285,25 @@ export default async function OpportunityWorkspacePage({
                 </ul>
 
                 <div>
-                  <strong>{t('report.scoringFlags')}</strong>
+                  <strong className="text-fg">{t('report.scoringFlags')}</strong>
                   {basisFlags.length > 0 ? (
                     <ul className="mt-1 space-y-1">
                       {basisFlags.map((flag) => (
                         <li key={flag} className="flex items-start gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-mono shrink-0">
+                          <span className="px-1.5 py-0.5 rounded-sm bg-warn/10 text-warn font-mono shrink-0">
                             {flag}
                           </span>
-                          <span className="text-slate-600">{formatScoringFlag(flag, locale)}</span>
+                          <span className="text-fg-muted">{formatScoringFlag(flag, locale)}</span>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <span className="text-slate-500"> {t('report.noFlags')}</span>
+                    <span className="text-fg-subtle"> {t('report.noFlags')}</span>
                   )}
                 </div>
 
                 {latestVerdict.explanation && (
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="rounded-sm border border-line overflow-hidden">
                     <table className="w-full text-left border-collapse">
                       <tbody className="align-top">
                         {[
@@ -285,11 +312,11 @@ export default async function OpportunityWorkspacePage({
                           [t('report.axisW'), latestVerdict.explanation.wReason],
                           [t('report.axisVerdict'), latestVerdict.explanation.verdictReason],
                         ].map(([axis, reason], index) => (
-                          <tr key={String(axis)} className={index > 0 ? 'border-t border-slate-200' : ''}>
-                            <td className="py-2 px-3 font-semibold text-slate-500 bg-slate-50/60 whitespace-nowrap align-top w-32">
+                          <tr key={String(axis)} className={index > 0 ? 'border-t border-line' : ''}>
+                            <td className="py-2 px-3 font-semibold text-fg-subtle bg-surface-2 whitespace-nowrap align-top w-32">
                               {axis}
                             </td>
-                            <td className="py-2 px-3 leading-relaxed text-slate-700">{reason}</td>
+                            <td className="py-2 px-3 leading-relaxed text-fg-muted">{reason}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -297,7 +324,7 @@ export default async function OpportunityWorkspacePage({
                   </div>
                 )}
 
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-fg-subtle">
                   {t('report.hashVersion')}：
                   <code className="font-mono">v{latestVerdict.hash_version}</code>
                   {Number(latestVerdict.hash_version) >= 2 ? ` —— ${t('report.hashVersionChained')}` : ''}
@@ -307,39 +334,49 @@ export default async function OpportunityWorkspacePage({
           </div>
         )}
 
-        <div className="mt-6 pt-5 border-t border-slate-100">
+        <div className="mt-6 pt-5 border-t border-line">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-sm font-bold text-slate-900">{isZh ? '决策推进进度' : 'Decision progress'}</h2>
-            <span className="text-[11px] text-slate-500">
-              {opportunity.status === 'TRACKED' ? (isZh ? '已发布公开记录' : 'Published record') : (isZh ? '仍在持续观察' : 'Still observing')}
+            <h2 className="text-sm font-bold text-fg">{t('opportunityWorkspace.decisionProgress')}</h2>
+            <span className="text-[11px] text-fg-subtle">
+              {opportunity.status === 'TRACKED'
+                ? t('opportunityWorkspace.publishedRecord')
+                : t('opportunityWorkspace.stillObserving')}
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px] text-slate-600">
-            {progressSteps.map(([label, done], index) => (
-              <div key={String(label)} className={`rounded-lg border px-3 py-2 ${done ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-slate-200 bg-slate-50'}`}>
-                <span className="font-mono font-bold">{index + 1}</span>{' '}{label}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+            {progressSteps.map(([stepLabel, done], index) => (
+              <div
+                key={String(stepLabel)}
+                className={cn(
+                  'rounded-sm border px-3 py-2',
+                  done
+                    ? 'border-accent/40 bg-accent/10 text-accent'
+                    : 'border-line bg-surface-2 text-fg-muted'
+                )}
+              >
+                <span className="font-mono font-bold">{index + 1}</span> {stepLabel}
               </div>
             ))}
           </div>
           {opportunity.status !== 'TRACKED' && (
-            <p className="mt-3 text-xs text-slate-500">
-              {isZh
-                ? '此为系统发现的候选词。初次观测绝非裁决；在通过证据准入门槛前，GO 立项与报告导出均保持锁定。'
-                : 'This is a system-discovered candidate. The first observation is not a verdict; GO and report export stay locked until the evidence gate passes.'}
-            </p>
+            <p className="mt-3 text-xs text-fg-subtle">{t('opportunityWorkspace.candidateNote')}</p>
           )}
         </div>
-      </div>
+      </Panel>
 
       {/* Decision Workspace Content Sections */}
       <div className="grid lg:grid-cols-3 gap-8">
-        {/* Left Column (2 Cols): Core Analytical Deep Dive */}
-        <div className="lg:col-span-2 space-y-8">
+        {/* Left Column (2 Cols): Core Analytical Deep Dive.
+            `min-w-0` is load-bearing: a grid item's automatic minimum is its
+            min-content size, and an `overflow-x-auto` wrapper does NOT stop that
+            contribution — the SERP table's own min-content (490px) was dragging
+            the whole track to 540px and scrolling the page sideways at 375. With
+            the minimum released, the table scrolls inside its own wrapper, which
+            is the behaviour docs/16 §5 asks for. */}
+        <div className="min-w-0 lg:col-span-2 space-y-8">
           {isEarlyBet && (
-            <p className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              {isZh
-                ? '商业化论证未经验证。EARLY BET 并不代表已有用户在为此付费。'
-                : 'Commercial case unverified. EARLY BET is not proof that anyone is paying.'}
+            <p className="text-sm font-semibold text-warn bg-warn/10 border border-warn/40 rounded-sm px-4 py-3">
+              {t('opportunityWorkspace.earlyBetWarning')}
             </p>
           )}
 
@@ -360,54 +397,54 @@ export default async function OpportunityWorkspacePage({
           />
 
           {/* Section 3: Why Now & Top Concept */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
-              <span>{isZh ? '为何现在切入? 与市场催化剂' : 'Why Now? & Market Catalyst'}</span>
+          <Panel className="p-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">WHY NOW</p>
+            <h2 className="mt-1 text-base font-bold text-fg mb-3">
+              {t('opportunityWorkspace.whyNowTitle')}
             </h2>
-            <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-900 leading-relaxed">
+            <div className="p-4 rounded-sm bg-accent/10 border border-accent/30 text-xs text-fg leading-relaxed">
               {opportunity.why_now_summary}
             </div>
 
-            <div className="mt-4 p-4 rounded-xl bg-emerald-50/70 border border-emerald-100 text-xs text-emerald-900 leading-relaxed">
-              <strong>💡 {isZh ? '推荐产品概念: ' : 'Recommended Product Concept: '}</strong> {opportunity.top_idea}
+            <div className="mt-4 p-4 rounded-sm bg-signal/10 border border-signal/30 text-xs text-fg leading-relaxed">
+              <strong>💡 {t('opportunityWorkspace.recommendedConcept')}</strong> {opportunity.top_idea}
             </div>
-          </div>
+          </Panel>
 
-          {/* Section 4: SERP Weakness Inspector */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  {isZh ? '自然搜索样本结果' : 'Stored result sample'}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {isZh
-                    ? '条目保留其采集来源。仅当快照为单一来源 SERP 时，此表格代表 Google 自然搜索前 10 名。'
-                    : 'Rows keep the source they were collected from. This table is a Google organic Top 10 only when the snapshot is a single-source SERP.'}
+          {/* Section 4: SERP Weakness Inspector (docs/16 §3.3-4) */}
+          <Panel className="p-6">
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <div className="min-w-0">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+                  SERP INTELLIGENCE
                 </p>
+                <h2 className="mt-1 text-base font-bold text-fg">
+                  {t('opportunityWorkspace.serpTitle')}
+                </h2>
+                <p className="text-xs text-fg-subtle mt-0.5">{t('opportunityWorkspace.serpDesc')}</p>
               </div>
-              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                {serpResults.filter((r: any) => r.is_weak).length} {isZh ? '个标记为薄弱' : 'marked weak'}
-              </span>
+              <Badge tone="warn" size="sm" className="shrink-0">
+                {t('opportunityWorkspace.serpWeakCount', { count: weakCount })}
+              </Badge>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                <thead className="bg-surface-2 text-fg-subtle border-b border-line">
                   <tr>
-                    <th className="py-2.5 px-3">#</th>
-                    <th className="py-2.5 px-3">{isZh ? '域名' : 'Domain'}</th>
-                    <th className="py-2.5 px-3">{isZh ? '搜索标题' : 'Result Title'}</th>
-                    <th className="py-2.5 px-3">{isZh ? '类型' : 'Type'}</th>
-                    <th className="py-2.5 px-3">{isZh ? '薄弱原因' : 'Weakness Reason'}</th>
+                    <th className={TH}>#</th>
+                    <th className={TH}>{t('opportunityWorkspace.thDomain')}</th>
+                    <th className={TH}>{t('opportunityWorkspace.thTitle')}</th>
+                    <th className={TH}>{t('opportunityWorkspace.thType')}</th>
+                    <th className={TH}>{t('opportunityWorkspace.thWeakness')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {serpResults.map((r: any) => (
-                    <tr key={r.rank} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-3 font-bold text-slate-400 align-top">{r.rank}</td>
-                      <td className="py-3 px-3 font-semibold text-slate-800 align-top">
-                        <span className="inline-block bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-mono">
+                    <tr key={r.rank} className="hover:bg-surface-2 transition-colors">
+                      <td className="py-3 px-3 font-bold text-fg-subtle align-top">{r.rank}</td>
+                      <td className="py-3 px-3 align-top">
+                        <span className="inline-block bg-surface-2 border border-line text-fg-muted px-2 py-0.5 rounded-sm text-xs font-mono">
                           {r.domain}
                         </span>
                       </td>
@@ -416,34 +453,34 @@ export default async function OpportunityWorkspacePage({
                           href={safeExternalUrl(r.url) ?? '#'}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-medium text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5 group"
+                          className="font-medium text-fg hover:text-accent hover:underline inline-flex items-center gap-1.5 group"
                           title={r.title}
                         >
                           <span className="line-clamp-1">{r.title}</span>
-                          <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 shrink-0" />
+                          <ExternalLink className="w-3.5 h-3.5 text-fg-subtle group-hover:text-accent shrink-0" />
                         </a>
                         {r.snippet && (
-                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                          <p className="text-[11px] text-fg-subtle mt-1 line-clamp-2 leading-relaxed">
                             {r.snippet}
                           </p>
                         )}
                       </td>
                       <td className="py-3 px-3 align-top">
-                        <code className="text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                        <code className="text-[11px] text-fg-muted bg-surface-2 border border-line px-1.5 py-0.5 rounded-sm font-mono">
                           {r.result_type}
                         </code>
                       </td>
                       <td className="py-3 px-3 align-top">
                         {r.is_weak ? (
-                          <span className="inline-flex items-center gap-1 text-rose-700 font-medium text-xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                            {r.weakness_type || (isZh ? '内容薄弱' : 'Thin Content')}
+                          <span className="inline-flex items-center gap-1 text-danger font-medium text-xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-danger"></span>
+                            {r.weakness_type || '—'}
                           </span>
                         ) : (
-                          <span className="text-slate-600 font-medium text-xs">
+                          <span className="text-fg-muted font-medium text-xs">
                             {r.result_type === 'SPECIALIST' || r.result_type === 'OFFICIAL'
-                              ? (isZh ? '专业站或官方站' : 'Specialist or official')
-                              : (isZh ? '未标记薄弱' : 'Not marked weak')}
+                              ? t('opportunityWorkspace.serpSpecialist')
+                              : t('opportunityWorkspace.serpNotWeak')}
                           </span>
                         )}
                       </td>
@@ -452,33 +489,32 @@ export default async function OpportunityWorkspacePage({
                 </tbody>
               </table>
             </div>
-          </div>
+          </Panel>
 
           {/* Section 5: Query Cluster Matrix */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">
-              {isZh ? '搜索查询词聚合矩阵' : 'Search Query Cluster Matrix'}
-            </h2>
-            <p className="text-xs text-slate-500 mb-4">
-              {isZh ? '此查询簇中共享同一搜索意图的长尾词' : 'Long-tail queries sharing intent in this cluster'}
+          <Panel className="p-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+              QUERY CLUSTER
             </p>
+            <h2 className="mt-1 text-base font-bold text-fg mb-1">
+              {t('opportunityWorkspace.queryMatrixTitle')}
+            </h2>
+            <p className="text-xs text-fg-subtle mb-4">{t('opportunityWorkspace.queryMatrixDesc')}</p>
 
             <div className="grid sm:grid-cols-2 gap-3">
               {queries.map((q: any) => (
                 <div
                   key={q.id}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs"
+                  className="p-3 rounded-sm bg-surface-2 border border-line flex items-center justify-between gap-2 text-xs"
                 >
-                  <code className="font-mono text-slate-800 font-medium">{q.query_text}</code>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
-                    Tier {q.tier}
-                  </span>
+                  <code className="font-mono text-fg font-medium truncate">{q.query_text}</code>
+                  <Badge tone="accent">Tier {q.tier}</Badge>
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
 
-          {/* Section 6: Commercial Signal Proof Boundary */}
+          {/* Section 6: Commercial Signal Proof Boundary (docs/16 §3.3-5) */}
           <CommercialProofPanel
             stage={commercialProof?.stage || 'NONE'}
             gateways={commercialProof?.gateways || []}
@@ -486,107 +522,121 @@ export default async function OpportunityWorkspacePage({
           />
 
           {/* Section 7: Corroborating Evidence Chain with Slide-Over Drawer */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  {isZh ? '互证性证据链' : 'Corroborating Evidence Chain'}
+          <Panel className="p-6">
+            <div className="flex items-center justify-between mb-4 gap-3">
+              <div className="min-w-0">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+                  EVIDENCE CHAIN
+                </p>
+                <h2 className="mt-1 text-base font-bold text-fg">
+                  {t('opportunityWorkspace.evidenceChainTitle')}
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {isZh
-                    ? '来自 SERP、社群论坛与网络定价的原始信号（点击任意条目查看来源与观测内容）'
-                    : 'Raw signals from SERP, social forums, and web pricing (open any item to inspect its source and observation)'}
+                <p className="text-xs text-fg-subtle mt-0.5">
+                  {t('opportunityWorkspace.evidenceChainDesc')}
                 </p>
               </div>
-              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                {evidence.length} {isZh ? '条已记录' : 'Items Recorded'}
-              </span>
+              <Badge tone="neutral" className="shrink-0">
+                {t('opportunityWorkspace.evidenceCount', { count: evidence.length })}
+              </Badge>
             </div>
 
             <EvidenceInteractiveList evidence={evidence} />
-          </div>
+          </Panel>
         </div>
 
         {/* Right Column (1 Col): Rules, Blueprint & Evidence */}
         <div className="space-y-8">
           {/* Execution Blueprint Recommendation */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">
-              {isZh ? '已归档构建形态' : 'Stored build shape'}
+          <Panel className="p-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+              BUILD SHAPE
+            </p>
+            <h3 className="mt-1 text-sm font-bold text-fg mb-4">
+              {t('opportunityWorkspace.buildShape')}
             </h3>
 
             <div className="space-y-4 text-xs">
               <div>
-                <span className="text-slate-400 block mb-1">{isZh ? '推荐构建类型' : 'Recommended Archetype'}</span>
-                <span className="font-bold text-base text-slate-900">
+                <span className="text-fg-subtle block mb-1">
+                  {t('opportunityWorkspace.recommendedArchetype')}
+                </span>
+                <span className="font-bold text-base text-fg">
                   {archetypeLabel(opportunity.recommended_archetype)}
                 </span>
               </div>
 
               <div>
-                <span className="text-slate-400 block mb-1">{isZh ? '开发时间预算' : 'Development Time Budget'}</span>
-                <span className="font-bold text-sm text-slate-900">
-                  {executionClassLabel(opportunity.execution_class)} &bull; {isZh ? '14 天冲刺' : '14-day sprint'}
+                <span className="text-fg-subtle block mb-1">
+                  {t('opportunityWorkspace.devTimeBudget')}
+                </span>
+                <span className="font-bold text-sm text-fg">
+                  {executionClassLabel(opportunity.execution_class)} &bull;{' '}
+                  {t('opportunityWorkspace.sprint14')}
                 </span>
               </div>
 
-              <div className="pt-3 border-t border-slate-100">
-                <span className="text-slate-400 block mb-2">{isZh ? '推荐技术栈' : 'Recommended Stack'}</span>
-                <ul className="space-y-1.5 text-slate-700">
+              <div className="pt-3 border-t border-line">
+                <span className="text-fg-subtle block mb-2">
+                  {t('opportunityWorkspace.recommendedStack')}
+                </span>
+                <ul className="space-y-1.5 text-fg-muted">
                   <li className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-signal" />
                     Next.js 15+ App Router
                   </li>
                   <li className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-signal" />
                     Tailwind CSS (Zero-bloat UI)
                   </li>
                   <li className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-signal" />
                     PostgreSQL / Supabase
                   </li>
                 </ul>
               </div>
 
-              <div className="pt-4 border-t border-slate-100">
+              <div className="pt-4 border-t border-line">
                 <Link
                   href={`/opportunities/${opportunity.slug}/report`}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold transition-colors text-xs"
+                  className={buttonVariants({
+                    variant: 'outline',
+                    className: 'w-full border-accent/40 text-accent hover:bg-accent/10',
+                  })}
                 >
                   <FileText className="w-4 h-4" />
-                  <span>{isZh ? '打开完整深度研究报告' : 'Open Deep Research Report'}</span>
+                  <span>{t('opportunityWorkspace.openReport')}</span>
                 </Link>
               </div>
             </div>
-          </div>
+          </Panel>
 
           {/* Kill Criteria Matrix */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-600 mb-1 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" />
-              <span>{isZh ? '自动化叫停撤出条件' : 'Automated Kill Criteria'}</span>
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              {isZh ? '触发即判定机会失效的刚性规则' : 'Hard rules that invalidate this opportunity'}
+          <Panel className="p-6">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+              KILL CRITERIA
             </p>
+            <h3 className="mt-1 text-sm font-bold text-danger mb-1 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" />
+              <span>{t('opportunityWorkspace.killCriteriaTitle')}</span>
+            </h3>
+            <p className="text-xs text-fg-subtle mb-4">{t('opportunityWorkspace.killCriteriaDesc')}</p>
 
             <div className="space-y-3">
               {killCriteria.map((kc: any) => (
                 <div
                   key={kc.id}
-                  className="p-3 rounded-xl bg-rose-50/60 border border-rose-100 text-xs text-rose-900"
+                  className="p-3 rounded-sm bg-danger/10 border border-danger/30 text-xs text-fg-muted"
                 >
-                  <span className="font-bold font-mono text-[11px] block mb-0.5">
+                  <span className="font-bold font-mono text-[11px] text-danger block mb-0.5">
                     {kc.rule_code}
                   </span>
                   {kc.description}
                 </div>
               ))}
             </div>
-          </div>
-
+          </Panel>
         </div>
       </div>
-    </div>
+    </PageFrame>
   );
 }

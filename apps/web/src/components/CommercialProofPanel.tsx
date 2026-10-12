@@ -3,6 +3,8 @@
 import React from 'react';
 import { CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { Panel } from '@/components/ui/Panel';
+import { Badge } from '@/components/ui/Badge';
 
 interface CommercialProofPanelProps {
   stage?: string;
@@ -15,112 +17,107 @@ export function CommercialProofPanel({
   gateways = [],
   plansCount = 0,
 }: CommercialProofPanelProps) {
-  const { isZh } = useI18n();
+  const { t } = useI18n();
   const observedCommercial = plansCount > 0 || gateways.length > 0;
 
+  // A conflict is not stored as its own flag; it is read off two fields that
+  // must agree. Either the stage claims pricing/checkout the observations do
+  // not contain, or the observations contain pricing the stage denies. We only
+  // surface the warning when those two stored values genuinely disagree — we
+  // never invent a conflict.
+  const claimsPaid =
+    stage === 'PRICED' || stage === 'PAID_PERSISTENT' || stage === 'REVENUE_EVIDENCED';
+  const stageDeniesPricing = stage === 'NONE' || stage === 'INTENT_ONLY';
+  const hasConflict =
+    (observedCommercial && stageDeniesPricing) || (claimsPaid && !observedCommercial);
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+    <Panel className="p-6">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-line">
         <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-indigo-600" />
-            <span>{isZh ? '商业佐证双面板' : 'Commercial Proof Double-Panel'}</span>
+          <h2 className="text-base font-bold text-fg flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-info" />
+            <span>{t('commercialProof.title')}</span>
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isZh
-              ? 'PRD F7 事实护栏：严格区分可信证据边界，防止虚假繁荣误判'
-              : 'PRD F7 Fact Guardrail: Strict distinction of credible evidence boundaries to prevent false positives'}
-          </p>
+          <p className="text-xs text-fg-subtle mt-0.5">{t('commercialProof.subtitle')}</p>
         </div>
-        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-          {isZh ? `阶段：${stage}` : `Stage: ${stage}`}
-        </span>
+        <Badge tone="info" size="sm">
+          {t('commercialProof.stageLabel')} · {stage}
+        </Badge>
       </div>
+
+      {hasConflict && (
+        <div
+          className="mb-4 flex items-start gap-2 rounded-sm border border-warn/50 bg-warn/10 p-4 text-xs leading-relaxed text-warn"
+          role="alert"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <strong className="block font-bold">{t('commercialProof.conflictTitle')}</strong>
+            {t('commercialProof.conflictBody', { stage })}
+          </div>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-2 gap-4">
         {/* Left Panel: What This Proves */}
-        <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
-          <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs uppercase tracking-wider mb-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{isZh ? '此信号能证明什么' : 'What This Proves'}</span>
+        <div className="p-4 rounded-sm bg-signal/10 border border-signal/30">
+          <div className="flex items-center gap-2 text-signal font-bold text-xs mb-2.5">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{t('commercialProof.provesTitle')}</span>
           </div>
-          <ul className="space-y-2 text-xs text-emerald-950">
+          <ul className="space-y-2 text-xs text-fg-muted">
             {observedCommercial ? (
               <>
                 {plansCount > 0 && (
                   <li className="flex items-start gap-2">
-                    <span className="text-emerald-500 font-bold">•</span>
-                    <span>
-                      {isZh
-                        ? `监测到已归档定价方案：${plansCount} 个套餐。此为价格锚点，并非实际营收。`
-                        : `Observed pricing on file: ${plansCount} plan${plansCount === 1 ? '' : 's'}. This is a price anchor, not revenue.`}
-                    </span>
+                    <span className="text-signal font-bold">•</span>
+                    <span>{t('commercialProof.plansObserved', { count: plansCount })}</span>
                   </li>
                 )}
                 {gateways.length > 0 && (
                   <li className="flex items-start gap-2">
-                    <span className="text-emerald-500 font-bold">•</span>
+                    <span className="text-signal font-bold">•</span>
                     <span>
-                      {isZh
-                        ? `监测到结账支付设施：${gateways.join(', ')}。支付按钮证明供应商存在。`
-                        : `Checkout infrastructure observed: ${gateways.join(', ')}. A payment button proves the provider is present.`}
+                      {t('commercialProof.gatewaysObserved', { gateways: gateways.join(', ') })}
                     </span>
                   </li>
                 )}
               </>
             ) : (
               <li className="flex items-start gap-2">
-                <span className="text-emerald-500 font-bold">•</span>
-                <span>
-                  {isZh
-                    ? `此机会暂未监测到已存录的定价或结账流。归档阶段：${stage}。`
-                    : `No observed pricing or checkout is stored for this opportunity. Stage on file: ${stage}.`}
-                </span>
+                <span className="text-signal font-bold">•</span>
+                <span>{t('commercialProof.nothingObserved', { stage })}</span>
               </li>
             )}
           </ul>
         </div>
 
         {/* Right Panel: What This Does NOT Prove */}
-        <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80">
-          <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase tracking-wider mb-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-600" />
-            <span>{isZh ? '此信号不能证明什么' : 'What This Does NOT Prove'}</span>
+        <div className="p-4 rounded-sm bg-warn/10 border border-warn/30">
+          <div className="flex items-center gap-2 text-warn font-bold text-xs mb-2.5">
+            <AlertTriangle className="w-4 h-4" />
+            <span>{t('commercialProof.notProvesTitle')}</span>
           </div>
-          <ul className="space-y-2 text-xs text-amber-950">
+          <ul className="space-y-2 text-xs text-fg-muted">
             <li className="flex items-start gap-2">
-              <span className="text-amber-500 font-bold">•</span>
-              <span>
-                {isZh
-                  ? '监测到的价格和支付按钮不能证明实际收入、利润率或留存率。'
-                  : 'Observed prices and payment buttons do not prove revenue, profit, or retention.'}
-              </span>
+              <span className="text-warn font-bold">•</span>
+              <span>{t('commercialProof.notProvesRevenue')}</span>
             </li>
             <li className="flex items-start gap-2">
-              <span className="text-amber-500 font-bold">•</span>
-              <span>
-                {isZh
-                  ? '查询词中包含商业意图词属于推断意图，绝不能证明有客户正在付费。'
-                  : 'A commercial word in the query is inferred intent. It does not prove anyone is paying.'}
-              </span>
+              <span className="text-warn font-bold">•</span>
+              <span>{t('commercialProof.notProvesIntent')}</span>
             </li>
             <li className="flex items-start gap-2">
-              <span className="text-amber-500 font-bold">•</span>
+              <span className="text-warn font-bold">•</span>
               <span>
-                {isZh ? (
-                  <>
-                    <strong>不能替代自有用户验证：</strong>仍需遵循 14 天 MVP 纪律，在本地快速上线后获取首批自有用量与反馈。
-                  </>
-                ) : (
-                  <>
-                    <strong>Cannot replace proprietary validation:</strong> Still adhere to the 14-day MVP discipline to validate with real traffic.
-                  </>
-                )}
+                <strong>{t('commercialProof.notProvesProprietaryLead')}</strong>
+                {t('commercialProof.notProvesProprietaryBody')}
               </span>
             </li>
           </ul>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }

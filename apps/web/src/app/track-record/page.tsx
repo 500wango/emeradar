@@ -1,132 +1,139 @@
 import Link from 'next/link';
-import {
-  ShieldCheck,
-  CheckCircle2,
-  ArrowUpRight,
-} from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { TrackRecordService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
 import { getServerI18n } from '@/lib/i18n/server';
+import { Badge, type BadgeTone, VerdictBadge, type Verdict } from '@/components/ui/Badge';
+import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
+import { Stat } from '@/components/ui/Stat';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The public ledger view.
+ *
+ * The one rule this page exists to honour: a rate is only printed when the
+ * sample behind it contains both hits and misses. An unevaluated cohort and a
+ * flawless one both produce "100%" from the service, so every rate on this page
+ * goes through `accuracy()` first, which falls back to the raw `hits/total`
+ * counts — those can never be mistaken for a track record.
+ */
+function accuracy(hits: number | undefined, evaluated: number | undefined, rate: string | undefined) {
+  const total = evaluated ?? 0;
+  const hit = hits ?? 0;
+  if (total === 0) return '—';
+  if (hit === 0 || hit === total) return `${hit}/${total}`;
+  return rate ?? `${hit}/${total}`;
+}
+
+const statusTones: Record<string, BadgeTone> = {
+  MATURED: 'signal',
+  EVALUATING: 'info',
+  ACCUMULATING: 'neutral',
+};
+
+const outcomeTones: Record<string, BadgeTone> = {
+  HIT: 'signal',
+  MISS: 'danger',
+  PENDING: 'neutral',
+};
+
+const TH = 'py-3 px-5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle';
+const TD = 'py-4 px-5 align-middle';
+
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();
-  const { stats, episodes, cohorts = [] } = data;
-  const { t, locale } = await getServerI18n();
+  const { stats, episodes, cohorts = [], checkpoints = [] } = data;
+  const { t } = await getServerI18n();
+
+  const checkpoint = checkpoints[0];
+  const overallRate = accuracy(stats.hitsCount, stats.evaluatedEpisodes, stats.hitRate30d ?? undefined);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* Header */}
-      <div className="border-b border-slate-200 pb-8 mb-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 mb-4">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>{t('trackRecord.badge')}</span>
-        </div>
-        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight sm:text-4xl">
-          {t('trackRecord.title')}
-        </h1>
-        <p className="mt-3 text-base text-slate-600 max-w-3xl leading-relaxed">
-          {t('trackRecord.desc')}
-        </p>
-      </div>
+    <PageFrame width="full">
+      <PageHeader
+        eyebrow="TRACK RECORD"
+        title={t('trackRecord.title')}
+        lede={t('trackRecord.desc')}
+        aside={
+          <Badge tone="signal" size="sm" dot>
+            {t('trackRecord.badge')}
+          </Badge>
+        }
+      />
 
-      {/* KPI Gauges */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-5 mb-12">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            {t('trackRecord.hitRate30d')}
-          </span>
-          <div className="text-3xl font-bold text-emerald-600 mt-2">
-            {stats.hitRate30d ?? '—'}
-          </div>
-          <span className="text-xs text-slate-400 mt-1 block">
-            {stats.hitRate30d
-              ? (locale === 'zh-CN' ? '队列市场已形成' : 'Cohort market formation')
-              : t('trackRecord.hitRateEmpty')}
-          </span>
+      {/* Headline readings. The hit rate is blanked rather than guessed whenever
+          the evaluated set is one-sided — see `accuracy()`. */}
+      <section className="grid grid-cols-1 gap-px border-b border-line sm:grid-cols-3">
+        <div className="border-line py-8 sm:border-r sm:pr-8">
+          <Stat
+            value={overallRate}
+            label={t('trackRecord.hitRate30d')}
+            tone={overallRate === '—' ? 'default' : 'signal'}
+            size="lg"
+          />
+          <p className="mt-2 text-xs leading-relaxed text-fg-subtle">
+            {stats.evaluatedEpisodes > 0 ? t('trackRecord.hitRateDesc') : t('trackRecord.hitRateEmpty')}
+          </p>
         </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            {t('trackRecord.evaluatedEpisodes')}
-          </span>
-          <div className="text-3xl font-bold text-slate-900 mt-2">
-            {stats.evaluatedEpisodes}
-          </div>
-          <span className="text-xs text-slate-400 mt-1 block">
-            {t('trackRecord.evaluatedDesc')}
-          </span>
+        <div className="border-line py-8 sm:border-r sm:px-8">
+          <Stat value={stats.evaluatedEpisodes} label={t('trackRecord.evaluatedEpisodes')} size="lg" />
+          <p className="mt-2 text-xs leading-relaxed text-fg-subtle">{t('trackRecord.evaluatedDesc')}</p>
         </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            {t('trackRecord.totalPredictions')}
-          </span>
-          <div className="text-3xl font-bold text-blue-600 mt-2">
-            {stats.totalPredictions}
-          </div>
-          <span className="text-xs text-slate-400 mt-1 block">
+        <div className="py-8 sm:pl-8">
+          <Stat value={stats.totalPredictions} label={t('trackRecord.totalPredictions')} tone="accent" size="lg" />
+          <p className="mt-2 text-xs leading-relaxed text-fg-subtle">
             {t('trackRecord.totalPredictionsDesc')}
-          </span>
+          </p>
         </div>
+      </section>
 
-      </div>
-
-      {/* Cohort Hit-Rate Matrix */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-12">
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+      {/* Cohort matrix */}
+      <Panel className="mt-12 overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {locale === 'zh-CN' ? '预测队列命中率矩阵 (Cohort Track Record)' : 'Cohort Precision & Hit-Rate Matrix'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {locale === 'zh-CN'
-                ? '按发现月份追踪 T+30 / T+60 / T+90 真实搜索量验证与商业化存续率'
-                : 'Empirical hit-rate measured at T+30, T+60, and T+90 post-verdict timestamps'}
-            </p>
+            <h2 className="font-display text-base font-bold text-fg">{t('trackRecord.cohortTitle')}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-subtle">{t('trackRecord.cohortDesc')}</p>
           </div>
-          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-            {locale === 'zh-CN' ? '前瞻性实证' : 'Forward-tested'}
-          </span>
+          <Badge tone="signal">{t('trackRecord.cohortBadge')}</Badge>
         </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
+            <thead className="border-b border-line">
               <tr>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? '队列月份' : 'Cohort Month'}</th>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? '样本容量' : 'Sample Size'}</th>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+30 命中率' : 'T+30 Precision'}</th>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+60 命中率' : 'T+60 Precision'}</th>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? 'T+90 命中率' : 'T+90 Precision'}</th>
-                <th className="py-3 px-6">{locale === 'zh-CN' ? '成熟度状态' : 'Maturity Status'}</th>
+                <th className={TH}>{t('trackRecord.colCohortMonth')}</th>
+                <th className={TH}>{t('trackRecord.colSampleSize')}</th>
+                <th className={TH}>{t('trackRecord.colT30')}</th>
+                <th className={TH}>{t('trackRecord.colT60')}</th>
+                <th className={TH}>{t('trackRecord.colT90')}</th>
+                <th className={TH}>{t('trackRecord.colMaturity')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {cohorts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-6 px-6 text-center text-slate-400 text-xs">
-                    {locale === 'zh-CN' ? '尚无成熟队列数据' : 'No cohort data available yet.'}
+                  <td colSpan={6} className="px-5 py-8 text-center text-xs text-fg-subtle">
+                    {t('trackRecord.noCohortData')}
                   </td>
                 </tr>
               ) : (
                 cohorts.map((c: any) => (
-                  <tr key={c.month} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-6 font-semibold text-slate-900 font-mono">{c.month}</td>
-                    <td className="py-3 px-6 text-slate-600">{c.total} opportunities</td>
-                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate30d}</td>
-                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate60d}</td>
-                    <td className="py-3 px-6 font-semibold text-emerald-600">{c.hitRate90d}</td>
-                    <td className="py-3 px-6">
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                        c.status === 'MATURED'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : c.status === 'EVALUATING'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {c.status}
-                      </span>
+                  <tr key={c.month}>
+                    <td className={`${TD} font-mono text-xs font-bold text-fg`}>{c.month}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{c.total}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>
+                      {accuracy(c.hits30, c.eval30, c.hitRate30d)}
+                    </td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>
+                      {accuracy(c.hits60, c.eval60, c.hitRate60d)}
+                    </td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>
+                      {accuracy(c.hits90, c.eval90, c.hitRate90d)}
+                    </td>
+                    <td className={TD}>
+                      <Badge tone={statusTones[c.status] ?? 'neutral'}>{c.status}</Badge>
                     </td>
                   </tr>
                 ))
@@ -134,120 +141,123 @@ export default async function TrackRecordPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
 
-      {/* Historical Episodes Section */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-12">
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+      {/* Evaluated episodes */}
+      <Panel className="mt-8 overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">
-              {t('trackRecord.episodesTitle')}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {t('trackRecord.episodesDesc')}
-            </p>
+            <h2 className="font-display text-base font-bold text-fg">{t('trackRecord.episodesTitle')}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-subtle">{t('trackRecord.episodesDesc')}</p>
           </div>
-          <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-            {t('trackRecord.evaluationProtocol')}
-          </span>
+          <Badge tone="neutral">{t('trackRecord.evaluationProtocol')}</Badge>
         </div>
 
-        {episodes.length === 0 && (
-          <p className="px-6 py-8 text-sm text-slate-600">
-            {t('trackRecord.noEpisodes')}
+        {episodes.length === 0 ? (
+          <p className="px-6 py-8 text-sm leading-relaxed text-fg-muted">{t('trackRecord.noEpisodes')}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-line">
+                <tr>
+                  <th className={TH}>{t('trackRecord.colOpportunity')}</th>
+                  <th className={TH}>{t('trackRecord.colVerdict')}</th>
+                  <th className={TH}>{t('trackRecord.colObsDate')}</th>
+                  <th className={TH}>{t('trackRecord.outcome30d')}</th>
+                  <th className={TH}>{t('trackRecord.outcome60d')}</th>
+                  <th className={TH}>{t('trackRecord.observedMetric')}</th>
+                  <th className={`${TH} text-right`}>{t('common.action')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {episodes.map((ep: any) => (
+                  <tr key={ep.id}>
+                    <td className={TD}>
+                      <Link
+                        href={`/opportunities/${ep.opportunity_slug}`}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-fg transition-colors hover:text-accent"
+                      >
+                        {ep.opportunity_title}
+                        <ArrowUpRight className="h-3.5 w-3.5 text-fg-subtle" />
+                      </Link>
+                    </td>
+                    <td className={TD}>
+                      <VerdictBadge verdict={ep.published_verdict as Verdict} />
+                    </td>
+                    <td className={`${TD} font-mono text-xs text-fg-subtle`}>{formatDate(ep.predicted_at)}</td>
+                    <td className={TD}>
+                      <Badge tone={outcomeTones[ep.outcome_30d] ?? 'neutral'}>{ep.outcome_30d}</Badge>
+                    </td>
+                    <td className={TD}>
+                      <Badge tone={outcomeTones[ep.outcome_60d] ?? 'neutral'}>{ep.outcome_60d || 'PENDING'}</Badge>
+                    </td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{observedMetric(ep, t)}</td>
+                    <td className={`${TD} text-right`}>
+                      <Link
+                        href={`/opportunities/${ep.opportunity_slug}`}
+                        className="font-mono text-xs text-accent transition-colors hover:brightness-110"
+                      >
+                        {t('trackRecord.inspect')}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      {/* Ledger checkpoints. These rows are already fetched to compute the
+          stats; publishing them is what makes the record checkable rather than
+          merely asserted. */}
+      <Panel tone="sunken" className="mt-8 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-fg-subtle">
+            {t('trackRecord.ledgerTitle')}
+          </h2>
+          {checkpoint && <Badge tone="signal">{t('trackRecord.ledgerSealed')}</Badge>}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-fg-subtle">{t('trackRecord.ledgerDesc')}</p>
+        {checkpoint ? (
+          <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-4 font-mono text-[11px] text-fg-muted">
+            <span>
+              <span className="text-fg-subtle">OBS DATE </span>
+              {String(checkpoint.obs_date).slice(0, 10)}
+            </span>
+            <span>
+              <span className="text-fg-subtle">ROWS </span>
+              {Number(checkpoint.total_records).toLocaleString('en-US')}
+            </span>
+            <span className="min-w-0">
+              <span className="text-fg-subtle">MERKLE </span>
+              <span className="break-all">{String(checkpoint.merkle_root).slice(0, 24)}…</span>
+            </span>
+          </div>
+        ) : (
+          <p className="mt-5 border-t border-line pt-4 font-mono text-[11px] text-fg-subtle">
+            {t('trackRecord.ledgerEmpty')}
           </p>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
-              <tr>
-                <th className="py-3 px-6">{t('trackRecord.colOpportunity')}</th>
-                <th className="py-3 px-6">{t('trackRecord.colVerdict')}</th>
-                <th className="py-3 px-6">{t('trackRecord.colObsDate')}</th>
-                <th className="py-3 px-6">{t('trackRecord.outcome30d')}</th>
-                <th className="py-3 px-6">{t('trackRecord.outcome60d')}</th>
-                <th className="py-3 px-6">{t('trackRecord.observedMetric')}</th>
-                <th className="py-3 px-6 text-right">{t('common.action')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {episodes.map((ep: any) => (
-                <tr key={ep.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-4 px-6 font-medium text-slate-900">
-                    <Link
-                      href={`/opportunities/${ep.opportunity_slug}`}
-                      className="hover:text-blue-600 flex items-center gap-1.5"
-                    >
-                      <span>{ep.opportunity_title}</span>
-                      <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-                    </Link>
-                  </td>
-                  <td className="py-4 px-6">
-                    <span
-                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        ep.published_verdict === 'BUILD_NOW'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : ep.published_verdict === 'EARLY_BET'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {ep.published_verdict}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6 text-slate-500 font-mono text-xs">
-                    {formatDate(ep.predicted_at)}
-                  </td>
-                  <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold ${
-                        ep.outcome_30d === 'HIT'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : ep.outcome_30d === 'MISS'
-                          ? 'bg-rose-50 text-rose-700'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {ep.outcome_30d === 'HIT' && <CheckCircle2 className="w-3 h-3" />}
-                      {ep.outcome_30d}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold ${
-                        ep.outcome_60d === 'HIT'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : ep.outcome_60d === 'MISS'
-                          ? 'bg-rose-50 text-rose-700'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {ep.outcome_60d === 'HIT' && <CheckCircle2 className="w-3 h-3" />}
-                      {ep.outcome_60d || 'PENDING'}
-                    </span>
-                  </td>
-                  <td className="py-4 px-6 text-xs text-slate-600 font-mono">
-                    {ep.metrics?.cluster_expansion
-                      ? `+${((ep.metrics.cluster_expansion - 1) * 100).toFixed(0)}% cluster expansion`
-                      : ep.metrics?.window_closed
-                      ? (locale === 'zh-CN' ? '已有3个新入局者关闭窗口' : 'Window closed by 3 entrants')
-                      : (locale === 'zh-CN' ? '信号持续累积中' : 'Accumulating signals')}
-                  </td>
-                  <td className="py-4 px-6 text-right">
-                    <Link
-                      href={`/opportunities/${ep.opportunity_slug}`}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-                    >
-                      {t('trackRecord.inspect')}
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-    </div>
+      </Panel>
+    </PageFrame>
   );
+}
+
+/**
+ * The `metrics` column is keyed by horizon (`h30` / `h60` / `h90`, see
+ * `PredictionEpisodeService.evaluateEpisodeAtHorizon`). The previous version of
+ * this page read `metrics.cluster_expansion`, which never existed — so the
+ * column silently printed its fallback for every row, and that fallback
+ * hard-coded a count of new entrants ("closed by 3 entrants") that no query had
+ * ever returned.
+ */
+function observedMetric(ep: any, t: (key: string) => string): string {
+  const horizon = ep.metrics?.h30 ?? ep.metrics?.h60 ?? ep.metrics?.h90;
+  const expansion = horizon?.clusterExpansion;
+  if (typeof expansion === 'number' && expansion > 1) {
+    return `+${Math.round((expansion - 1) * 100)}% cluster expansion`;
+  }
+  if (horizon?.windowClosed) return t('trackRecord.metricWindowClosed');
+  return t('trackRecord.metricAccumulating');
 }

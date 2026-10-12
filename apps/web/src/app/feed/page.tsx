@@ -7,6 +7,9 @@ import { TrackRequest } from '@/components/TrackRequest';
 import { StartExperimentButton } from '@/components/StartExperimentButton';
 import { getServerI18n } from '@/lib/i18n/server';
 import { safeExternalUrl } from '@/lib/format';
+import { AxisBadge, Badge } from '@/components/ui/Badge';
+import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 
 type FeedSearchParams = Record<string, string | string[] | undefined>;
 
@@ -60,51 +63,39 @@ export default async function FeedPage({
     ? t('feed.delayRealtime')
     : t('feed.delayDays', { days: feedDelayDays });
 
-  const steps = isZh
-    ? [
-        ['1', '捕获信号'],
-        ['2', '生成候选'],
-        ['3', '周期观察'],
-        ['4', '三维打分'],
-        ['5', '发布战绩'],
-      ]
-    : [
-        ['1', 'Signal found'],
-        ['2', 'Candidate created'],
-        ['3', 'Observation history'],
-        ['4', 'D / M / W scoring'],
-        ['5', 'Published track record'],
-      ];
+  const steps = [
+    ['1', t('feed.step1')],
+    ['2', t('feed.step2')],
+    ['3', t('feed.step3')],
+    ['4', t('feed.step4')],
+    ['5', t('feed.step5')],
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div className="mb-8 max-w-3xl">
-        <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
-          {t('feed.badge')}
-        </p>
-        <h1 className="mt-1 text-3xl font-extrabold text-slate-900 tracking-tight">
-          {t('feed.title')}
-        </h1>
-        <p className="mt-2 text-sm text-slate-500 leading-relaxed">
-          {t('feed.desc', { planLabel, delayText })}
-        </p>
-      </div>
-
-      <FeedClient
-        initialItems={feed.items}
-        total={feed.total}
-        hasMore={feed.hasMore}
-        offset={offset}
-        pageSize={10}
-        activeFilters={{
-          verdict: selectedVerdict,
-          archetype: selectedArchetype,
-          executionClass: selectedExecutionClass,
-          search: searchParam,
-        }}
+    <PageFrame width="full">
+      <PageHeader
+        eyebrow={t('feed.badge')}
+        title={t('feed.title')}
+        lede={t('feed.desc', { planLabel, delayText })}
       />
 
-      <div className="mt-14 pt-8 border-t border-slate-200">
+      <div className="mt-8">
+        <FeedClient
+          initialItems={feed.items}
+          total={feed.total}
+          hasMore={feed.hasMore}
+          offset={offset}
+          pageSize={10}
+          activeFilters={{
+            verdict: selectedVerdict,
+            archetype: selectedArchetype,
+            executionClass: selectedExecutionClass,
+            search: searchParam,
+          }}
+        />
+      </div>
+
+      <div className="mt-14 border-t border-line pt-8">
         <TrackRequest />
       </div>
 
@@ -112,49 +103,49 @@ export default async function FeedPage({
         <section className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-xl font-bold text-slate-900">{t('feed.sourceDiscoveriesTitle')}</h2>
-              <p className="mt-1 text-sm text-slate-500">{t('feed.sourceDiscoveriesDesc')}</p>
+              <h2 className="text-xl font-bold text-fg">{t('feed.sourceDiscoveriesTitle')}</h2>
+              <p className="mt-1 text-sm text-fg-muted">{t('feed.sourceDiscoveriesDesc')}</p>
             </div>
-            <span className="text-xs text-slate-400">
-              {isZh ? `${discoveries.length} 条近期信号` : `${discoveries.length} recent signals`}
+            <span className="font-mono text-xs text-fg-subtle">
+              {t('feed.discoveriesCount', { count: discoveries.length })}
             </span>
           </div>
           {discoveries.length === 0 ? (
-            <p className="mt-5 text-sm text-slate-600">{t('feed.noDiscoveries')}</p>
+            <p className="mt-5 text-sm text-fg-muted">{t('feed.noDiscoveries')}</p>
           ) : (
-            <div className="mt-5 grid md:grid-cols-2 gap-4">
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
               {discoveries.map((item) => (
-                <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                <Panel key={item.id} className="p-5">
+                  <div className="flex items-center justify-between gap-3 font-mono text-[11px] text-fg-subtle">
                     <span>{item.provider}</span>
                     <time dateTime={item.sourcePublishedAt || item.firstCollectedAt}>
                       {new Date(item.sourcePublishedAt || item.firstCollectedAt).toLocaleDateString(isZh ? 'zh-CN' : 'en-US')}
                     </time>
                   </div>
-                  <a href={safeExternalUrl(item.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-2 block font-semibold text-slate-900 hover:text-blue-700">
+                  <a href={safeExternalUrl(item.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-2 block font-semibold text-fg transition-colors hover:text-accent">
                     {item.title}
                   </a>
-                  {item.excerpt && <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3">{item.excerpt}</p>}
+                  {item.excerpt && <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-fg-muted">{item.excerpt}</p>}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {item.intents.length === 0 ? (
-                      <span className="text-[11px] text-slate-400">{isZh ? '意图假设待生成' : 'Intent hypotheses pending'}</span>
+                      <span className="text-[11px] text-fg-subtle">{t('feed.intentsPending')}</span>
                     ) : item.intents.map((intent) => (
-                      <span key={`${item.id}-${intent.queryHypothesis}`} className="rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
+                      <span key={`${item.id}-${intent.queryHypothesis}`} className="rounded-sm bg-surface-2 px-2 py-1 text-[11px] text-fg-muted">
                         {intent.queryHypothesis}
                       </span>
                     ))}
                   </div>
                   {item.validation && (
-                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+                    <div className="mt-4 rounded-sm border border-line bg-surface-2 p-3 text-[11px] text-fg-muted">
                       <div className="flex flex-wrap gap-x-3 gap-y-1 font-semibold">
-                        <span>{isZh ? '自动补全' : 'Autocomplete'}: {item.validation.autocompleteStatus}</span>
+                        <span>{t('feed.autocompleteLabel')}: {item.validation.autocompleteStatus}</span>
                         <span>SERP: {item.validation.serpStatus}</span>
-                        <span>{isZh ? '供给缺口' : 'Supply'}: {item.validation.supplyGapStatus.replaceAll('_', ' ')}</span>
+                        <span>{t('feed.supplyGapLabel')}: {item.validation.supplyGapStatus.replaceAll('_', ' ')}</span>
                       </div>
                       {item.validation.supplyGapNote && <p className="mt-1 leading-relaxed">{item.validation.supplyGapNote}</p>}
                     </div>
                   )}
-                </article>
+                </Panel>
               ))}
             </div>
           )}
@@ -165,122 +156,114 @@ export default async function FeedPage({
         <section className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-xl font-bold text-slate-900">{t('feed.activeExperimentsTitle')}</h2>
-              <p className="mt-1 text-sm text-slate-500">{t('feed.activeExperimentsDesc')}</p>
+              <h2 className="text-xl font-bold text-fg">{t('feed.activeExperimentsTitle')}</h2>
+              <p className="mt-1 text-sm text-fg-muted">{t('feed.activeExperimentsDesc')}</p>
             </div>
-            <span className="text-xs text-slate-400">
-              {isZh ? `${experiments.length} 项提议` : `${experiments.length} proposed`}
+            <span className="font-mono text-xs text-fg-subtle">
+              {t('feed.experimentsCount', { count: experiments.length })}
             </span>
           </div>
-          <div className="mt-5 grid md:grid-cols-2 gap-4">
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
             {experiments.map((experiment) => (
-              <article key={experiment.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
-                <div className="flex items-center justify-between gap-3 text-[11px] text-amber-800">
-                  <span className="font-semibold uppercase tracking-wide">
-                    {isZh ? '实验 · 提议' : 'Experiment · proposed'}
-                  </span>
-                  <span>{experiment.queryHypothesis}</span>
+              <Panel key={experiment.id} className="border-warn/40 bg-warn/10 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <Badge tone="warn">PROPOSED EXPERIMENT</Badge>
+                  <span className="truncate font-mono text-[11px] text-warn">{experiment.queryHypothesis}</span>
                 </div>
-                <h3 className="mt-2 font-semibold text-slate-900">{experiment.title}</h3>
-                <dl className="mt-4 grid gap-3 text-xs text-slate-700">
+                <h3 className="mt-2 font-semibold text-fg">{experiment.title}</h3>
+                <dl className="mt-4 grid gap-3 text-xs text-fg-muted">
                   <div>
-                    <dt className="font-semibold text-slate-500">{isZh ? '核心任务 (Core job)' : 'Core job'}</dt>
+                    <dt className="font-semibold text-fg-subtle">{t('feed.coreJob')}</dt>
                     <dd>{experiment.coreJob}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">{isZh ? '页面形态 (Page shape)' : 'Page shape'}</dt>
+                    <dt className="font-semibold text-fg-subtle">{t('feed.pageShape')}</dt>
                     <dd>{experiment.recommendedPageShape}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">{isZh ? '最小功能 (Minimum feature)' : 'Minimum feature'}</dt>
+                    <dt className="font-semibold text-fg-subtle">{t('feed.minimumFeature')}</dt>
                     <dd>{experiment.minimumFeature}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">{isZh ? '成功信号 (Success signal)' : 'Success signal'}</dt>
+                    <dt className="font-semibold text-fg-subtle">{t('feed.successSignal')}</dt>
                     <dd>{experiment.successSignal}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">{isZh ? '放弃红线 (Abandon when)' : 'Abandon when'}</dt>
+                    <dt className="font-semibold text-fg-subtle">{t('feed.abandonWhen')}</dt>
                     <dd>{experiment.abandonCondition}</dd>
                   </div>
                 </dl>
-                <a href={safeExternalUrl(experiment.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-4 inline-block text-[11px] text-blue-700 hover:underline">
-                  {isZh ? '来源: ' : 'Source: '} {experiment.sourceTitle}
+                <a href={safeExternalUrl(experiment.sourceUrl) ?? '#'} target="_blank" rel="noreferrer" className="mt-4 inline-block text-[11px] text-accent transition-colors hover:brightness-110">
+                  {t('feed.sourceLabel')} {experiment.sourceTitle}
                 </a>
                 <StartExperimentButton experimentCardId={experiment.id} title={experiment.title} />
-              </article>
+              </Panel>
             ))}
           </div>
         </section>
       )}
 
       <section className="mt-14">
-        <h2 className="text-xl font-bold text-slate-900">
-          {isZh ? '正在监测的新兴市场候选词' : 'Emerging market candidates'}
+        <h2 className="text-xl font-bold text-fg">
+          {t('feed.emergingTitle')}
         </h2>
         {realtime ? (
-          <p className="mt-1 text-sm text-slate-500 max-w-3xl">
-            {isZh
-              ? '这些候选词来源于搜索信号，目前仍在持续观察期内。它们不是发布的裁决：单次观测不能得出市场结论。'
-              : 'These candidates are discovered from search signals and are still being observed. They are not published verdicts: one observation is not a market conclusion.'}
+          <p className="mt-1 max-w-3xl text-sm text-fg-muted">
+            {t('feed.emergingDescRealtime')}
           </p>
         ) : (
-          <p className="mt-1 text-sm text-slate-600 max-w-3xl">
-            {isZh
-              ? `实时监测属于 Pro 专享功能。免费版在初次观察后 ${feedDelayDays} 天展示已发布决策。`
-              : `Realtime observations are part of Pro. Free shows published decisions after ${feedDelayDays} days.`}
+          <p className="mt-1 max-w-3xl text-sm text-fg-muted">
+            {t('feed.emergingDescGated', { days: feedDelayDays })}
           </p>
         )}
         {realtime && observations.length > 0 && (
-          <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-slate-600">
+          <div className="mt-5 grid grid-cols-2 gap-2 text-xs text-fg-muted sm:grid-cols-5">
             {steps.map(([step, label], index) => (
-              <div key={step} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 border border-slate-100">
-                <span className="font-mono font-bold text-blue-700">{step}</span>
+              <div key={step} className="flex items-center gap-2 rounded-sm border border-line bg-surface-2 px-3 py-2">
+                <span className="font-mono font-bold text-accent">{step}</span>
                 <span>{label}</span>
-                {index < 4 && <span className="hidden sm:inline text-slate-300">→</span>}
+                {index < 4 && <span className="hidden text-fg-subtle sm:inline">→</span>}
               </div>
             ))}
           </div>
         )}
         {realtime && observations.length === 0 && (
-          <p className="mt-6 text-sm text-slate-600">
-            {isZh ? '暂无处于监测中的候选词。' : 'No emerging candidates stored yet.'}
+          <p className="mt-6 text-sm text-fg-muted">
+            {t('feed.noEmerging')}
           </p>
         )}
         {realtime && observations.length > 0 && (
-          <div className="mt-6 grid md:grid-cols-2 gap-4">
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
             {observations.map((item) => (
               <Link
                 key={item.opportunityId}
                 href={`/opportunities/${item.slug}`}
-                className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-blue-300"
+                className="block rounded-sm border border-line bg-surface p-5 transition-colors hover:border-accent"
               >
-                <div className="text-xs font-semibold text-slate-500">
-                  {item.marketCountry} · {item.researchLanguage} · {item.confidence} {isZh ? '置信度' : 'confidence'}
+                <div className="text-xs font-semibold text-fg-muted">
+                  {item.marketCountry} · {item.researchLanguage} · {item.confidence} {t('feed.confidenceLabel')}
                 </div>
-                <h3 className="mt-2 font-bold text-slate-900">{item.primaryQuery}</h3>
-                <p className="mt-2 text-xs text-slate-600 leading-relaxed line-clamp-3">
-                  {item.featuredEvidenceSnippet || (isZh
-                    ? `搜索候选“${item.primaryQuery}”正在观察中：${item.whyNowSummary}`
-                    : `Search candidate “${item.primaryQuery}” is being observed: ${item.whyNowSummary}`)}
+                <h3 className="mt-2 font-bold text-fg">{item.primaryQuery}</h3>
+                <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-fg-muted">
+                  {item.featuredEvidenceSnippet || t('feed.observedFallback', { query: item.primaryQuery, summary: item.whyNowSummary })}
                 </p>
-                <p className="mt-3 text-xs font-semibold text-slate-700">
-                  D {item.dBand} · M {item.mBand} · W {item.wBand}
-                </p>
-                <div className="mt-3 text-[11px] text-slate-500">
-                  {isZh
-                    ? `观测覆盖天数: ${item.observationDays ?? 0} 天自动补全 · ${item.serpObservationDays ?? 0} 天 SERP`
-                    : `Observation coverage: ${item.observationDays ?? 0} autocomplete days · ${item.serpObservationDays ?? 0} SERP days`}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <AxisBadge axis="d" band={item.dBand} />
+                  <AxisBadge axis="m" band={item.mBand} />
+                  <AxisBadge axis="w" band={item.wBand} />
                 </div>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  {item.discoverySource ? (isZh ? `来源: ${item.discoverySource}。` : `Source: ${item.discoverySource}. `) : ''}
-                  {item.candidateReason || (isZh ? '从近期搜索信号中发现；证据仍在持续采集。' : 'Discovered from recent search signals; evidence is still being collected.')}
+                <div className="mt-3 font-mono text-[11px] text-fg-subtle">
+                  {t('feed.observationCoverage', { auto: item.observationDays ?? 0, serp: item.serpObservationDays ?? 0 })}
+                </div>
+                <p className="mt-2 text-[11px] text-fg-subtle">
+                  {item.discoverySource ? t('feed.discoverySource', { source: item.discoverySource }) : ''}
+                  {item.candidateReason || t('feed.candidateDefault')}
                 </p>
               </Link>
             ))}
           </div>
         )}
       </section>
-    </div>
+    </PageFrame>
   );
 }

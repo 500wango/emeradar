@@ -5,10 +5,23 @@ import Link from 'next/link';
 import { ArrowLeft, Clock, Lock, Sparkles } from 'lucide-react';
 import { AuthService, EntitlementService, OpportunityService, ReportService } from '@emeradar/services';
 import { ReportStudioClient } from '@/components/ReportStudioClient';
-import { getServerLocale } from '@/lib/i18n/server';
+import { getServerI18n } from '@/lib/i18n/server';
+import { cn } from '@/lib/cn';
+import { Badge } from '@/components/ui/Badge';
+import { buttonVariants } from '@/components/ui/Button';
+import { Panel } from '@/components/ui/Panel';
+import { PageFrame } from '@/components/ui/PageFrame';
 
 interface ReportPageProps {
   params: Promise<{ slug: string }>;
+}
+
+/** Shared shape of the two centred notice states (quota / evidence gate). */
+function noticeIcon(tone: 'warn' | 'accent') {
+  return cn(
+    'mx-auto mb-5 flex h-14 w-14 items-center justify-center border',
+    tone === 'warn' ? 'border-warn/40 bg-warn/10 text-warn' : 'border-accent/40 bg-accent/10 text-accent'
+  );
 }
 
 export default async function OpportunityReportPage({ params }: ReportPageProps) {
@@ -34,19 +47,25 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
     notFound();
   }
 
-  const locale = await getServerLocale();
-  const isZh = locale === 'zh-CN';
+  const { t, locale } = await getServerI18n();
 
   if (!session.user.emailVerifiedAt) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-2xl border border-amber-200 p-8 shadow-sm text-center">
-          <div className="w-12 h-12 bg-amber-50 text-amber-700 rounded-xl flex items-center justify-center mx-auto mb-4"><Lock className="w-6 h-6" /></div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">{isZh ? '请先验证邮箱' : 'Verify your email first'}</h2>
-          <p className="text-sm text-slate-600 max-w-md mx-auto mb-6 leading-relaxed">{isZh ? '报告生成需要已确认的邮箱，以便保护报告归属并发送后续提醒。' : 'Reports require a confirmed email so ownership and follow-up alerts have a reliable destination.'}</p>
-          <Link href="/settings" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold transition-colors"><span>{isZh ? '前往账户设置' : 'Open account settings'}</span><ArrowLeft className="w-4 h-4 rotate-180" /></Link>
-        </div>
-      </div>
+      <PageFrame width="prose">
+        <Panel className="p-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center border border-warn/40 bg-warn/10 text-warn">
+            <Lock className="h-6 w-6" />
+          </div>
+          <h1 className="font-display text-xl font-bold text-fg">{t('reportGate.verifyTitle')}</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-fg-muted">
+            {t('reportGate.verifyDesc')}
+          </p>
+          <Link href="/settings" className={cn(buttonVariants({ size: 'md' }), 'mt-6')}>
+            <span>{t('auth.openSettings')}</span>
+            <ArrowLeft className="h-4 w-4 rotate-180" />
+          </Link>
+        </Panel>
+      </PageFrame>
     );
   }
 
@@ -60,111 +79,99 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
   } catch (err: any) {
     if (err.code === 'QUOTA_EXCEEDED' || err.status === 429) {
       return (
-        <div className="max-w-2xl mx-auto px-4 py-16">
-          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 shadow-lg text-center relative overflow-hidden">
-            <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-xs">
-              <Lock className="w-7 h-7" />
+        <PageFrame width="prose">
+          <Panel className="p-8 text-center sm:p-10">
+            <div className={noticeIcon('warn')}>
+              <Lock className="h-7 w-7" />
             </div>
 
-            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-amber-100/70 text-amber-800 mb-3">
-              {isZh ? '免费体验额度已用尽 (1/1)' : 'Free Trial Quota Reached (1/1)'}
-            </span>
+            <Badge tone="warn">FREE TRIAL &middot; 1/1</Badge>
 
-            <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
-              {isZh ? '解锁全量商业机会深度研报' : 'Unlock Full Research Reports'}
-            </h2>
+            <h1 className="mt-3 font-display text-2xl font-bold tracking-tight text-fg">
+              {t('reportGate.quotaTitle')}
+            </h1>
 
-            <p className="text-sm text-slate-600 max-w-md mx-auto mb-8 leading-relaxed">
-              {isZh
-                ? `您已体验过 1 份完整商业机会研报。当前商业机会「${detail.opportunity.title}」包含六大章节研报（市场规模估算、Top 10 弱站穿透分析、真实结账证据、MVP 单周落地架构与止损准则）。升级至 Builder Pro 每月可解锁 30 份深度研报。`
-                : `You have reached your 1 free monthly report limit. Upgrade to Builder Pro to unlock 30 in-depth opportunity reports per month.`}
+            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-fg-muted">
+              {t('reportGate.quotaDesc', { title: detail.opportunity.title })}
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
                 href={`/pricing?reason=quota_exceeded&feature=report&back=${encodeURIComponent(`/opportunities/${slug}`)}`}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all"
+                className={cn(buttonVariants({ size: 'md' }), 'w-full sm:w-auto')}
               >
-                <Sparkles className="w-4 h-4" />
-                <span>{isZh ? '升级至 Builder Pro ($29/月)' : 'Upgrade to Builder Pro'}</span>
+                <Sparkles className="h-4 w-4" />
+                <span>{t('reportGate.upgradeCta')}</span>
               </Link>
               <Link
                 href={`/opportunities/${slug}`}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors"
+                className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full sm:w-auto')}
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>{isZh ? '返回机会看板' : 'Back to Opportunity'}</span>
+                <ArrowLeft className="h-4 w-4" />
+                <span>{t('reportGate.backToOpportunity')}</span>
               </Link>
             </div>
-          </div>
-        </div>
+          </Panel>
+        </PageFrame>
       );
     }
 
     if (err.code === 'PRECONDITION_FAILED' || err.status === 409) {
       console.error(`[OpportunityReportPage] Evidence gate not met for ${slug}:`, err?.detail || err?.message || err);
       return (
-        <div className="max-w-2xl mx-auto px-4 py-16">
-          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 shadow-lg text-center relative overflow-hidden">
-            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-xs">
-              <Sparkles className="w-7 h-7" />
+        <PageFrame width="prose">
+          <Panel className="p-8 text-center sm:p-10">
+            <div className={noticeIcon('accent')}>
+              <Sparkles className="h-7 w-7" />
             </div>
 
-            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-100/70 text-blue-800 mb-3">
-              {isZh ? '证据门槛未满足' : 'Evidence gate not met'}
-            </span>
+            <Badge tone="accent">EVIDENCE GATE NOT MET</Badge>
 
-            <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
-              {isZh ? '该机会仍在观察中' : 'This opportunity is still under observation'}
-            </h2>
+            <h1 className="mt-3 font-display text-2xl font-bold tracking-tight text-fg">
+              {t('reportGate.evidenceTitle')}
+            </h1>
 
-            <p className="text-sm text-slate-600 max-w-md mx-auto mb-8 leading-relaxed">
-              {isZh
-                ? '报告只对已发布的 BUILD NOW 或 EARLY BET 决策开放。升级套餐不会绕过证据门槛；请先关注该机会，等待发布。'
-                : 'Reports are available only for published BUILD NOW or EARLY BET decisions. A paid plan does not bypass the evidence gate; watch this opportunity until it is published.'}
+            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-fg-muted">
+              {t('reportGate.evidenceDesc')}
             </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <div className="mt-6 flex justify-center">
               <Link
                 href={`/opportunities/${slug}`}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors"
+                className={buttonVariants({ variant: 'outline', size: 'md' })}
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>{isZh ? '返回机会看板' : 'Back to Opportunity'}</span>
+                <ArrowLeft className="h-4 w-4" />
+                <span>{t('reportGate.backToOpportunity')}</span>
               </Link>
             </div>
-          </div>
-        </div>
+          </Panel>
+        </PageFrame>
       );
     }
 
     console.error(`[OpportunityReportPage] Report unavailable for ${slug}:`, err?.message || err);
 
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16">
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm text-center">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Clock className="w-6 h-6" />
+      <PageFrame width="prose">
+        <Panel className="p-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center border border-warn/40 bg-warn/10 text-warn">
+            <Clock className="h-6 w-6" />
           </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">
-            {isZh ? '深度研究报告加载失败' : 'Report Unavailable'}
-          </h2>
-          <p className="text-sm text-slate-600 max-w-md mx-auto mb-6 leading-relaxed">
-            {isZh
-              ? '生成研报时发生异常，请稍后刷新重试或联系客服。'
-              : 'Failed to generate report. Please try again later.'}
+          <h1 className="font-display text-xl font-bold text-fg">{t('reportGate.errorTitle')}</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-fg-muted">
+            {t('reportGate.errorDesc')}
           </p>
-          <div className="flex items-center justify-center gap-3">
+          <div className="mt-6 flex justify-center">
             <Link
               href={`/opportunities/${slug}`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold transition-colors"
+              className={cn(buttonVariants({ variant: 'secondary', size: 'md' }))}
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span>{isZh ? '返回机会看板' : 'Back to Opportunity'}</span>
+              <ArrowLeft className="h-4 w-4" />
+              <span>{t('reportGate.backToOpportunity')}</span>
             </Link>
           </div>
-        </div>
-      </div>
+        </Panel>
+      </PageFrame>
     );
   }
 
@@ -174,6 +181,11 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
       data={report.data}
       markdown={report.markdown}
       opportunitySlug={slug}
+      bands={{
+        d: detail.opportunity.d_band ?? 'INSUFFICIENT',
+        m: detail.opportunity.m_band ?? 'INSUFFICIENT',
+        w: detail.opportunity.w_band ?? 'INSUFFICIENT',
+      }}
     />
   );
 }

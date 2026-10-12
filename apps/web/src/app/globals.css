@@ -2,14 +2,283 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+/**
+ * Design tokens — one theme, one set of semantic names.
+ *
+ * The site is single-theme light: an instrument-panel reading of the
+ * Observatory direction, on paper rather than on deep space. There is
+ * deliberately no second scope and no `data-theme` attribute — the dark
+ * prototype was retired before launch, and keeping a dead scope would leave
+ * every token with two candidate meanings.
+ *
+ * Every value below was picked against WCAG, not by eye:
+ *  · text tokens clear 4.5:1 on `canvas`, `surface` and `surface-2`;
+ *  · `line-control` clears 3:1 on all three (a control boundary is a meaningful
+ *    UI boundary, so 1.4.11 applies);
+ *  · the signal colours are dark inks on purpose — they are used as *text*
+ *    (text-signal / text-warn / …) far more often than as fills, and a dark ink
+ *    is the only value that works in both roles.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Surfaces. `canvas` is a warm-neutral paper rather than a blue-grey: the
+       whole point of the direction is that it does not read as a Tailwind
+       template. `surface` lifts off it by only 1.10:1 — panels are defined by
+       their hairline and brackets, not by a heavy fill step. */
+    --c-canvas: 243 244 241;
+    --c-surface: 255 255 255;
+    --c-surface-2: 233 235 230;
+
+    /* Paired "inverse" surface: the dark instrument well used for the evidence
+       drawer, the pricing slab and the raw-metrics blocks. `overlay` is one step
+       deeper still — it is both the modal scrim and the code well inside an
+       inverse panel. */
+    --c-inverse: 19 26 23;
+    --c-inverse-fg: 231 235 230;
+    --c-inverse-line: 58 70 64;
+    --c-overlay: 8 13 11;
+
+    /* Hairlines, three deliberate levels:
+       · `line`         — decorative separation. Exempt from 1.4.11 because it
+                          never forms the only visible edge of a control.
+       · `line-strong`  — decorative emphasis: link underlines, radar rings,
+                          skeleton bars.
+       · `line-control` — control boundaries (inputs, outline buttons, toggles),
+                          where the border IS the affordance. */
+    --c-line: 207 213 204;
+    --c-line-strong: 166 174 163;
+    --c-line-control: 126 134 124;
+
+    /* Text */
+    --c-fg: 18 26 22;
+    --c-fg-muted: 78 90 83;
+    --c-fg-subtle: 94 106 98;
+
+    /* Interaction */
+    --c-accent: 11 110 69;
+    --c-accent-fg: 255 255 255;
+    --c-danger-fg: 255 255 255;
+
+    /* "The page's dominant ink, as a fill" — the secondary button and the skip
+       link. It has its own token rather than reusing `fg` so that `fg` can stay
+       a pure *text* token and be safely re-pointed inside the inverse scope.
+       Pairing it with `canvas` was what made that impossible before. */
+    --c-solid: 18 26 22;
+    --c-solid-fg: 243 244 241;
+
+    /* Signals */
+    --c-signal: 10 107 67;
+    --c-warn: 138 83 0;
+    --c-warn-fg: 255 255 255;
+    --c-danger: 179 32 47;
+    --c-info: 30 90 168;
+
+    /* The three axes are separate colours on purpose: sharing one "positive"
+       colour would make the D/M/W readout impossible to scan. */
+    --c-axis-d: 10 107 67;
+    --c-axis-m: 30 90 168;
+    --c-axis-w: 138 83 0;
+
+    /* Signals *inside* an inverse panel. The dark inks above are unreadable on
+       the instrument well (2.6:1), so the well gets its own bright set — the
+       only place in the system where a colour is tuned for a dark background.
+       They are applied automatically by the `.on-inverse` scope below, so a
+       call site never has to remember to switch. */
+    --c-inverse-signal: 111 242 176;
+    --c-inverse-warn: 255 180 84;
+    --c-inverse-info: 138 180 255;
+    --c-inverse-danger: 255 138 152;
+    --c-inverse-accent: 196 168 255;
+    /* The three text levels on the well (14.7:1 / 8.2:1 / 6.1:1). They exist so
+       that de-emphasising text inside the well is done with a token instead of
+       an alpha modifier — see the no-alpha-on-text rule in §5.4 of docs/16. */
+    --c-inverse-fg-muted: 168 179 171;
+    --c-inverse-fg-subtle: 142 154 145;
+
+    /* Observatory decoration. Unlike the retired dark theme these are always
+       on: the film grain, the viewfinder brackets and the sweep are the whole
+       identity, so they carry real values at `:root`. */
+    --obs-noise-opacity: 0.02;
+    --obs-bracket-len: 14px;
+    --obs-bracket-w: 1px;
+    --obs-sweep-duration: 6s;
+    --obs-tick-duration: 34s;
+
+    /* CJK stacks are system fonts: no webfont payload. */
+    --font-cjk-sans: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC',
+      'WenQuanYi Micro Hei', sans-serif;
+    --font-cjk-serif: 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'STSong', 'SimSun',
+      serif;
+  }
+
+  body {
+    color: rgb(var(--c-fg));
+    background-color: rgb(var(--c-canvas));
+    font-family: var(
+      --font-sans,
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      'Helvetica Neue',
+      Arial,
+      sans-serif
+    );
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Selection reads as the signal colour rather than the OS blue — one of the
+     small places where the instrument voice shows through. */
+  ::selection {
+    background-color: rgb(var(--c-signal));
+    color: rgb(var(--c-accent-fg));
+  }
+
+  /* Focus rings: `accent` is 5.7:1 on canvas and 6.3:1 on surface, so a single
+     outline colour is visible everywhere. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+  }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
+@layer components {
+  /**
+   * The inverse scope. Any element painted on the dark instrument well gets this
+   * class, and the signal-family tokens are re-pointed at their on-dark values
+   * for the whole subtree.
+   *
+   * This exists because the alternative — every call site remembering to write
+   * `text-inverse-warn` instead of `text-warn` — failed in production: the
+   * pricing value-anchor slab rendered `text-warn` / `text-signal` / `text-axis-m`
+   * at 2.6–2.8:1 on the well, because those tokens mean "dark ink for paper".
+   * Remapping by scope makes the mistake unrepresentable instead of merely
+   * fixed, and keeps working for markup nobody has written yet.
+   *
+   * Only the *signal* family and the *text* family are remapped. The structural
+   * tokens (`surface`, `line`, `inverse`) are deliberately left alone: inside the
+   * well they are paired explicitly with `inverse-*`, and silently repointing
+   * them would break every fill/background pairing at once.
+   */
+  .on-inverse {
+    --c-signal: var(--c-inverse-signal);
+    --c-warn: var(--c-inverse-warn);
+    --c-info: var(--c-inverse-info);
+    --c-danger: var(--c-inverse-danger);
+    --c-accent: var(--c-inverse-accent);
+    /* The axes keep their three-way distinction, mapped onto the on-dark set. */
+    --c-axis-d: var(--c-inverse-signal);
+    --c-axis-m: var(--c-inverse-info);
+    --c-axis-w: var(--c-inverse-warn);
+    /* The paired foregrounds flip with their fills: a bright signal carries a
+       dark label, exactly as it did in the retired dark theme. */
+    --c-accent-fg: var(--c-inverse);
+    --c-danger-fg: var(--c-inverse);
+
+    /* Text. This is what makes `text-fg-subtle` — a token chosen for paper —
+       readable when a component built for paper (SectionHeading, say) is dropped
+       into the well. Without it the pricing slab's section eyebrow rendered at
+       3.1:1. */
+    --c-fg: var(--c-inverse-fg);
+    --c-fg-muted: var(--c-inverse-fg-muted);
+    --c-fg-subtle: var(--c-inverse-fg-subtle);
+    /* A solid button inside the well is light with dark ink — inverted relative
+       to its surroundings, which is the whole point of the pair. */
+    --c-solid: var(--c-inverse-fg);
+    --c-solid-fg: var(--c-inverse);
+    /* The bright amber fill carries the well's own ink, not white. */
+    --c-warn-fg: var(--c-inverse);
+  }
+
+  /* Film grain: an inline feTurbulence, so it costs no request and no file. */
+  .obs-grain {
+    position: fixed;
+    inset: 0;
+    /* Below the sticky navbar and overlays (z-50) so grain never sits on top
+       of a modal or drawer. */
+    z-index: 40;
+    pointer-events: none;
+    opacity: var(--obs-noise-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+
+  /* Viewfinder corner brackets — the signature of the direction. Ink on paper,
+     which is why they can be a plain alpha of `fg` here. */
+  .obs-frame {
+    position: relative;
+  }
+  .obs-frame::before,
+  .obs-frame::after {
+    content: '';
+    position: absolute;
+    width: var(--obs-bracket-len);
+    height: var(--obs-bracket-len);
+    border-style: solid;
+    border-width: 0;
+    border-color: rgb(var(--c-fg) / 0.55);
+    pointer-events: none;
+  }
+  .obs-frame::before {
+    top: -1px;
+    left: -1px;
+    border-top-width: var(--obs-bracket-w);
+    border-left-width: var(--obs-bracket-w);
+  }
+  .obs-frame::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom-width: var(--obs-bracket-w);
+    border-right-width: var(--obs-bracket-w);
+  }
+
+  /* Marquee strip. Declared only for users who accept motion: with
+     reduced motion the track simply stays put and still reads. */
+  .obs-tick-track {
+    display: flex;
+    width: max-content;
+    white-space: nowrap;
+  }
+}
+
+@layer utilities {
+  @media (prefers-reduced-motion: no-preference) {
+    /* Alpha is lower than it was on the dark canvas: the same 55% wash that
+       read as a faint glow on near-black reads as a solid green sector on
+       paper. */
+    .obs-sweep {
+      background-image: conic-gradient(
+        from 20deg,
+        rgb(var(--c-signal) / 0.28),
+        transparent 24%
+      );
+      animation: obs-sweep var(--obs-sweep-duration) linear infinite;
+    }
+    .obs-tick-track {
+      animation: obs-tick var(--obs-tick-duration) linear infinite;
+    }
+    .obs-blink {
+      animation: obs-blink 1.8s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes obs-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes obs-tick {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes obs-blink {
+  50% {
+    opacity: 0.25;
+  }
 }

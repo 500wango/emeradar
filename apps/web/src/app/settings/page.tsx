@@ -25,6 +25,13 @@ import {
   Check,
   MailCheck,
 } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { Badge } from '@/components/ui/Badge';
+import { Button, buttonVariants } from '@/components/ui/Button';
+import { Field, FieldLabel, Input, Select } from '@/components/ui/Field';
+import { Meter } from '@/components/ui/Meter';
+import { PageFrame } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 
 const BUILD_ARCHETYPES = [
   { id: 'LIGHTWEIGHT_TOOL', label: 'Lightweight Tool (Single-purpose web app)', labelZh: '轻量工具 (单任务Web应用)' },
@@ -38,6 +45,24 @@ const BUILD_ARCHETYPES = [
 const TARGET_MARKETS = [
   { id: 'US', label: 'United States (US · en-US)', labelZh: '美国英语搜索市场 (US · en-US)' },
 ];
+
+/** A selectable archetype/market card. Selection is a hairline accent border,
+ *  not a gradient or a filled pill. */
+const optionCard = (selected: boolean) =>
+  cn(
+    'flex cursor-pointer items-center gap-3 border p-3 text-xs font-semibold transition-colors',
+    selected
+      ? 'border-accent bg-accent/10 text-fg'
+      : 'border-line-control text-fg-muted hover:border-accent hover:text-fg'
+  );
+
+const tabClass = (active: boolean) =>
+  cn(
+    '-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+    active ? 'border-accent text-fg' : 'border-transparent text-fg-subtle hover:text-fg'
+  );
+
+const sectionLabelClass = 'font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle';
 
 function SettingsContent() {
   const { user, preferences, isLoading, updatePreferences } = useAuth();
@@ -177,7 +202,7 @@ function SettingsContent() {
   };
 
   const handleRevokeApiKey = async (keyId: string) => {
-    if (!confirm(isZh ? '确定要撤销此 API 密钥吗？使用它的所有脚本将立即失效。' : 'Are you sure you want to revoke this API Key? Any scripts using it will lose access immediately.')) {
+    if (!confirm(t('settings.confirmRevokeKey'))) {
       return;
     }
     try {
@@ -203,8 +228,8 @@ function SettingsContent() {
   // If loading session
   if (isLoading) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-accent" />
       </div>
     );
   }
@@ -212,34 +237,27 @@ function SettingsContent() {
   // If not logged in
   if (!user) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-6">
-          <User className="w-8 h-8" />
+      <PageFrame width="prose" className="text-center">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center border border-line bg-surface-2 text-accent">
+          <User className="h-8 w-8" />
         </div>
-        <h2 className="text-2xl font-bold text-slate-900">
-          {isZh ? '请登录以访问账户控制台' : 'Sign in to access Account Dashboard'}
-        </h2>
-        <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto">
-          {isZh
-            ? '管理您的搜索偏好、API密钥、项目战绩和套餐配额。'
-            : 'Manage your research preferences, API keys, project track record, and plan entitlements.'}
+        <h1 className="font-display text-2xl font-bold text-fg">{t('settings.signInTitle')}</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-fg-muted">
+          {t('settings.signInDesc')}
         </p>
 
-        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Link
-            href="/login"
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 transition"
-          >
+        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Link href="/login" className={buttonVariants({ size: 'md', className: 'w-full sm:w-auto' })}>
             {t('nav.login')}
           </Link>
           <Link
             href="/register"
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition"
+            className={buttonVariants({ variant: 'outline', size: 'md', className: 'w-full sm:w-auto' })}
           >
             {t('nav.signup')}
           </Link>
         </div>
-      </div>
+      </PageFrame>
     );
   }
 
@@ -255,67 +273,112 @@ function SettingsContent() {
   // the quota gauges rendered directly beneath it.
   const currentPlan = entitlements ? resolvePlanCode(entitlements) : user.tier;
 
-  const tierBadgeColor =
-    currentPlan === 'TEAM'
-      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-      : currentPlan === 'PRO'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-      : 'bg-slate-100 text-slate-700 border-slate-200';
+  const planTone: 'info' | 'signal' | 'neutral' =
+    currentPlan === 'TEAM' ? 'info' : currentPlan === 'PRO' ? 'signal' : 'neutral';
+
+  const dateLocale = isZh ? 'zh-CN' : undefined;
+
+  const billingNote = entitlements?.renewsAt
+    ? t('settings.billingRenews', { date: entitlements.renewsAt.slice(0, 10) })
+    : currentPlan === 'FREE'
+    ? t('settings.billingFree')
+    : t('settings.billingLegacy');
+
+  const quotas = entitlements
+    ? [
+        {
+          key: 'projects',
+          label: t('pricing.trackedProjects'),
+          used: entitlements.currentProjectsCount,
+          limit: entitlements.maxProjects,
+          tone: 'signal' as const,
+          note: t('settings.slotsRemaining', {
+            count: Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount),
+          }),
+        },
+        {
+          key: 'reports',
+          label: t('pricing.monthlyReports'),
+          used: entitlements.reportGenerationUsed,
+          limit: entitlements.reportGenerationMonthlyLimit,
+          tone: 'accent' as const,
+          note: t('settings.generationsRemaining', { count: entitlements.remainingReportGenerations }),
+        },
+        {
+          key: 'exports',
+          label: t('pricing.reportExports'),
+          used: entitlements.exportReportsUsed,
+          limit: entitlements.exportReportsMonthlyLimit,
+          tone: 'neutral' as const,
+          note: t('settings.exportsRemaining', { count: entitlements.remainingReports }),
+        },
+        {
+          key: 'alerts',
+          label: t('pricing.alertRules'),
+          used: entitlements.currentAlertsCount,
+          limit: entitlements.maxAlerts,
+          tone: 'warn' as const,
+          note: t('settings.rulesActive', { count: entitlements.currentAlertsCount }),
+        },
+        {
+          key: 'scans',
+          label: t('settings.liveScans'),
+          used: entitlements.liveScansUsedToday || 0,
+          limit: entitlements.liveScanDailyLimit || 3,
+          tone: 'warn' as const,
+          note: t('settings.scansRemaining', { count: entitlements.remainingLiveScansToday ?? 3 }),
+        },
+      ]
+    : [];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {/* Header Profile Bar */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <PageFrame width="wide">
+      {/* Profile bar — a hairline band, not a floating card. */}
+      <section className="flex flex-col justify-between gap-6 border-b border-line pb-8 md:flex-row md:items-center">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-extrabold text-xl flex items-center justify-center shadow-md shadow-blue-500/20">
+          <div className="on-inverse flex h-16 w-16 shrink-0 items-center justify-center border border-inverse-line bg-inverse font-display text-xl font-extrabold text-inverse-fg">
             {userInitials}
           </div>
-          <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+          {/* min-w-0：这个块里是「显示名 + 两枚 nowrap 徽章」和一行 mono 的
+              User ID，不给它收缩权限，整块 315px 的 min-content 会连同左侧头像
+              把页面顶出 23px。 */}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="font-display text-xl font-bold text-fg sm:text-2xl">
                 {user.displayName || user.email.split('@')[0]}
               </h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${tierBadgeColor}`}>
-                {t(planLabelKey(currentPlan))}
-              </span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                {user.role}
-              </span>
+              <Badge tone={planTone}>{t(planLabelKey(currentPlan))}</Badge>
+              <Badge tone="accent">{user.role}</Badge>
             </div>
-            <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-              <span>{user.email}</span>
-              <span>•</span>
-              <span className="text-xs text-slate-400">ID: {user.id}</span>
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-fg-muted">
+              <span className="break-all">{user.email}</span>
+              <span className="text-fg-subtle">•</span>
+              <span className="break-all font-mono text-xs text-fg-subtle">ID: {user.id}</span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <Link
-            href="/pricing"
-            className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition flex items-center gap-1.5"
-          >
-            <CreditCard className="w-3.5 h-3.5 text-slate-500" />
-            <span>{t('settings.managePlan')}</span>
-          </Link>
-        </div>
-      </div>
+        <Link href="/pricing" className={buttonVariants({ variant: 'outline', size: 'md' })}>
+          <CreditCard className="h-3.5 w-3.5" />
+          <span>{t('settings.managePlan')}</span>
+        </Link>
+      </section>
 
-      {/* Tabs Navigation */}
-      <div role="tablist" aria-label={isZh ? '账户设置分区' : 'Account settings sections'} className="flex items-center gap-2 border-b border-slate-200 mb-8 overflow-x-auto pb-2">
+      {/* Tabs navigation */}
+      <div
+        role="tablist"
+        aria-label={t('settings.sectionsAria')}
+        className="mb-10 flex items-center gap-1 overflow-x-auto border-b border-line"
+      >
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === 'profile'}
           aria-controls="settings-panel-profile"
           onClick={() => setActiveTab('profile')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
-            activeTab === 'profile'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={tabClass(activeTab === 'profile')}
         >
-          <User className="w-4 h-4" />
+          <User className="h-4 w-4" />
           <span>{t('settings.tabProfile')}</span>
         </button>
 
@@ -325,13 +388,9 @@ function SettingsContent() {
           aria-selected={activeTab === 'preferences'}
           aria-controls="settings-panel-preferences"
           onClick={() => setActiveTab('preferences')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
-            activeTab === 'preferences'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={tabClass(activeTab === 'preferences')}
         >
-          <Sliders className="w-4 h-4" />
+          <Sliders className="h-4 w-4" />
           <span>{t('settings.tabPreferences')}</span>
         </button>
 
@@ -342,13 +401,9 @@ function SettingsContent() {
             aria-selected={activeTab === 'api-keys'}
             aria-controls="settings-panel-api-keys"
             onClick={() => setActiveTab('api-keys')}
-            className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
-              activeTab === 'api-keys'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
+            className={tabClass(activeTab === 'api-keys')}
           >
-            <KeyRound className="w-4 h-4" />
+            <KeyRound className="h-4 w-4" />
             <span>{t('settings.tabApiKeys')}</span>
           </button>
         )}
@@ -359,66 +414,61 @@ function SettingsContent() {
           aria-selected={activeTab === 'billing'}
           aria-controls="settings-panel-billing"
           onClick={() => setActiveTab('billing')}
-          className={`px-4 py-2.5 text-sm font-semibold rounded-lg flex items-center gap-2 transition whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
-            activeTab === 'billing'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
+          className={tabClass(activeTab === 'billing')}
         >
-          <CreditCard className="w-4 h-4" />
+          <CreditCard className="h-4 w-4" />
           <span>{t('settings.tabBilling')}</span>
         </button>
       </div>
 
       {/* TAB 1: Profile */}
       {activeTab === 'profile' && (
-        <div id="settings-panel-profile" role="tabpanel" aria-label={t('settings.tabProfile')} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-              <h3 className="text-base font-bold text-slate-900 mb-1">
-                {isZh ? '账户基本信息' : 'Account Information'}
-              </h3>
-              <p className="text-xs text-slate-500 mb-6">
-                {isZh ? '与您账户关联的个人信息和身份凭证。' : 'Personal details and login credentials associated with your account.'}
-              </p>
+        <div id="settings-panel-profile" role="tabpanel" aria-label={t('settings.tabProfile')} className="grid grid-cols-1 gap-10 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <section>
+              <h2 className={sectionLabelClass}>{t('settings.accountInfoTitle')}</h2>
+              <p className="mt-3 text-xs leading-relaxed text-fg-muted">{t('settings.accountInfoDesc')}</p>
 
-              <div className="space-y-4">
+              <div className="mt-6 space-y-5 border-t border-line pt-6">
                 {!user.emailVerifiedAt && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+                  <div className="border border-warn/40 bg-warn/10 p-4" role="status">
                     <div className="flex items-start gap-3">
-                      <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                      <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-warn" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-amber-900">{isZh ? '请先验证邮箱' : 'Verify your email address'}</p>
-                        <p className="mt-1 text-xs leading-relaxed text-amber-800">{isZh ? '报告、项目、告警和订阅操作需要已确认的邮箱。' : 'Verified email is required for reports, projects, alerts, and subscriptions.'}</p>
-                        <button type="button" onClick={resendVerification} disabled={verificationSending} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">
+                        <p className="text-sm font-semibold text-fg">{t('settings.verifyEmailTitle')}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-fg-muted">{t('settings.verifyEmailDesc')}</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={resendVerification}
+                          disabled={verificationSending}
+                          className="mt-3"
+                        >
                           {verificationSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailCheck className="h-3.5 w-3.5" />}
-                          {verificationSending ? (isZh ? '发送中…' : 'Sending…') : (isZh ? '重新发送验证邮件' : 'Resend verification email')}
-                        </button>
-                        {verificationSent && <p className="mt-2 text-xs font-medium text-emerald-700">{isZh ? '如果邮箱尚未验证，新的链接已发送。' : 'If your email is not verified, a new link has been sent.'}</p>}
+                          {verificationSending ? t('settings.sending') : t('settings.resendVerification')}
+                        </Button>
+                        {verificationSent && (
+                          <p className="mt-2 text-xs font-medium text-signal">{t('settings.verificationSent')}</p>
+                        )}
                       </div>
                     </div>
                   </div>
                 )}
-                <div>
-                  <label htmlFor="settings-display-name" className="block text-xs font-semibold text-slate-700 mb-1">
-                    {t('auth.nameLabel')}
-                  </label>
-                  <input
+
+                <Field label={t('auth.nameLabel')} htmlFor="settings-display-name">
+                  <Input
                     id="settings-display-name"
                     name="displayName"
                     autoComplete="name"
                     type="text"
                     readOnly
                     value={user.displayName || ''}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label htmlFor="settings-email" className="block text-xs font-semibold text-slate-700 mb-1">
-                    {t('auth.emailLabel')}
-                  </label>
-                  <input
+                <Field label={t('auth.emailLabel')} htmlFor="settings-email">
+                  <Input
                     id="settings-email"
                     name="email"
                     autoComplete="email"
@@ -426,64 +476,54 @@ function SettingsContent() {
                     type="email"
                     readOnly
                     value={user.email}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800"
                   />
-                </div>
+                </Field>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      {t('settings.accountRole')}
-                    </label>
-                    <div className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800">
+                    <FieldLabel>{t('settings.accountRole')}</FieldLabel>
+                    <div className="mt-2 border border-line-control bg-surface px-3 py-2 text-sm font-medium text-fg">
                       {user.role}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      {t('settings.accountStatus')}
-                    </label>
-                    <div className="px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <FieldLabel>{t('settings.accountStatus')}</FieldLabel>
+                    <div className="mt-2 flex items-center gap-1.5 border border-signal/40 bg-signal/10 px-3 py-2 text-sm font-semibold text-signal">
+                      <CheckCircle2 className="h-4 w-4" />
                       <span>{user.status}</span>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
           </div>
 
-          {/* Sidebar Info */}
-          <div className="space-y-6">
-            <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-400">{t('settings.currentPlanCard')}</span>
-              <h4 className="text-2xl font-extrabold mt-1">{t(planLabelKey(currentPlan))}</h4>
-              <p className="text-xs text-slate-300 mt-2">
-                {isZh
-                  ? '实时 SERP 薄弱点指标、商业佐证与机会智能打分。'
-                  : 'Real-time SERP weakness indicators, commercial evidence, and opportunity scoring.'}
-              </p>
-              <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">{t('settings.entitlements')}</span>
-                <span className="font-semibold text-emerald-400">{isZh ? '已激活并经验证' : 'Active & Validated'}</span>
+          {/* Sidebar */}
+          <div className="space-y-8">
+            <Panel tone="inverse" className="p-6">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-inverse-fg-subtle">
+                {t('settings.currentPlanCard')}
+              </span>
+              <h3 className="mt-1 font-display text-2xl font-extrabold text-inverse-fg">
+                {t(planLabelKey(currentPlan))}
+              </h3>
+              <p className="mt-2 text-xs leading-relaxed text-inverse-fg-muted">{t('settings.currentPlanDesc')}</p>
+              <div className="mt-6 flex items-center justify-between border-t border-inverse-line pt-4 text-xs">
+                <span className="text-inverse-fg-subtle">{t('settings.entitlements')}</span>
+                <span className="font-semibold text-signal">{t('settings.activeValidated')}</span>
               </div>
-              <Link
-                href="/pricing"
-                className="mt-4 block w-full py-2.5 text-center rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-xs transition"
-              >
+              <Link href="/pricing" className={cn(buttonVariants({ size: 'sm' }), 'mt-4 w-full')}>
                 {t('pricing.upgradeToPro')} →
               </Link>
-            </div>
+            </Panel>
 
-            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-xs text-slate-600 space-y-3">
-              <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <section className="border-t border-line pt-6">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-fg">
+                <ShieldCheck className="h-4 w-4 text-signal" />
                 <span>{t('settings.securityCard')}</span>
               </div>
-              <p>
-                {t('settings.securityCardDesc')}
-              </p>
-            </div>
+              <p className="mt-2 text-xs leading-relaxed text-fg-muted">{t('settings.securityCardDesc')}</p>
+            </section>
           </div>
         </div>
       )}
@@ -491,135 +531,99 @@ function SettingsContent() {
       {/* TAB 2: Preferences */}
       {activeTab === 'preferences' && (
         <form id="settings-panel-preferences" role="tabpanel" aria-label={t('settings.tabPreferences')} onSubmit={handleSavePreferences} className="max-w-3xl space-y-8">
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-blue-600" />
-                {t('settings.targetMarketsTitle')}
-              </h3>
-              <p className="text-xs text-slate-500 mb-4">
-                {t('settings.targetMarketsDesc')}
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {TARGET_MARKETS.map((m) => {
-                  const checked = selectedMarkets.includes(m.id);
-                  return (
-                    <label
-                      key={m.id}
-                      className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
-                        checked ? 'border-blue-500 bg-blue-50/50' : 'border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          if (checked) {
-                            setSelectedMarkets(selectedMarkets.filter((x) => x !== m.id));
-                          } else {
-                            setSelectedMarkets([...selectedMarkets, m.id]);
-                          }
-                        }}
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-xs font-semibold text-slate-800">
-                        {isZh ? m.labelZh : m.label}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-emerald-600" />
-                {t('settings.preferredArchetypesTitle')}
-              </h3>
-              <p className="text-xs text-slate-500 mb-4">
-                {t('settings.preferredArchetypesDesc')}
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {BUILD_ARCHETYPES.map((a) => {
-                  const checked = selectedArchetypes.includes(a.id);
-                  return (
-                    <label
-                      key={a.id}
-                      className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
-                        checked ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          if (checked) {
-                            setSelectedArchetypes(selectedArchetypes.filter((x) => x !== a.id));
-                          } else {
-                            setSelectedArchetypes([...selectedArchetypes, a.id]);
-                          }
-                        }}
-                        className="rounded text-emerald-600 focus:ring-emerald-500"
-                      />
-                      <span className="text-xs font-semibold text-slate-800">
-                        {isZh ? a.labelZh : a.label}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 mb-1">
-                {t('settings.languageTitle')}
-              </h3>
-              <p className="text-xs text-slate-500 mb-3">
-                {t('settings.languageDesc')}
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {t('settings.languageSelect')}
+          <section>
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-fg">
+              <Globe className="h-4 w-4 text-accent" />
+              {t('settings.targetMarketsTitle')}
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">{t('settings.targetMarketsDesc')}</p>
+            <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {TARGET_MARKETS.map((m) => {
+                const checked = selectedMarkets.includes(m.id);
+                return (
+                  <label key={m.id} className={optionCard(checked)}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        if (checked) {
+                          setSelectedMarkets(selectedMarkets.filter((x) => x !== m.id));
+                        } else {
+                          setSelectedMarkets([...selectedMarkets, m.id]);
+                        }
+                      }}
+                    />
+                    <span>{isZh ? m.labelZh : m.label}</span>
                   </label>
-                  <select
-                    value={locale}
-                    onChange={(e) => {
-                      const nextLoc = e.target.value as Locale;
-                      setLocale(nextLoc);
-                      setI18nLocale(nextLoc);
-                    }}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm"
-                  >
-                    <option value="zh-CN">简体中文 (Simplified Chinese)</option>
-                    <option value="en-US">English (United States)</option>
-                  </select>
-                </div>
-              </div>
+                );
+              })}
             </div>
+          </section>
 
-            <div className="pt-4 flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={savingPrefs}
-                className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 transition flex items-center gap-2"
-              >
-                {savingPrefs ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>{t('common.saving')}</span>
-                  </>
-                ) : (
-                  <span>{t('settings.savePreferencesBtn')}</span>
-                )}
-              </button>
-              {prefsSaved && (
-                <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                  {t('settings.preferencesUpdated')}
-                </span>
-              )}
+          <section className="border-t border-line pt-6">
+            <h2 className="flex items-center gap-2 font-display text-base font-bold text-fg">
+              <Layers className="h-4 w-4 text-accent" />
+              {t('settings.preferredArchetypesTitle')}
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">{t('settings.preferredArchetypesDesc')}</p>
+            <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {BUILD_ARCHETYPES.map((a) => {
+                const checked = selectedArchetypes.includes(a.id);
+                return (
+                  <label key={a.id} className={optionCard(checked)}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        if (checked) {
+                          setSelectedArchetypes(selectedArchetypes.filter((x) => x !== a.id));
+                        } else {
+                          setSelectedArchetypes([...selectedArchetypes, a.id]);
+                        }
+                      }}
+                    />
+                    <span>{isZh ? a.labelZh : a.label}</span>
+                  </label>
+                );
+              })}
             </div>
+          </section>
+
+          <section className="border-t border-line pt-6">
+            <h2 className="font-display text-base font-bold text-fg">{t('settings.languageTitle')}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">{t('settings.languageDesc')}</p>
+            <Field label={t('settings.languageSelect')} className="mt-4 sm:max-w-xs">
+              <Select
+                value={locale}
+                onChange={(e) => {
+                  const nextLoc = e.target.value as Locale;
+                  setLocale(nextLoc);
+                  setI18nLocale(nextLoc);
+                }}
+              >
+                <option value="zh-CN">简体中文 (Simplified Chinese)</option>
+                <option value="en-US">English (United States)</option>
+              </Select>
+            </Field>
+          </section>
+
+          <div className="flex items-center gap-3 border-t border-line pt-6">
+            <Button type="submit" disabled={savingPrefs}>
+              {savingPrefs ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{t('common.saving')}</span>
+                </>
+              ) : (
+                <span>{t('settings.savePreferencesBtn')}</span>
+              )}
+            </Button>
+            {prefsSaved && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-signal">
+                <CheckCircle2 className="h-4 w-4" />
+                {t('settings.preferencesUpdated')}
+              </span>
+            )}
           </div>
         </form>
       )}
@@ -627,20 +631,18 @@ function SettingsContent() {
       {/* TAB 3: Developer API Keys */}
       {activeTab === 'api-keys' && (
         <div id="settings-panel-api-keys" role="tabpanel" aria-label={t('settings.tabApiKeys')} className="space-y-8">
-          {/* Header Card */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {/* Header */}
+          <section className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
             <div>
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Code2 className="w-5 h-5 text-blue-600" />
+              <h2 className="flex items-center gap-2 font-display text-base font-bold text-fg">
+                <Code2 className="h-5 w-5 text-accent" />
                 {t('settings.apiKeysTitle')}
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-xl">
-                {t('settings.apiKeysDesc')}
-              </p>
+              </h2>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-fg-muted">{t('settings.apiKeysDesc')}</p>
             </div>
 
             <form onSubmit={handleCreateApiKey} className="flex items-center gap-2">
-              <input
+              <Input
                 id="api-key-label"
                 name="apiKeyLabel"
                 autoComplete="off"
@@ -649,341 +651,204 @@ function SettingsContent() {
                 maxLength={60}
                 value={newKeyLabel}
                 onChange={(e) => setNewKeyLabel(e.target.value)}
-                className="px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                className="w-full sm:w-64"
               />
-              <button
-                type="submit"
-                disabled={isGeneratingKey}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition flex items-center gap-1.5 shrink-0"
-              >
-                {isGeneratingKey ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Plus className="w-3.5 h-3.5" />
-                )}
+              <Button type="submit" size="sm" disabled={isGeneratingKey} className="shrink-0">
+                {isGeneratingKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 <span>{t('settings.generateKeyBtn')}</span>
-              </button>
+              </Button>
             </form>
-          </div>
+          </section>
 
           {keyError && (
-            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <Panel tone="raised" className="flex items-center gap-2 border-danger/40 p-4 text-xs text-danger">
+              <AlertCircle className="h-4 w-4 shrink-0 text-danger" />
               <span>{keyError}</span>
-            </div>
+            </Panel>
           )}
 
-          {/* One-time Key Display Modal/Card */}
+          {/* One-time secret display */}
           {generatedSecret && (
-            <div className="p-5 rounded-2xl bg-amber-50 border border-amber-300 shadow-md">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1.5">
-                  <AlertCircle className="w-4 h-4 text-amber-600" />
-                  {isZh ? '请妥善保存您的 Secret API 密钥' : 'Save Your Secret API Key'}
+            <Panel tone="raised" className="border-warn/40 p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-warn">
+                  <AlertCircle className="h-4 w-4" />
+                  {t('settings.saveSecretTitle')}
                 </span>
                 <button
                   type="button"
                   onClick={() => setGeneratedSecret(null)}
-                  className="text-xs text-amber-700 hover:text-amber-900 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+                  className="text-xs font-semibold text-fg-muted transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 >
                   {t('common.close')}
                 </button>
               </div>
-              <p className="text-xs text-amber-800 mb-3">
-                {t('settings.secretWarning')}
-              </p>
+              <p className="mb-3 text-xs leading-relaxed text-fg-muted">{t('settings.secretWarning')}</p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 font-mono text-xs px-3 py-2 bg-white rounded-xl border border-amber-300 text-slate-800 select-all overflow-x-auto">
+                <code className="flex-1 select-all overflow-x-auto border border-line-control bg-surface px-3 py-2 font-mono text-xs text-fg">
                   {generatedSecret}
                 </code>
-                <button
-                  type="button"
-                  onClick={handleCopySecret}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition flex items-center gap-1.5 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-                >
+                <Button type="button" variant="outline" size="sm" onClick={handleCopySecret} className="shrink-0">
                   {copiedKey ? (
                     <>
-                      <Check className="w-3.5 h-3.5" />
+                      <Check className="h-3.5 w-3.5" />
                       <span>{t('settings.copiedKeyBtn')}</span>
                     </>
                   ) : (
                     <>
-                      <Copy className="w-3.5 h-3.5" />
+                      <Copy className="h-3.5 w-3.5" />
                       <span>{t('settings.copyKeyBtn')}</span>
                     </>
                   )}
-                </button>
+                </Button>
               </div>
-            </div>
+            </Panel>
           )}
 
-          {/* Keys Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+          {/* Keys list */}
+          <Panel className="overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line p-4">
+              <span className={sectionLabelClass}>
                 {t('settings.activeKeys')} ({apiKeys.length})
               </span>
               <button
                 type="button"
                 onClick={loadApiKeys}
-                className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                className="flex items-center gap-1 text-xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
-                <RefreshCw className="w-3 h-3" />
-                <span>{isZh ? '刷新' : 'Refresh'}</span>
+                <RefreshCw className="h-3 w-3" />
+                <span>{t('settings.refresh')}</span>
               </button>
             </div>
 
             {loadingKeys ? (
               <div className="p-8 text-center">
-                <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto" />
-                <span className="text-xs text-slate-500 mt-2 block">{isZh ? '正在加载 API 密钥...' : 'Loading API keys...'}</span>
+                <Loader2 className="mx-auto h-6 w-6 animate-spin text-accent" />
+                <span className="mt-2 block text-xs text-fg-subtle">{t('settings.loadingKeys')}</span>
               </div>
             ) : apiKeys.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
-                <KeyRound className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-700">{t('settings.noKeys')}</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {isZh ? '在上方生成您的首个密钥，以编程方式访问 EmeRadar 机会数据。' : 'Create your first key above to access EmeRadar data programmatically.'}
-                </p>
+              <div className="p-12 text-center">
+                <KeyRound className="mx-auto mb-2 h-8 w-8 text-fg-subtle" />
+                <p className="text-sm font-semibold text-fg">{t('settings.noKeys')}</p>
+                <p className="mt-1 text-xs leading-relaxed text-fg-subtle">{t('settings.noKeysDesc')}</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-line">
                 {apiKeys.map((key) => {
                   const isRevoked = Boolean(key.revokedAt);
                   return (
                     <div
                       key={key.id}
-                      className="p-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition"
+                      className="flex flex-col justify-between gap-3 p-4 transition-colors hover:bg-surface-2 sm:flex-row sm:items-center sm:px-6"
                     >
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-slate-900">{key.label}</span>
+                          <span className="text-sm font-bold text-fg">{key.label}</span>
                           {isRevoked ? (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                              {isZh ? '已撤销' : 'Revoked'}
-                            </span>
+                            <Badge tone="danger">REVOKED</Badge>
                           ) : (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              {isZh ? '生效中' : 'Active'}
-                            </span>
+                            <Badge tone="signal" dot>ACTIVE</Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
-                          <code className="font-mono text-slate-600">{key.keyPrefix}</code>
+                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-fg-subtle">
+                          <code className="font-mono text-fg-muted">{key.keyPrefix}</code>
                           <span>•</span>
-                          <span>{isZh ? `创建于 ${new Date(key.createdAt).toLocaleDateString('zh-CN')}` : `Created ${new Date(key.createdAt).toLocaleDateString()}`}</span>
+                          <span>{t('settings.keyCreatedAt', { date: new Date(key.createdAt).toLocaleDateString(dateLocale) })}</span>
                           {key.lastUsedAt && (
                             <>
                               <span>•</span>
-                              <span>{isZh ? `最近使用于 ${new Date(key.lastUsedAt).toLocaleDateString('zh-CN')}` : `Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}</span>
+                              <span>{t('settings.keyLastUsedAt', { date: new Date(key.lastUsedAt).toLocaleDateString(dateLocale) })}</span>
                             </>
                           )}
                         </div>
                       </div>
 
                       {!isRevoked && (
-                        <button
+                        <Button
                           type="button"
+                          variant="danger"
+                          size="sm"
                           onClick={() => handleRevokeApiKey(key.id)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition flex items-center gap-1 self-start sm:self-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+                          className="self-start sm:self-auto"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" />
                           <span>{t('settings.revokeBtn')}</span>
-                        </button>
+                        </Button>
                       )}
                     </div>
                   );
                 })}
               </div>
             )}
-          </div>
+          </Panel>
 
-          {/* cURL Example */}
-          <div className="p-5 rounded-2xl bg-slate-900 text-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                {isZh ? 'API 请求调用示例' : 'Example API Request'}
+          {/* cURL example */}
+          <Panel tone="inverse" className="p-5">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-inverse-fg-subtle">
+                {t('settings.apiExampleTitle')}
               </span>
-              <span className="text-xs text-emerald-400 font-mono">REST / JSON</span>
+              <span className="font-mono text-xs text-signal">REST / JSON</span>
             </div>
-            <pre className="font-mono text-xs overflow-x-auto p-3 bg-slate-950 rounded-xl text-emerald-300">
+            <pre className="overflow-x-auto bg-overlay p-3 font-mono text-xs text-signal">
 {`curl -X GET "https://emeradar.com/api/v1/opportunities?verdict=GO_SIGNAL&limit=10" \\
   -H "Authorization: Bearer emd_live_YOUR_SECRET_KEY" \\
   -H "Accept: application/json"`}
             </pre>
-          </div>
+          </Panel>
         </div>
       )}
 
       {/* TAB 4: Billing & Quotas */}
       {activeTab === 'billing' && (
         <div id="settings-panel-billing" role="tabpanel" aria-label={t('settings.tabBilling')} className="space-y-8">
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+          <section className="border-b border-line pb-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
-                  {isZh ? '当前订阅状态' : 'Subscription Status'}
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+                  {t('settings.subscriptionStatus')}
                 </span>
-                <h3 className="text-2xl font-extrabold text-slate-900 mt-1">
+                <h2 className="mt-1 font-display text-2xl font-extrabold text-fg">
                   {t(planLabelKey(currentPlan))}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {entitlements?.renewsAt
-                    ? isZh
-                      ? `计费周期将于 ${entitlements.renewsAt.slice(0, 10)} 自动续费。您可随时升级、降级或终止订阅。`
-                      : `Billing renews automatically on ${entitlements.renewsAt.slice(0, 10)}. You can upgrade, downgrade, or cancel at any time.`
-                    : currentPlan === 'FREE'
-                    ? isZh
-                      ? '免费方案不产生任何计费。升级后可随时降级或终止订阅。'
-                      : 'The free plan bills nothing. You can downgrade or cancel at any time after upgrading.'
-                    : isZh
-                    ? '此套餐为保留的历史权益，不会产生新的计费。升级至 Builder Pro 可继续获得后续更新。'
-                    : 'This plan is a retained historical entitlement and generates no new billing. Upgrade to Builder Pro to keep receiving updates.'}
-                </p>
+                </h2>
+                <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{billingNote}</p>
               </div>
 
               <Link
                 href="/pricing"
-                className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition self-start sm:self-auto"
+                className={buttonVariants({ size: 'md', className: 'self-start sm:self-auto' })}
               >
-                {isZh ? '调整方案 / 升级套餐 →' : 'Change Plan / Upgrade →'}
+                {t('settings.changePlan')}
               </Link>
             </div>
+          </section>
 
-            {/* Quota Progress */}
-            {loadingEntitlements && !entitlements ? (
-              <div className="p-8 text-center">
-                <Loader2 className="w-6 h-6 text-blue-600 animate-spin mx-auto" />
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 pt-6">
-                {/* 1. Tracked Projects */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                    <span>{t('pricing.trackedProjects')}</span>
-                    <span className="text-blue-600 font-bold">
-                      {entitlements ? `${entitlements.currentProjectsCount} / ${entitlements.maxProjects}` : '0 / 0'}
+          {/* Quota meters */}
+          {loadingEntitlements && !entitlements ? (
+            <div className="p-8 text-center">
+              <Loader2 className="mx-auto h-6 w-6 animate-spin text-accent" />
+            </div>
+          ) : entitlements ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-5">
+              {quotas.map((quota) => (
+                <div key={quota.key} className="border-t border-line pt-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={sectionLabelClass}>{quota.label}</span>
+                    <span className="font-mono text-xs font-bold tabular-nums text-fg">
+                      {quota.used} / {quota.limit}
                     </span>
                   </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all"
-                      style={{
-                        width: `${entitlements ? Math.min(100, (entitlements.currentProjectsCount / Math.max(1, entitlements.maxProjects)) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {entitlements
-                      ? (isZh
-                          ? `剩余 ${Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount)} 个席位`
-                          : `${Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount)} slots remaining`)
-                      : '-'}
-                  </p>
+                  <Meter className="mt-3" value={quota.used} max={quota.limit} tone={quota.tone} />
+                  <p className="mt-2 text-[11px] leading-relaxed text-fg-subtle">{quota.note}</p>
                 </div>
-
-                {/* 2. Monthly Report Generations */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                    <span>{t('pricing.monthlyReports')}</span>
-                    <span className="text-emerald-600 font-bold">
-                      {entitlements ? `${entitlements.reportGenerationUsed} / ${entitlements.reportGenerationMonthlyLimit}` : '0 / 0'}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className="bg-emerald-600 h-2 rounded-full transition-all"
-                      style={{
-                        width: `${entitlements ? Math.min(100, (entitlements.reportGenerationUsed / Math.max(1, entitlements.reportGenerationMonthlyLimit)) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {entitlements
-                      ? (isZh ? `本月剩余 ${entitlements.remainingReportGenerations} 次生成` : `${entitlements.remainingReportGenerations} generations remaining`)
-                      : '-'}
-                  </p>
-                </div>
-
-                {/* 3. Monthly File Exports */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                    <span>{t('pricing.reportExports')}</span>
-                    <span className="text-slate-600 font-bold">
-                      {entitlements ? `${entitlements.exportReportsUsed} / ${entitlements.exportReportsMonthlyLimit}` : '0 / 0'}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className="bg-slate-600 h-2 rounded-full transition-all"
-                      style={{
-                        width: `${entitlements ? Math.min(100, (entitlements.exportReportsUsed / Math.max(1, entitlements.exportReportsMonthlyLimit)) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {entitlements
-                      ? (isZh ? `本月剩余 ${entitlements.remainingReports} 次导出` : `${entitlements.remainingReports} exports remaining`)
-                      : '-'}
-                  </p>
-                </div>
-
-                {/* 4. Alert Rules */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                    <span>{t('pricing.alertRules')}</span>
-                    <span className="text-purple-600 font-bold">
-                      {entitlements ? `${entitlements.currentAlertsCount} / ${entitlements.maxAlerts}` : '0 / 0'}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className="bg-purple-600 h-2 rounded-full transition-all"
-                      style={{
-                        width: `${entitlements ? Math.min(100, (entitlements.currentAlertsCount / Math.max(1, entitlements.maxAlerts)) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {entitlements
-                      ? (isZh
-                          ? `已启用 ${entitlements.currentAlertsCount} 条规则`
-                          : `${entitlements.currentAlertsCount} rules active`)
-                      : '-'}
-                  </p>
-                </div>
-
-                {/* 5. Live Scans (Daily) */}
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1.5">
-                    <span>{isZh ? '实时雷达扫描配额' : 'Live Radar Scans'}</span>
-                    <span className="text-amber-600 font-bold">
-                      {entitlements ? `${entitlements.liveScansUsedToday || 0} / ${entitlements.liveScanDailyLimit || 3}` : '0 / 3'}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
-                    <div
-                      className="bg-amber-500 h-2 rounded-full transition-all"
-                      style={{
-                        width: `${entitlements ? Math.min(100, ((entitlements.liveScansUsedToday || 0) / Math.max(1, entitlements.liveScanDailyLimit || 1)) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    {entitlements
-                      ? (isZh
-                          ? `今日剩余 ${entitlements.remainingLiveScansToday ?? 3} 次扫描`
-                          : `${entitlements.remainingLiveScansToday ?? 3} scans remaining today`)
-                      : '-'}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-fg-subtle">—</p>
+          )}
         </div>
       )}
-    </div>
+    </PageFrame>
   );
 }
 
@@ -991,8 +856,8 @@ export default function SettingsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+        <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
         </div>
       }
     >

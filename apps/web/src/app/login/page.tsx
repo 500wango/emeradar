@@ -3,24 +3,20 @@
 import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Logo } from '@/components/Logo';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
-import {
-  ShieldCheck,
-  ArrowRight,
-  Lock,
-  Mail,
-  AlertCircle,
-  Loader2,
-} from 'lucide-react';
+import { ArrowRight, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { AuthError, AuthShell } from '@/components/ui/AuthShell';
+import { buttonVariants } from '@/components/ui/Button';
+import { Input, FieldLabel } from '@/components/ui/Field';
 
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const { login } = useAuth();
-  const { t, isZh } = useI18n();
+  const { t } = useI18n();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +26,7 @@ function LoginFormContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      setError(isZh ? '请输入您的邮箱地址' : 'Please enter your email address');
+      setError(t('auth.emailRequired'));
       return;
     }
 
@@ -57,135 +53,88 @@ function LoginFormContent() {
         router.push(isSafeNext ? explicitNext! : '/feed');
       }
     } catch (err: any) {
-      setError(err.message || (isZh ? '登录失败，请核对您的邮箱和密码。' : 'Failed to sign in. Please verify your email and password.'));
+      setError(err.message || t('auth.loginFailedHint'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 via-white to-slate-100">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link href="/" className="inline-block mb-6">
-          <Logo variant="header" className="h-10 w-auto mx-auto" idPrefix="login" />
-        </Link>
-        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          {t('auth.loginTitle')}
-        </h2>
-        <p className="mt-2 text-sm text-slate-600">
-          {t('auth.loginDesc')}
-        </p>
-      </div>
+    <AuthShell
+      title={t('auth.loginTitle')}
+      desc={t('auth.loginDesc')}
+      footnote={
+        <>
+          <ShieldCheck className="h-3.5 w-3.5 text-signal" />
+          {t('auth.securityFootnote')}
+        </>
+      }
+    >
+      {error && <AuthError title={t('auth.loginFailed')} message={error} />}
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-lg px-4 sm:px-0">
-        <div className="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-2xl border border-slate-200/80">
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold block">{t('auth.loginFailed')}</span>
-                <span>{error}</span>
-              </div>
-            </div>
-          )}
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-3 text-slate-400 font-medium tracking-wider">
-                {t('auth.orEmail')}
-              </span>
-            </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <FieldLabel htmlFor="login-email">{t('auth.emailLabel')}</FieldLabel>
+          <div className="relative mt-2">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            <Input
+              id="login-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={t('auth.emailPlaceholder')}
+              required
+              className="pl-10"
+            />
           </div>
+        </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="login-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                {t('auth.emailLabel')}
-              </label>
-              <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="h-4 w-4" />
-                </div>
-                <input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={t('auth.emailPlaceholder')}
-                  required
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700">{t('auth.passwordLabel')}</label>
-                  <Link href="/forgot-password" className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">{t('auth.forgotPasswordLink')}</Link>
-                </div>
-              </div>
-              <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="h-4 w-4" />
-                </div>
-                <input
-                  id="login-password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={t('auth.passwordPlaceholder')}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-sm shadow-blue-500/20 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>{t('auth.signingIn')}</span>
-                </>
-              ) : (
-                <>
-                  <span>{t('auth.signInBtn')}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Footer inside card */}
-          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>{t('auth.newToPlatform')}</span>
-            <Link
-              href="/register"
-              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            >
-              {t('auth.createAccountLink')}
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel htmlFor="login-password">{t('auth.passwordLabel')}</FieldLabel>
+            <Link href="/forgot-password" className="font-mono text-[11px] text-accent transition-colors hover:brightness-110">
+              {t('auth.forgotPasswordLink')}
             </Link>
           </div>
+          <div className="relative mt-2">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            <Input
+              id="login-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t('auth.passwordPlaceholder')}
+              className="pl-10"
+            />
+          </div>
         </div>
 
-        {/* Security badge */}
-        <div className="mt-6 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
-          <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>{t('auth.securityFootnote')}</span>
-        </div>
+        <button type="submit" disabled={loading} className={cn(buttonVariants({ size: 'md' }), 'mt-1 w-full')}>
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('auth.signingIn')}
+            </>
+          ) : (
+            <>
+              {t('auth.signInBtn')}
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
+        </button>
+      </form>
+
+      <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5 text-xs text-fg-subtle">
+        <span>{t('auth.newToPlatform')}</span>
+        <Link href="/register" className="font-mono text-accent transition-colors hover:brightness-110">
+          {t('auth.createAccountLink')}
+        </Link>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -193,9 +142,9 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-        </div>
+        <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-accent" />
+        </main>
       }
     >
       <LoginFormContent />

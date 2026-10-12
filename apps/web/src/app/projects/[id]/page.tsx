@@ -5,6 +5,8 @@ import { AuthService, ProjectService } from '@emeradar/services';
 import SiteCheckButton from '@/components/SiteCheckButton';
 import { ProjectLifecyclePanel } from '@/components/ProjectLifecyclePanel';
 import { getServerI18n } from '@/lib/i18n/server';
+import { PageFrame } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const token = (await cookies()).get('emeradar_session')?.value;
@@ -17,12 +19,15 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const gscStatus = await ProjectService.getGscConnectionStatus(id, session.user.id);
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <Link href="/projects" className="text-sm text-slate-500 hover:text-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+    <PageFrame width="wide">
+      <Link
+        href="/projects"
+        className="font-mono text-xs text-fg-subtle transition-colors hover:text-fg"
+      >
         &larr; {t('projects.backToProjects')}
       </Link>
-      <h1 className="mt-4 text-2xl font-bold text-slate-900">{data.project.title}</h1>
-      <p className="mt-1 text-sm text-slate-500">{data.project.domain || t('projects.noDomain')}</p>
+      <h1 className="mt-4 font-display text-2xl font-bold text-fg">{data.project.title}</h1>
+      <p className="mt-1 text-sm text-fg-muted">{data.project.domain || t('projects.noDomain')}</p>
       {data.project.domain && <SiteCheckButton projectId={id} />}
       <ProjectLifecyclePanel
         projectId={id}
@@ -30,47 +35,56 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         initialProjectStatus={data.project.status}
         domain={data.project.domain}
       />
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+
+      <h2 className="mt-10 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+        {t('projects.colOutcomes')}
+      </h2>
+      <div className="mt-3 grid gap-4 sm:grid-cols-3">
         {data.outcomes.map((outcome: any) => (
-          <section key={outcome.day} className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs font-semibold text-slate-500">T+{outcome.day}</div>
-            <div className="mt-2 text-lg font-bold text-slate-900">
+          <Panel key={outcome.day} className="p-4">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+              T+{outcome.day}
+            </div>
+            <div className="mt-2 font-mono text-lg font-bold tabular-nums text-fg">
               {outcome.status === 'PENDING' ? t('projects.pending') : outcome.clicks.toLocaleString()}
             </div>
-            <div className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs leading-relaxed text-fg-subtle">
               {outcome.status === 'PENDING'
                 ? t('projects.awaitingGsc')
                 : t('projects.impressionsQueries', {
                     impressions: outcome.impressions.toLocaleString(),
                     queries: outcome.queries,
                   })}
-            </div>
-          </section>
+            </p>
+          </Panel>
         ))}
       </div>
-      <h2 className="mt-10 text-base font-semibold text-slate-900">{t('projects.weeklyData')}</h2>
-      <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-slate-200 text-slate-500">
-              <th className="p-3">{t('projects.colWeek')}</th>
-              <th className="p-3">{t('projects.colImpressions')}</th>
-              <th className="p-3">{t('projects.colClicks')}</th>
-              <th className="p-3">{t('projects.colPosition')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.metrics.map((row: any) => (
-              <tr key={row.week_start_date} className="border-b border-slate-100">
-                <td className="p-3">{row.week_start_date}</td>
-                <td className="p-3">{row.impressions}</td>
-                <td className="p-3">{row.clicks}</td>
-                <td className="p-3">{row.average_position}</td>
+
+      <h2 className="mt-10 font-display text-base font-semibold text-fg">{t('projects.weeklyData')}</h2>
+      <Panel className="mt-3 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">{t('projects.colWeek')}</th>
+                <th className="p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">{t('projects.colImpressions')}</th>
+                <th className="p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">{t('projects.colClicks')}</th>
+                <th className="p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">{t('projects.colPosition')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </main>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {data.metrics.map((row: any) => (
+                <tr key={row.week_start_date}>
+                  <td className="p-3 font-mono text-fg-muted">{row.week_start_date}</td>
+                  <td className="p-3 font-mono tabular-nums text-fg-muted">{row.impressions}</td>
+                  <td className="p-3 font-mono tabular-nums text-fg-muted">{row.clicks}</td>
+                  <td className="p-3 font-mono tabular-nums text-fg-muted">{row.average_position}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </PageFrame>
   );
 }

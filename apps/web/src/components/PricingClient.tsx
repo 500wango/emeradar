@@ -3,25 +3,36 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  CheckCircle2,
-  Sparkles,
-  ArrowRight,
-  ShieldCheck,
-  ChevronDown,
-  HelpCircle,
-  Zap,
-  Layers,
-  Flame,
-  Award,
   AlertCircle,
+  ArrowRight,
+  Award,
+  Check,
+  ChevronDown,
+  Layers,
+  ShieldCheck,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/cn';
 import { planLabelKey, resolvePlanCode } from '@/lib/plan-display';
+import { Badge } from '@/components/ui/Badge';
+import { buttonVariants } from '@/components/ui/Button';
+import { Meter } from '@/components/ui/Meter';
+import { PageFrame } from '@/components/ui/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 import type { UserEntitlementsInfo } from '@emeradar/services';
 
 interface PricingClientProps {
   entitlements?: UserEntitlementsInfo | null;
   isLoggedIn?: boolean;
+}
+
+/** Zero-padded section marker, the same one the methodology page uses. */
+function SectionMark({ index, children }: { index: string; children: React.ReactNode }) {
+  return (
+    <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-fg-subtle">
+      <span className="text-accent">{index}</span> · {children}
+    </h2>
+  );
 }
 
 export function PricingClient({ entitlements, isLoggedIn = false }: PricingClientProps) {
@@ -50,8 +61,8 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     if (sessionId && isSuccess) {
       setSuccessBanner(
         isZh
-          ? '🎉 恭喜！方案已成功激活，您的工作区配额已即时更新。'
-          : '🎉 Congratulations! Your plan is active and your quota has been upgraded.'
+          ? '方案已激活，您的工作区配额已即时更新。'
+          : 'Your plan is active and your quota has been upgraded.'
       );
       fetch('/api/v1/billing/verify-session', {
         method: 'POST',
@@ -61,14 +72,14 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     } else if (reason === 'quota_exceeded') {
       setNoticeBanner(
         isZh
-          ? '⚡ 您当前的免费体验版包含每月 1 份商业机会深度研报额度（已体验 1/1）。升级套餐即可即时解锁全量研报、代码脚手架与自动化监控。'
-          : '⚡ You have reached your 1 free monthly report limit. Upgrade to Builder Pro to unlock 30 full opportunity reports per month.'
+          ? '您当前的免费体验版包含每月 1 份商业机会深度研报额度（已体验 1/1）。升级套餐即可即时解锁全量研报、代码脚手架与自动化监控。'
+          : 'You have reached your 1 free monthly report limit. Upgrade to Builder Pro to unlock 30 full opportunity reports per month.'
       );
     } else if (feature === 'opportunity-detail') {
       setNoticeBanner(
         isZh
-          ? '🔒 商业机会决策工作台（包含 9 维需求分析、Top 10 弱站穿透分析与真实结账证据）仅向 Builder Pro 会员开放。'
-          : '🔒 Full opportunity decision workspace is available for Builder Pro members.'
+          ? '商业机会决策工作台（包含需求分析、弱站穿透分析与真实结账证据）仅向 Builder Pro 会员开放。'
+          : 'Full opportunity decision workspace is available for Builder Pro members.'
       );
     }
   }, [isZh]);
@@ -104,315 +115,251 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
     }
   };
 
+  const quotas = entitlements
+    ? [
+        {
+          key: 'reports',
+          label: p.monthlyReports,
+          used: entitlements.reportGenerationUsed,
+          limit: entitlements.reportGenerationMonthlyLimit,
+          detail: t('pricing.used', {
+            used: entitlements.reportGenerationUsed,
+            limit: entitlements.reportGenerationMonthlyLimit,
+          }),
+          note: t('pricing.remaining', { remaining: entitlements.remainingReportGenerations }),
+          tone: 'accent' as const,
+        },
+        {
+          key: 'exports',
+          label: p.reportExports,
+          used: entitlements.exportReportsUsed,
+          limit: entitlements.exportReportsMonthlyLimit,
+          detail: t('pricing.used', {
+            used: entitlements.exportReportsUsed,
+            limit: entitlements.exportReportsMonthlyLimit,
+          }),
+          note: t('pricing.remaining', { remaining: entitlements.remainingReports }),
+          tone: 'neutral' as const,
+        },
+        {
+          key: 'projects',
+          label: p.trackedProjects,
+          used: entitlements.currentProjectsCount,
+          limit: entitlements.maxProjects,
+          detail: t('pricing.active', {
+            active: entitlements.currentProjectsCount,
+            limit: entitlements.maxProjects,
+          }),
+          note: p.gscSyncIncluded,
+          tone: 'signal' as const,
+        },
+        {
+          key: 'alerts',
+          label: p.alertRules,
+          used: entitlements.currentAlertsCount,
+          limit: entitlements.maxAlerts,
+          detail: t('pricing.alertsConfigured', {
+            count: entitlements.currentAlertsCount,
+            limit: entitlements.maxAlerts,
+          }),
+          note: p.webhookDelivery,
+          tone: 'warn' as const,
+        },
+      ]
+    : [];
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
+    <PageFrame width="full">
       {successBanner && (
-        <div className="mb-8 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-sm text-center shadow-xs animate-in fade-in">
-          {successBanner}
-        </div>
+        <Panel tone="raised" className="mb-8 flex items-center gap-3 border-signal/40 p-4">
+          <Badge tone="signal">ACTIVE</Badge>
+          <span className="text-sm text-fg-muted">{successBanner}</span>
+        </Panel>
       )}
       {noticeBanner && (
-        <div className="mb-8 p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 font-medium text-sm leading-relaxed text-center shadow-xs animate-in fade-in flex items-center justify-center gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-          <span>{noticeBanner}</span>
-        </div>
+        <Panel tone="raised" className="mb-8 flex items-start gap-3 border-warn/40 p-4 sm:p-5">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+          <span className="text-sm leading-relaxed text-fg-muted">{noticeBanner}</span>
+        </Panel>
       )}
-      {/* Hero Section */}
-      <div className="text-center max-w-4xl mx-auto mb-14">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200/80 mb-5 shadow-sm">
-          <Sparkles className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-          <span>{p.badge}</span>
-        </div>
-        <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight leading-[1.15]">
+
+      {/* Hero */}
+      <header className="mx-auto max-w-3xl text-center">
+        <Badge tone="accent" size="sm">
+          {p.badge}
+        </Badge>
+        <h1 className="mt-6 font-display text-3xl font-extrabold leading-[1.15] tracking-tight text-fg sm:text-5xl sm:leading-[1.15]">
           {p.title}
         </h1>
-        <p className="mt-4 text-base sm:text-lg text-slate-600 leading-relaxed max-w-2xl mx-auto">
+        <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-fg-muted sm:text-base sm:leading-relaxed">
           {p.desc}
         </p>
 
-        {/* Monthly / Yearly Billing Toggle */}
-        <div className="mt-8 inline-flex items-center p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80 shadow-inner">
-          <button
-            type="button"
-            onClick={() => setBillingCycle('monthly')}
-            className={`px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-              billingCycle === 'monthly'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            {p.monthly}
-          </button>
-          <button
-            type="button"
-            onClick={() => setBillingCycle('yearly')}
-            className={`px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-2 ${
-              billingCycle === 'yearly'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <span>{p.yearly}</span>
-            <span
-              className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                billingCycle === 'yearly'
-                  ? 'bg-blue-500/80 text-white'
-                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-              }`}
+        <div className="mt-9 inline-flex items-center gap-1 border border-line bg-surface-2 p-1">
+          {(['monthly', 'yearly'] as const).map((cycle) => (
+            <button
+              key={cycle}
+              type="button"
+              onClick={() => setBillingCycle(cycle)}
+              aria-pressed={billingCycle === cycle}
+              className={cn(
+                'inline-flex items-center gap-2 px-5 py-2 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors',
+                billingCycle === cycle
+                  ? 'bg-surface text-fg'
+                  : 'text-fg-subtle hover:text-fg'
+              )}
             >
-              {p.save20}
-            </span>
-          </button>
+              {cycle === 'monthly' ? p.monthly : p.yearly}
+              {cycle === 'yearly' && (
+                <span className={cn('text-[10px]', billingCycle === 'yearly' ? 'text-signal' : 'text-fg-subtle')}>
+                  {p.save20Short}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
         {p.marketFocusNotice && (
-          <div className="mt-6 flex items-center justify-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50/90 border border-amber-200/90 rounded-2xl text-xs text-amber-900 font-medium max-w-2xl text-center shadow-xs">
-              <span>{p.marketFocusNotice}</span>
-            </div>
-          </div>
+          <p className="mx-auto mt-6 max-w-2xl border-l border-warn/60 pl-4 text-left text-xs leading-relaxed text-fg-muted">
+            {p.marketFocusNotice}
+          </p>
         )}
-      </div>
+      </header>
 
-      {/* Current Quota Gauges (Only shown when user is authenticated with quotas) */}
+      {/* Current quotas — only for a signed-in visitor. */}
       {entitlements && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-sm mb-14">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 mb-6 gap-3">
+        <Panel brackets className="mt-14 p-6 sm:p-8">
+          <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
                   {p.currentPlan}
                 </span>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                  {t(planLabelKey(planCode))}
-                </span>
+                <Badge tone="accent">{t(planLabelKey(planCode))}</Badge>
               </div>
-              <div className="text-lg font-bold text-slate-900 mt-1">
+              <p className="mt-2 font-display text-lg font-bold text-fg">
                 {t('pricing.workspaceTier', { tier: t(planLabelKey(planCode)) })}
-              </div>
+              </p>
             </div>
             <Link
               href="/settings"
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+              className="inline-flex items-center gap-1.5 font-mono text-xs text-accent transition-colors hover:brightness-110"
             >
-              <span>{t('settings.managePlan')}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              {t('settings.managePlan')}
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
-              <span className="text-xs font-semibold text-slate-500">
-                {p.monthlyReports}
-              </span>
-              <div className="text-2xl font-bold text-slate-900 mt-1">
-                {entitlements.reportGenerationUsed}{' '}
-                <span className="text-xs text-slate-400 font-normal">
-                  / {t('pricing.used', { used: entitlements.reportGenerationUsed, limit: entitlements.reportGenerationMonthlyLimit })}
+          <div className="mt-7 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {quotas.map((quota) => (
+              <div key={quota.key}>
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+                  {quota.label}
                 </span>
+                <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-fg">
+                  {quota.used}
+                  <span className="ml-1.5 text-xs font-normal text-fg-subtle">{quota.detail}</span>
+                </div>
+                <Meter
+                  className="mt-3"
+                  value={quota.used}
+                  max={quota.limit}
+                  tone={quota.tone}
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-subtle">{quota.note}</p>
               </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
-                <div
-                  className="bg-blue-600 h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (entitlements.reportGenerationUsed / Math.max(1, entitlements.reportGenerationMonthlyLimit)) * 100
-                    )}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-2 block font-medium">
-                {t('pricing.remaining', { remaining: entitlements.remainingReportGenerations })}
-              </span>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
-              <span className="text-xs font-semibold text-slate-500">
-                {p.reportExports}
-              </span>
-              <div className="text-2xl font-bold text-slate-900 mt-1">
-                {entitlements.exportReportsUsed}{' '}
-                <span className="text-xs text-slate-400 font-normal">
-                  / {t('pricing.used', { used: entitlements.exportReportsUsed, limit: entitlements.exportReportsMonthlyLimit })}
-                </span>
-              </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
-                <div
-                  className="bg-slate-600 h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (entitlements.exportReportsUsed / Math.max(1, entitlements.exportReportsMonthlyLimit)) * 100
-                    )}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-2 block font-medium">
-                {t('pricing.remaining', { remaining: entitlements.remainingReports })}
-              </span>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
-              <span className="text-xs font-semibold text-slate-500">
-                {p.trackedProjects}
-              </span>
-              <div className="text-2xl font-bold text-slate-900 mt-1">
-                {entitlements.currentProjectsCount}{' '}
-                <span className="text-xs text-slate-400 font-normal">
-                  / {t('pricing.active', { active: entitlements.currentProjectsCount, limit: entitlements.maxProjects })}
-                </span>
-              </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
-                <div
-                  className="bg-indigo-600 h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (entitlements.currentProjectsCount / entitlements.maxProjects) * 100
-                    )}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-2 block font-medium">
-                {p.gscSyncIncluded}
-              </span>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-100">
-              <span className="text-xs font-semibold text-slate-500">
-                {p.alertRules}
-              </span>
-              <div className="text-2xl font-bold text-slate-900 mt-1">
-                {entitlements.currentAlertsCount}{' '}
-                <span className="text-xs text-slate-400 font-normal">
-                  / {t('pricing.alertsConfigured', { count: entitlements.currentAlertsCount, limit: entitlements.maxAlerts })}
-                </span>
-              </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full mt-3 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (entitlements.currentAlertsCount / Math.max(1, entitlements.maxAlerts)) * 100
-                    )}%`,
-                  }}
-                ></div>
-              </div>
-              <span className="text-[11px] text-slate-500 mt-2 block font-medium">
-                {p.webhookDelivery}
-              </span>
-            </div>
+            ))}
           </div>
-        </div>
+        </Panel>
       )}
 
-      {/* Pricing Comparison Cards */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 items-stretch mb-20 max-w-6xl mx-auto">
-        {/* Tier 1: Free Starter */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm flex flex-col justify-between hover:border-slate-300 transition-all">
-          <div>
-            <div className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 mb-3 uppercase tracking-wider">
-              {p.planFreeTitle}
-            </div>
-            <h3 className="font-extrabold text-2xl text-slate-900">
-              {p.planFreeTitle}
-            </h3>
-            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed min-h-[36px]">
-              {p.planFreeDesc}
-            </p>
+      {/* Plans */}
+      <section className="mt-16">
+        <h2 className="sr-only">{p.plansHeading}</h2>
+        <div className="grid items-stretch gap-6 lg:grid-cols-3">
+        {/* Free */}
+        <Panel brackets className="flex flex-col p-8">
+          <div className="flex-1">
+            <Badge tone="neutral">FREE</Badge>
+            <h3 className="mt-5 font-display text-2xl font-extrabold text-fg">{p.planFreeTitle}</h3>
+            <p className="mt-2 min-h-[36px] text-xs leading-relaxed text-fg-subtle">{p.planFreeDesc}</p>
 
-            <div className="mt-5 pb-6 border-b border-slate-100">
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-slate-900">{p.planFreePrice}</span>
-                <span className="text-xs text-slate-400 font-medium">{isZh ? '永久免费' : '/ forever'}</span>
-              </div>
+            <div className="mt-6 flex items-baseline gap-2 border-b border-line pb-6">
+              <span className="font-mono text-4xl font-bold tabular-nums text-fg">{p.planFreePrice}</span>
+              <span className="font-mono text-xs text-fg-subtle">{p.perForever}</span>
             </div>
 
-            <ul className="mt-6 space-y-3.5 text-xs text-slate-600 leading-relaxed">
+            <ul className="mt-6 space-y-3.5 text-xs leading-relaxed text-fg-muted">
               {p.freeFeatures.map((feat: string, idx: number) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-subtle" />
                   <span>{feat}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="mt-8 pt-6">
+          <div className="mt-8 border-t border-line pt-6">
             {isLoggedIn && isFree ? (
               <button
                 disabled
-                className="w-full py-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-400 bg-slate-50 cursor-not-allowed text-center"
+                className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full cursor-not-allowed')}
               >
                 {p.includedBaseline}
               </button>
             ) : (
               <Link
                 href="/register"
-                className="block w-full py-3 rounded-xl border-2 border-slate-200 text-xs font-bold text-slate-800 hover:bg-slate-50 hover:border-slate-300 transition-all text-center"
+                className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full')}
               >
                 {p.getStartedFree}
               </Link>
             )}
           </div>
-        </div>
+        </Panel>
 
-        {/* Tier 2: Builder Pro (Hero Highlight Card) */}
-        <div className="bg-white rounded-3xl border-2 border-blue-600 p-8 shadow-xl relative flex flex-col justify-between ring-4 ring-blue-600/10 scale-[1.02]">
-          {/* Most popular glowing badge */}
-          <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-black uppercase tracking-wider px-4 py-1.5 rounded-full shadow-md flex items-center gap-1.5">
-            <Flame className="w-3.5 h-3.5 text-amber-300" />
-            <span>{p.popularBadge}</span>
+        {/* Builder Pro — the highlighted tier. Highlight is a hairline weight
+            difference plus a corner tag, not a gradient or a drop shadow. */}
+        <Panel brackets className="relative flex flex-col border-accent/60 p-8">
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+            <Badge tone="accent" size="sm">
+              {p.popularBadge}
+            </Badge>
           </div>
 
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 uppercase tracking-wider">
-                {p.planProTitle}
-              </span>
-              {p.proEarlyBirdBadge && (
-                <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200">
-                  {p.proEarlyBirdBadge}
-                </span>
-              )}
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="accent">PRO</Badge>
+              {p.proEarlyBirdBadge && <Badge tone="warn">{p.proEarlyBirdBadge}</Badge>}
             </div>
-            <h3 className="font-extrabold text-2xl text-slate-900">
-              {p.planProTitle}
-            </h3>
-            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed min-h-[36px]">
-              {p.planProDesc}
-            </p>
+            <h3 className="mt-5 font-display text-2xl font-extrabold text-fg">{p.planProTitle}</h3>
+            <p className="mt-2 min-h-[36px] text-xs leading-relaxed text-fg-subtle">{p.planProDesc}</p>
 
-            <div className="mt-5 pb-6 border-b border-blue-100">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl sm:text-5xl font-black text-blue-700">
+            <div className="mt-6 border-b border-line pb-6">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-4xl font-bold tabular-nums text-accent sm:text-5xl">
                   {billingCycle === 'yearly' ? p.planProYearlyPrice : p.planProMonthlyPrice}
                 </span>
-                <span className="text-xs text-slate-500 font-medium">{isZh ? '/ 月' : '/ mo'}</span>
+                <span className="font-mono text-xs text-fg-subtle">{p.perMonth}</span>
               </div>
-              <p className="text-[11px] text-blue-600/90 font-medium mt-1">
-                {billingCycle === 'yearly' ? p.planProBilledYearly : (isZh ? '按月自动续订' : 'Billed monthly')}
+              <p className="mt-2 font-mono text-[11px] text-fg-subtle">
+                {billingCycle === 'yearly' ? p.planProBilledYearly : p.billedMonthly}
               </p>
             </div>
 
-            <ul className="mt-6 space-y-3.5 text-xs text-slate-700 leading-relaxed font-medium">
+            <ul className="mt-6 space-y-3.5 text-xs font-medium leading-relaxed text-fg-muted">
               {p.proFeatures.map((feat: string, idx: number) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
                   <span>{feat}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="mt-8 pt-6">
+          <div className="mt-8 border-t border-line pt-6">
             {isLoggedIn && isPro ? (
-              <button
-                disabled
-                className="w-full py-3.5 rounded-xl border border-blue-300 text-xs font-bold text-blue-700 bg-blue-50 cursor-default text-center"
-              >
+              <button disabled className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full')}>
                 {p.currentActive}
               </button>
             ) : (
@@ -420,265 +367,217 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 type="button"
                 onClick={() => handleUpgrade('PRO')}
                 disabled={loadingPlan === 'PRO'}
-                className="block w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-lg shadow-blue-600/30 hover:shadow-blue-600/40 transition-all text-center disabled:opacity-60 cursor-pointer"
+                className={cn(buttonVariants({ size: 'md' }), 'w-full')}
               >
                 {loadingPlan === 'PRO'
-                  ? (isZh ? '正在连接 Stripe...' : 'Connecting to Stripe...')
-                  : (isLoggedIn ? p.upgradeNow : p.startTrial)}
+                  ? p.connectingStripe
+                  : isLoggedIn
+                    ? p.upgradeNow
+                    : p.startTrial}
               </button>
             )}
-            <p className="text-center text-[10px] text-slate-400 mt-2">
-              {isZh ? '随时一键取消 · 无任何绑约' : 'Cancel anytime · No lock-in contracts'}
-            </p>
+            <p className="mt-3 text-center font-mono text-[10px] text-fg-subtle">{p.cancelAnytime}</p>
           </div>
-        </div>
+        </Panel>
 
-        {/* Tier 3: Founding Pro Lifetime */}
-        <div className="bg-amber-50/60 rounded-3xl border-2 border-amber-300 p-8 shadow-sm flex flex-col justify-between hover:border-amber-400 transition-all">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">
-                {p.lifetimeEarlyBirdTitle}
-              </span>
-              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white text-amber-800 border border-amber-200">
-                {p.proEarlyBirdBadge}
-              </span>
+        {/* Founding lifetime */}
+        <Panel brackets tone="raised" className="flex flex-col p-8">
+          <div className="flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="warn">LIFETIME</Badge>
+              <Badge tone="neutral">{p.proEarlyBirdBadge}</Badge>
             </div>
-            <h3 className="font-extrabold text-2xl text-slate-900">
+            <h3 className="mt-5 font-display text-2xl font-extrabold text-fg">
               {p.lifetimeEarlyBirdTitle}
             </h3>
-            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed min-h-[36px]">
+            <p className="mt-2 min-h-[36px] text-xs leading-relaxed text-fg-subtle">
               {p.lifetimeEarlyBirdDesc}
             </p>
 
-            <div className="mt-5 pb-6 border-b border-amber-200">
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl sm:text-5xl font-black text-amber-800">
+            <div className="mt-6 border-b border-line pb-6">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-4xl font-bold tabular-nums text-warn sm:text-5xl">
                   {p.lifetimePrice}
                 </span>
-                <span className="text-xs text-slate-600 font-medium">{isZh ? '一次性' : 'one-time'}</span>
+                <span className="font-mono text-xs text-fg-subtle">{p.oneTime}</span>
               </div>
-              <p className="text-[11px] text-amber-800/80 font-medium mt-1">
-                {p.lifetimeFinePrint}
-              </p>
+              <p className="mt-2 font-mono text-[11px] text-fg-subtle">{p.lifetimeFinePrint}</p>
             </div>
 
-            <ul className="mt-6 space-y-3.5 text-xs text-slate-700 leading-relaxed font-medium">
+            <ul className="mt-6 space-y-3.5 text-xs font-medium leading-relaxed text-fg-muted">
               {p.proFeatures.map((feat: string, idx: number) => (
                 <li key={idx} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" />
                   <span>{feat}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="mt-8 pt-6">
+          <div className="mt-8 border-t border-line pt-6">
             <button
               type="button"
               onClick={() => handleUpgrade('PRO', 'lifetime')}
               disabled={loadingPlan === 'PRO_LIFETIME' || (isLoggedIn && isPro)}
-              className="block w-full py-3.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-black shadow-md shadow-amber-700/20 transition-all text-center disabled:opacity-60 disabled:cursor-not-allowed"
+              className={cn(buttonVariants({ variant: 'secondary', size: 'md' }), 'w-full')}
             >
               {loadingPlan === 'PRO_LIFETIME' ? p.lifetimeCheckoutLoading : isPro ? p.currentActive : p.lifetimeCta}
             </button>
-            <p className="text-center text-[10px] text-slate-500 mt-2">
-              {isZh ? '一次付款 · 当前 Pro 权益 · 月度配额适用' : 'One payment · Current Pro access · Monthly quotas apply'}
-            </p>
+            <p className="mt-3 text-center font-mono text-[10px] text-fg-subtle">{p.lifetimeNote}</p>
           </div>
+        </Panel>
         </div>
-      </div>
+      </section>
 
-      {/* Why Emeradar vs Traditional SEO Tools (Value Anchor & Stats) */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-8 sm:p-12 mb-20 shadow-xl overflow-hidden relative">
-        <div className="max-w-3xl mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 mb-4">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>{isZh ? '投入产出与实证效果' : 'ROI & Performance'}</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-            {p.whyTitle}
-          </h2>
-          <p className="mt-3 text-sm sm:text-base text-slate-300 leading-relaxed">
-            {p.whySubtitle}
-          </p>
-        </div>
+      {/* Value anchor. `inverse` is the paired surface: a dark slab in the light
+          theme, a raised panel in the Observatory theme — so the same block
+          differentiates itself in both. */}
+      <Panel tone="inverse" className="mt-20 p-8 sm:p-12">
+        <SectionMark index="01">{p.roiBadge}</SectionMark>
+        <h2 className="mt-4 max-w-2xl font-display text-2xl font-extrabold tracking-tight text-inverse-fg sm:text-3xl">
+          {p.whyTitle}
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-inverse-fg-muted">{p.whySubtitle}</p>
 
-        <div className="grid md:grid-cols-3 gap-6 pt-6 border-t border-slate-700/80">
-          <div className="bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
-            <div className="text-3xl sm:text-4xl font-black text-amber-400">
+        <div className="mt-10 grid gap-8 border-t border-inverse-line pt-8 md:grid-cols-3">
+          <div>
+            <div className="font-mono text-3xl font-bold tabular-nums text-warn sm:text-4xl">
               {p.stat1Number}
             </div>
-            <h4 className="text-base font-bold text-white mt-1">
-              {p.stat1Label}
-            </h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              {p.stat1Desc}
-            </p>
+            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat1Label}</h3>
+            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat1Desc}</p>
           </div>
-
-          <div className="bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
-            <div className="text-3xl sm:text-4xl font-black text-blue-400">
+          <div>
+            <div className="font-mono text-3xl font-bold tabular-nums text-axis-m sm:text-4xl">
               {p.stat2Number}
             </div>
-            <h4 className="text-base font-bold text-white mt-1">
-              {p.stat2Label}
-            </h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              {p.stat2Desc}
-            </p>
+            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat2Label}</h3>
+            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat2Desc}</p>
           </div>
-
-          <div className="bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
-            <div className="text-3xl sm:text-4xl font-black text-emerald-400">
+          <div>
+            <div className="font-mono text-3xl font-bold tabular-nums text-signal sm:text-4xl">
               {p.stat3Number}
             </div>
-            <h4 className="text-base font-bold text-white mt-1">
-              {p.stat3Label}
-            </h4>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              {p.stat3Desc}
-            </p>
+            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat3Label}</h3>
+            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat3Desc}</p>
           </div>
         </div>
-      </div>
+      </Panel>
 
-      {/* Feature Comparison Matrix Table */}
-      <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm mb-20">
-        <div className="p-6 sm:p-8 border-b border-slate-200">
-          <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900">
-            {p.matrixTitle}
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            {p.matrixSubtitle}
-          </p>
+      {/* Feature matrix */}
+      <Panel className="mt-20 overflow-hidden">
+        <div className="border-b border-line p-6 sm:p-8">
+          <SectionMark index="02">{p.matrixTitle}</SectionMark>
+          <p className="mt-3 text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{p.matrixSubtitle}</p>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs sm:text-sm">
-            <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+            <thead className="border-b border-line">
               <tr>
-                <th className="py-4 px-6 w-2/5">{p.colFeature}</th>
-                <th className="py-4 px-6 text-slate-600">{p.colFree}</th>
-                <th className="py-4 px-6 text-blue-700 bg-blue-50/50">{p.colPro}</th>
+                <th className="w-2/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                  {p.colFeature}
+                </th>
+                <th className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                  {p.colFree}
+                </th>
+                <th className="bg-accent/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                  {p.colPro}
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {p.matrixRows.map((row: any, idx: number) => (
-                <tr
-                  key={idx}
-                  className={idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}
-                >
-                  <td className="py-3.5 px-6 font-semibold text-slate-900">
-                    {row.feature}
-                  </td>
-                  <td className="py-3.5 px-6 text-slate-600">
-                    {row.free}
-                  </td>
-                  <td className="py-3.5 px-6 font-semibold text-blue-800 bg-blue-50/30">
-                    {row.pro}
-                  </td>
+                <tr key={idx}>
+                  <td className="px-5 py-4 text-sm font-medium text-fg">{row.feature}</td>
+                  <td className="px-5 py-4 text-sm text-fg-muted">{row.free}</td>
+                  <td className="bg-accent/5 px-5 py-4 font-mono text-xs text-accent">{row.pro}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
 
-      {/* Zero Risk Guarantee Badges */}
-      <div className="bg-slate-50 rounded-3xl border border-slate-200/80 p-8 mb-20 text-center">
-        <h3 className="text-lg font-bold text-slate-900">
-          {p.guaranteeTitle}
-        </h3>
-        <p className="text-xs text-slate-500 mt-1 max-w-xl mx-auto">
-          {p.guaranteeDesc}
-        </p>
-
-        <div className="grid sm:grid-cols-3 gap-4 mt-6">
-          <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center gap-2.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="text-xs font-bold text-slate-800">{p.badgeCancel}</span>
-          </div>
-          <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center gap-2.5">
-            <Award className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="text-xs font-bold text-slate-800">{p.badgeLifetime}</span>
-          </div>
-          <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center gap-2.5">
-            <Layers className="w-4 h-4 text-indigo-600 shrink-0" />
-            <span className="text-xs font-bold text-slate-800">{p.badgeCrypto}</span>
-          </div>
+      {/* Guarantees */}
+      <Panel tone="sunken" className="mt-8 p-8">
+        <SectionMark index="03">{p.guaranteeTitle}</SectionMark>
+        <p className="mt-3 max-w-2xl text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{p.guaranteeDesc}</p>
+        <div className="mt-7 grid gap-px sm:grid-cols-3">
+          {[
+            { icon: ShieldCheck, label: p.badgeCancel, tone: 'text-signal' },
+            { icon: Award, label: p.badgeLifetime, tone: 'text-accent' },
+            { icon: Layers, label: p.badgeCrypto, tone: 'text-info' },
+          ].map(({ icon: Icon, label, tone }) => (
+            <div key={label} className="flex items-center gap-3 border-l border-line py-3 pl-4">
+              <Icon className={cn('h-4 w-4 shrink-0', tone)} />
+              <span className="text-xs leading-relaxed text-fg-muted">{label}</span>
+            </div>
+          ))}
         </div>
-      </div>
+      </Panel>
 
-      {/* Interactive FAQ Accordion */}
-      <div className="max-w-3xl mx-auto mb-20">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 mb-3">
-            <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
-            <span>{isZh ? '常见问题' : 'Questions & Answers'}</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+      {/* FAQ */}
+      <section className="mx-auto mt-20 max-w-3xl">
+        <div className="text-center">
+          <Badge tone="neutral" size="sm">
+            {p.faqBadge}
+          </Badge>
+          <h2 className="mt-5 font-display text-2xl font-extrabold tracking-tight text-fg sm:text-3xl">
             {p.faqTitle}
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            {p.faqSubtitle}
-          </p>
+          <p className="mt-3 text-xs leading-relaxed text-fg-subtle sm:text-sm sm:leading-relaxed">{p.faqSubtitle}</p>
         </div>
 
-        <div className="space-y-4">
+        <div className="mt-10 divide-y divide-line border-y border-line">
           {p.faqs.map((faq: any, idx: number) => {
             const isOpen = openFaqIndex === idx;
             return (
-              <div
-                key={idx}
-                className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm transition-all"
-              >
+              <div key={idx}>
                 <button
                   type="button"
                   onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                  className="w-full text-left p-5 flex items-center justify-between gap-4 font-bold text-sm text-slate-900 hover:text-blue-600 transition-colors"
+                  aria-expanded={isOpen}
+                  className="flex w-full items-center justify-between gap-4 py-5 text-left text-sm font-semibold text-fg transition-colors hover:text-accent"
                 >
                   <span>{faq.q}</span>
                   <ChevronDown
-                    className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${
-                      isOpen ? 'rotate-180 text-blue-600' : ''
-                    }`}
+                    className={cn(
+                      'h-4 w-4 shrink-0 text-fg-subtle transition-transform duration-200',
+                      isOpen && 'rotate-180 text-accent'
+                    )}
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-5 pb-5 pt-1 text-xs text-slate-600 leading-relaxed border-t border-slate-100">
-                    {faq.a}
-                  </div>
+                  <p className="pb-5 text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{faq.a}</p>
                 )}
               </div>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Bottom Conversion Banner */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-3xl p-8 sm:p-12 text-center text-white shadow-xl shadow-blue-500/20">
-        <h2 className="text-2xl sm:text-4xl font-black tracking-tight">
+      {/* Closing CTA */}
+      <Panel brackets className="mt-20 p-8 text-center sm:p-12">
+        <h2 className="mx-auto max-w-2xl font-display text-2xl font-extrabold tracking-tight text-fg sm:text-4xl">
           {p.bottomCtaTitle}
         </h2>
-        <p className="mt-3 text-xs sm:text-base text-blue-100 max-w-xl mx-auto leading-relaxed">
+        <p className="mx-auto mt-4 max-w-xl text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">
           {p.bottomCtaDesc}
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/register"
-            className="px-6 py-3.5 rounded-xl bg-white text-blue-700 text-xs sm:text-sm font-black shadow-lg hover:bg-blue-50 transition-all"
-          >
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-4">
+          <Link href="/register" className={buttonVariants({ size: 'lg' })}>
             {p.bottomCtaBtn}
+            <ArrowRight className="h-4 w-4" />
           </Link>
           <Link
             href="/track-record"
-            className="px-6 py-3.5 rounded-xl bg-blue-700/60 text-white text-xs sm:text-sm font-bold border border-blue-400/40 hover:bg-blue-700/80 transition-all"
+            className="border-b border-line-strong pb-1 font-mono text-xs text-fg-muted transition-colors hover:border-fg-muted hover:text-fg"
           >
             {p.bottomCtaTrackRecord}
           </Link>
         </div>
-      </div>
-    </div>
+      </Panel>
+    </PageFrame>
   );
 }

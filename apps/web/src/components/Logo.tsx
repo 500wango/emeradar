@@ -6,6 +6,27 @@ interface LogoProps {
   idPrefix?: string;
 }
 
+/**
+ * Brand colours are literals rather than tokens: the mark keeps the same
+ * four-colour gradient as the app icon and the favicon, and a semantic token
+ * would suggest it follows the palette when it must not.
+ *
+ * There used to be a second `dark` palette for the retired dark theme. It was
+ * removed together with its `tone` prop — an unreadable-on-dark wordmark is no
+ * longer a case that exists.
+ */
+const colors = {
+  gradFrom: '#7C3AED',
+  gradMid: '#2563EB',
+  gradMid2: '#06B6D4',
+  gradTo: '#34D399',
+  wordAccent: '#06B6D4',
+  wordAccentMid: '#2563EB',
+  wordAccentTo: '#7C3AED',
+  wordmark: '#0F172A',
+  slogan: '#64748B',
+} as const;
+
 export function Logo({
   variant = 'header',
   className = 'h-8 w-auto',
@@ -34,10 +55,10 @@ export function Logo({
             y2="70"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#7C3AED" />
-            <stop offset="35%" stopColor="#2563EB" />
-            <stop offset="68%" stopColor="#06B6D4" />
-            <stop offset="100%" stopColor="#34D399" />
+            <stop offset="0%" stopColor={colors.gradFrom} />
+            <stop offset="35%" stopColor={colors.gradMid} />
+            <stop offset="68%" stopColor={colors.gradMid2} />
+            <stop offset="100%" stopColor={colors.gradTo} />
           </linearGradient>
         </defs>
 
@@ -82,10 +103,10 @@ export function Logo({
             y2="70"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#7C3AED" />
-            <stop offset="35%" stopColor="#2563EB" />
-            <stop offset="68%" stopColor="#06B6D4" />
-            <stop offset="100%" stopColor="#34D399" />
+            <stop offset="0%" stopColor={colors.gradFrom} />
+            <stop offset="35%" stopColor={colors.gradMid} />
+            <stop offset="68%" stopColor={colors.gradMid2} />
+            <stop offset="100%" stopColor={colors.gradTo} />
           </linearGradient>
 
           <linearGradient
@@ -96,9 +117,9 @@ export function Logo({
             y2="160"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor="#06B6D4" />
-            <stop offset="45%" stopColor="#2563EB" />
-            <stop offset="100%" stopColor="#7C3AED" />
+            <stop offset="0%" stopColor={colors.wordAccent} />
+            <stop offset="45%" stopColor={colors.wordAccentMid} />
+            <stop offset="100%" stopColor={colors.wordAccentTo} />
           </linearGradient>
         </defs>
 
@@ -126,7 +147,7 @@ export function Logo({
           fontSize="102"
           fontWeight="800"
           letterSpacing="-5"
-        ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill="#0F172A">Radar</tspan></text>
+        ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill={colors.wordmark}>Radar</tspan></text>
 
         {/* Slogan */}
         <text
@@ -136,7 +157,7 @@ export function Logo({
           fontSize="26"
           fontWeight="500"
           letterSpacing="0"
-          fill="#64748B"
+          fill={colors.slogan}
         >
           Find markets before they get crowded.
         </text>
@@ -163,10 +184,10 @@ export function Logo({
           y2="70"
           gradientUnits="userSpaceOnUse"
         >
-          <stop offset="0%" stopColor="#7C3AED" />
-          <stop offset="35%" stopColor="#2563EB" />
-          <stop offset="68%" stopColor="#06B6D4" />
-          <stop offset="100%" stopColor="#34D399" />
+          <stop offset="0%" stopColor={colors.gradFrom} />
+          <stop offset="35%" stopColor={colors.gradMid} />
+          <stop offset="68%" stopColor={colors.gradMid2} />
+          <stop offset="100%" stopColor={colors.gradTo} />
         </linearGradient>
 
         <linearGradient
@@ -177,9 +198,9 @@ export function Logo({
           y2="160"
           gradientUnits="userSpaceOnUse"
         >
-          <stop offset="0%" stopColor="#06B6D4" />
-          <stop offset="45%" stopColor="#2563EB" />
-          <stop offset="100%" stopColor="#7C3AED" />
+          <stop offset="0%" stopColor={colors.wordAccent} />
+          <stop offset="45%" stopColor={colors.wordAccentMid} />
+          <stop offset="100%" stopColor={colors.wordAccentTo} />
         </linearGradient>
       </defs>
 
@@ -207,7 +228,7 @@ export function Logo({
         fontSize="102"
         fontWeight="800"
         letterSpacing="-5"
-      ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill="#0F172A">Radar</tspan></text>
+      ><tspan fill={`url(#${emeGradId})`}>Eme</tspan><tspan fill={colors.wordmark}>Radar</tspan></text>
     </svg>
   );
 }

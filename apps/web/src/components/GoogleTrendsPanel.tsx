@@ -3,6 +3,9 @@
 import React from 'react';
 import { ExternalLink, Search, Layers, Compass } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { Panel } from '@/components/ui/Panel';
+import { Badge } from '@/components/ui/Badge';
+import { buttonVariants } from '@/components/ui/Button';
 
 interface GoogleTrendsPanelProps {
   query: string;
@@ -15,50 +18,44 @@ export function GoogleTrendsPanel({
   marketCountry = 'US',
   clusterQueries = [],
 }: GoogleTrendsPanelProps) {
-  const { isZh } = useI18n();
+  const { t } = useI18n();
   const geo = marketCountry || 'US';
   const trendsExploreUrl = `https://trends.google.com/trends/explore?q=${encodeURIComponent(
     query
   )}&geo=${encodeURIComponent(geo)}&date=today%2012-m`;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+    <Panel className="p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-line">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-blue-50 text-blue-600">
+            <span className="p-1.5 rounded-sm bg-accent/10 text-accent">
               <Compass className="w-4 h-4" />
             </span>
-            <h2 className="text-base font-bold text-slate-900">
-              {isZh ? 'Google 趋势链接与已存查询簇' : 'Trends link and stored queries'}
-            </h2>
+            <h2 className="text-base font-bold text-fg">{t('trends.title')}</h2>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {isZh
-              ? `本系统不存储趋势时间序列。该链接将打开 Google Trends (${geo}) 最近12个月数据。下方列表为已归档的查询词簇（含核心查询）。`
-              : `No Trends time series is stored. The link opens Google Trends for ${geo}, past 12 months. The list below is the query cluster on file, including the primary query.`}
-          </p>
+          <p className="text-xs text-fg-subtle mt-1">{t('trends.desc', { geo })}</p>
         </div>
 
         <a
           href={trendsExploreUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm shrink-0"
+          className={buttonVariants({ variant: 'primary', size: 'sm', className: 'shrink-0' })}
         >
-          <span>{isZh ? `打开 Google 趋势 (${geo})` : `Open Google Trends (${geo})`}</span>
+          <span>{t('trends.openBtn', { geo })}</span>
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
       </div>
 
       <div className="mt-5">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-            <Search className="w-3.5 h-3.5 text-blue-600" />
-            <span>{isZh ? '已归档相关查询' : 'Queries on file'}</span>
+          <div className="flex items-center gap-1.5 text-xs font-bold text-fg">
+            <Search className="w-3.5 h-3.5 text-accent" />
+            <span>{t('trends.queriesOnFile')}</span>
           </div>
-          <span className="text-[11px] font-mono text-slate-400">
-            {isZh ? `已存储 ${clusterQueries.length} 个` : `${clusterQueries.length} stored`}
+          <span className="text-[11px] font-mono text-fg-subtle">
+            {t('trends.storedCount', { count: clusterQueries.length })}
           </span>
         </div>
 
@@ -67,32 +64,24 @@ export function GoogleTrendsPanel({
             {clusterQueries.map((cq) => (
               <div
                 key={cq.id}
-                className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs hover:bg-slate-100 transition-all"
+                className="p-2.5 rounded-sm bg-surface-2 border border-line flex items-center justify-between gap-2 text-xs"
               >
-                <span className="font-mono text-slate-800 truncate pr-2 text-[11px]">
-                  {cq.query_text}
-                </span>
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">
-                  Tier {cq.tier}
-                </span>
+                <span className="font-mono text-fg truncate text-[11px]">{cq.query_text}</span>
+                <Badge tone="neutral">Tier {cq.tier}</Badge>
               </div>
             ))}
           </div>
         ) : (
-          <div className="p-4 rounded-xl bg-slate-50 text-center text-xs text-slate-400">
-            {isZh ? '暂无归档的相关查询。' : 'No related queries stored yet.'}
+          <div className="p-4 rounded-sm bg-surface-2 border border-line text-center text-xs text-fg-subtle">
+            {t('trends.empty')}
           </div>
         )}
       </div>
 
-      <div className="mt-4 p-3 rounded-xl bg-amber-50/70 border border-amber-200/60 text-xs text-amber-800 flex items-start gap-2 leading-relaxed">
-        <Layers className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-        <div>
-          {isZh
-            ? '需求分值来源于连续周期的观测数据，而非仅根据外部链接。缺失的数据序列保持留空。'
-            : 'Demand is scored from repeated observations, not from this link. A missing series is left missing.'}
-        </div>
+      <div className="mt-4 p-3 rounded-sm bg-warn/10 border border-warn/30 text-xs text-warn flex items-start gap-2 leading-relaxed">
+        <Layers className="w-4 h-4 shrink-0 mt-0.5" />
+        <div>{t('trends.demandNote')}</div>
       </div>
-    </div>
+    </Panel>
   );
 }

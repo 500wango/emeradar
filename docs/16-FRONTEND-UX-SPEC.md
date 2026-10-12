@@ -67,6 +67,14 @@ apps/web/app/
 - 社会证明只使用已经公开的来源、观测日期和结果事实。没有同时包含命中和失误的样本时，不出现准确率百分比；前台不展示内部账本实现。
 - 下方最多展示 2 条已发布的 `BUILD_NOW`。没有则写明今天没有通过发布资格的 BUILD NOW，并链到方法论。卡片用分档，不用百分制。
 
+**落地现状（2026-10-12 首页试点，已按本节重做）**——同时修正了三处此前的违规实现：
+
+1. 机会卡片曾按 `basisPoints / 100` 渲染 `xx/100` 与进度条，现改为 `D/M/W + HIGH/MEDIUM/LOW/INSUFFICIENT` 分档徽章，页面上不出现任何百分制或综合分；
+2. 首页曾一次拉取 6 条 showcase 并按三列铺满，现 `BUILD NOW ≤ 2`、`EARLY BET ≤ 4`，且**取数后先截断再渲染**，右侧读数与卡片同源，不会出现「面板显示 4 条 BUILD NOW 但页面只画 2 条」；
+3. 数据库无已发布 `BUILD_NOW` 时，首页曾回落到一张虚构的「Invoice Generator for Freelancers」示例卡，违反 `15-PUBLIC-SITE-PUBLICATION-SPEC.md` 的禁用模拟数据条款，现改为规范要求的空状态（说明门槛、链到 `/methodology`）。
+
+首屏的实时读数面板取自已入库的观测记录与账本检查点（`TrackRecordService.getPublicTrackRecord` 的聚合值 + `OpportunityService.listFeedCards`），进程内做 5 分钟记忆化，避免匿名流量反复扫账本。
+
 ### 3.1b 申请追踪
 信息流顶部有一条次要表单：「把这个美国英语查询纳入追踪」。提交后调用追踪接口，成功态是：
 
@@ -192,5 +200,99 @@ flowchart TD
 | **FCP（首屏渲染）** | < 1.0 秒 | 营销页面严格走 SSG/ISR；控制台预载关键 CSS |
 | **Feed 切换延迟** | < 200 毫秒 | 过滤参数与 Tab 采用 React 19 `useTransition`，非阻塞响应 |
 | **详情页加载 p95** | < 1.5 秒 | 服务端使用并行数据抓取（`Promise.all` 获取三轴详情） |
-| **无障碍与暗色模式** | WCAG 2.1 AA 级 | 默认支持系统级 Dark Mode，颜色对比度 ≥ 4.5:1 |
+| **无障碍与浅色主题** | WCAG 2.1 AA 级 | 全站浅色单主题（2026-10-12 定稿，见 §5.1），文本对比度 ≥ 4.5:1、控件边界 ≥ 3:1 |
 | **移动端适配** | 100% 响应式 | 在 iPhone / Android 上所有表格支持水平滑动手势，决策栏固定于底部 |
+
+### 5.1 主题策略（2026-10-12 定稿：浅色单主题）
+
+**全站浅色单主题。** 同日的深色方案（深空黑画布）已废弃，改以「仪器纸白」重新落地同一套视觉语言。上表原先「默认支持系统级 Dark Mode」的表述同样作废。
+
+- **保留与替换**：视觉语言整体保留 —— 胶片噪点、取景器角框面板、等宽大写数据语言、「观测台」排版（Syne + 中文衬线 + JetBrains Mono）、雷达扫描动效、D/M/W 三轴分档。**只把画布从深空黑换成纸白**。此前认为「浅色底上不成立」的三层装饰，实测换成墨色角框与降低扫描透明度后成立（见 §5.4）。
+- **机制（已收口）**：不再有第二套作用域，也没有 `data-theme`、路由清单、阻塞内联脚本与 `ThemeSync` —— 这些为「边迁移边试色」而生的过渡机件已随本次改造整体删除。所有令牌只有一套值，写在 `globals.css` 的 `:root` 里，`color-scheme: light`。软导航不再需要任何主题兜底，因为不存在需要切换的东西。
+- **令牌取值**：每一个值都以 WCAG 算式核定，不靠目测（脚本与阈值见 §5.4）。`fg` / `fg-muted` / `fg-subtle` 三级文本在 `canvas`、`surface`、`surface-2` 三种底上都 ≥ 4.5:1；信号色（`signal` / `warn` / `danger` / `info` / `axis-*` / `accent`）一律取**纸面可读的深墨**，因为它们作为**文字**（`text-signal` 等）出现的次数远多于作为填充。
+- **三层细线**：`line`（纯装饰分隔，豁免 1.4.11）、`line-strong`（装饰性强调：链接下划线、雷达环、骨架条）、`line-control`（控件边界：输入框、描边按钮、开关、下拉）。**表单控件与描边按钮一律走 `line-control`**，因为在那里边框就是唯一的可见边界，须 ≥ 3:1。
+- **反色作用域**：产品里唯一保持深色的表面是「仪器井」（证据抽屉、定价价值锚板、研报原始指标块、设置页方案卡），由 `.on-inverse` 类承载。它把**信号族与文本族**令牌在整棵子树内重指向深底可读的那一套（`--c-inverse-*`），因此子树里写 `text-warn`、`text-fg-subtle` 都自动正确 —— 后者让一个为纸面写的组件（如 `SectionHeading`）可以直接放进井里。成对的填充色也一并翻转：`accent-fg` / `danger-fg` / `warn-fg` 取井内墨色，`solid` 取井内浅色（井里的实心按钮相对周围是反的）。结构令牌（`surface` / `line` / `inverse`）**不动** —— 它们在井内总是与 `inverse-*` 显式配对，静默重指会一次性打断所有制品的底色关系。理由是实测教训：靠「每个调用点记得改写 `text-inverse-*`」的约定在定价页两次失效，先是四个读数以 2.6–2.8:1 渲染上线，接着是眉标 1.05:1（见 §5.4）。
+- **视觉资产约束**（不变）：首页不放置抽象插画或模拟数据，读数一律来自入库记录；样本不足时渲染 `—`，不以估算值填充。
+
+### 5.2 第二期：营销页迁移（2026-10-12）
+
+清单已扩至 7 条：`/`、`/pricing`、`/methodology`、`/terms`、`/track-record`、`/public/opportunities`、`/logo-preview`（最后一条是无人引用的内部设计样张，只为不把它那片深色内容压在浅色壳层下）。`/billing` 复用 `PricingClient`，随第三期一起迁。
+
+本期同时修正了四处与此前实现不符的问题：
+
+1. **战绩页在样本单边时仍打印百分比**。§3.1a 规定「没有同时包含命中和失误的样本时，不出现准确率百分比」，但 `hitRate30d` 在「尚未评估」和「全中」两种情况下都算出 100%，调用方无法区分。`TrackRecordService` 现已随比率一并返回命中数与评估数，页面在 `hits === 0 || hits === evaluated` 时改为展示 `命中数/评估数`。
+2. **战绩页的观测指标是一段永不触发的死代码**。原实现读 `metrics.cluster_expansion`，而该 JSONB 实际按周期嵌套、键名为驼峰（`metrics.h30.clusterExpansion`，见 `PredictionEpisodeService.evaluateEpisodeAtHorizon`），于是该列对每一行都落在兜底分支；而兜底文案还硬编码了「已有 3 个新入局者关闭窗口」——这个数字没有任何查询返回过。现改为读取真实周期数据，缺失时不作陈述。
+3. **账本检查点原本已查出却从未渲染**。战绩页既已取回 `checkpoints`，现公开展示观测日、行数与 Merkle 根前缀，让「可验证」有可核对的落点。
+4. **导航栏在 375 宽度被压垮**（`登录` 竖排、`注册` 被挤成圆点），因为语言切换器的文字标签、Logo 与两个按钮在一条 16px 高的行里争位。窄屏下语言切换器降级为 `EN / 中文` 紧凑形态、Logo 缩至 `h-7`，按钮加 `whitespace-nowrap`。这是全站性的既存缺陷，非本期引入。
+
+另外，定价页原有的 9 处 `isZh ? … : …` 内联三元已迁进字典；`perForever` / `perMonth` / `faqBadge` / `roiBadge` 四个「声明了却从未定义」的可选键改为必填并补齐，与 §3.1a 同一条契约收紧思路。
+
+### 5.3 第三期：应用内页；第四期：管理控制台（2026-10-12）
+
+清单再扩 14 条：应用壳层 `/feed`、`/opportunities`、`/projects`、`/alerts`、`/billing`、`/settings`、`/onboarding`、`/compare`，机会工作台 `/opportunities/[slug]` 与其研报工作室 `/opportunities/[slug]/report`，以及管理控制台 `/admin`（含 4 个 Client 组件）。至此 `OBSERVATORY_ROUTES` 覆盖全站所有路由，未迁移的路由只剩「用户自己新建的页面」这一类。
+
+应用内页的页面外壳统一收进 `ui/PageFrame`（`prose` / `wide` / `full` 三档宽度）与 `ui/PageHeader`，此前每个页面各写一套 `mx-auto max-w-* px-* py-*` 的写法取消。两期里所有迁移过的文件都已不再出现 Tailwind 原色（`slate-*` / `blue-*` / `emerald-*` …），与「未迁移页面照旧可用原色」并行 —— 前者由令牌类与 `ui/` 原语承担，后者是过渡期零回归的物理基础。
+
+本期修正的三处问题：
+
+1. **管理控制台叠了两层导航**。`Navbar` 在角色为 `ADMIN` / `ANALYST` 时会渲染一组指向 `/admin`、`/admin/candidates`、`/admin/sources`、`/admin/users` 的链接，而 `admin/layout.tsx` 又自带一套同目标的「EMERADAR OPS」导航条，两者上下叠加。修复不为 admin 单独改 `Navbar`（那会让「管理员从营销页进控制台」这条路径失效），而是新建一个客户端组件 `SiteChrome` 统一持有导航栏与页脚，在 `/admin` 前缀下整体不渲染。判断放在客户端的原因与主题机制相同：根 layout 在软导航时不重渲染，服务端也拿不到 pathname。
+2. **导出的研报仍在把三轴打成百分制**。§3.1a 与 01-PRD.md F4 的禁令针对的是「D-M-W 的呈现口径」，而 `packages/report` 的 Markdown / HTML 两个渲染器一直输出 `xx / 100 分（基点）`，`generator.ts` 的三轴回退论点更直接写着「当前综合评分」——同一个违规只是换了个出口。现新增 `formatBand()`，`metadata.scores` 增加 `dBand` / `mBand` / `wBand`（由账本封存的档位带出；早于档位留存的存量报告缺这三个字段时如实标注「未留存」，不回算），三轴一律以 `高（High）` 这类档位呈现，基点不再出现在导出物里。KD 难度与 SERP 薄弱度两处 `/ 100` 保留：前者是 Ahrefs 的外部标定刻度，后者是单维度的扫描结果，二者都不是 D-M-W 基点。
+3. **`feed.pageStatus` 永远渲染成原始键名**。该键在字典里被定义成 `({ page }) => …` 函数，而 `getNestedValue`（`lib/i18n/context.tsx`）只返回字符串，函数值一律落到 `undefined`，于是分页状态始终显示字面量 `feed.pageStatus`。改为占位符字符串 `'第 {page} 页'`（`interpolate` 早已支持 `{param}`），类型同步改为 `string`。这是「字典值只能是字符串」这条隐含契约的一个反例，已并入下述契约收紧。
+
+验收时又在真 375px 视口（`375x812x2,mobile,touch`；注意只有 `resize_page` 会被钳在 500px，必须走 `emulate`）下量出五处横向溢出，一并修掉。共同根因都是 **flex / grid 子项的自动最小尺寸**：`min-width: auto` 让子项不能收缩到内容宽度以下，`overflow-x-auto` 也**不会**阻断这份 min-content 贡献：
+
+1. **`/feed` 卡片头部**（溢出 80px）：判定徽章组与「操作 / 规模」元信息组是并排的两个 nowrap 分组，375 下放不下也不会换行。改为 `sm` 以下上下堆叠，并给两组加 `min-w-0`。
+2. **机会工作台 SERP 表**（溢出 180px）：`grid lg:grid-cols-3` 的轨道被表体 490px 的 min-content 顶到 540px。给主列加 `min-w-0`，表格回到自己的 `overflow-x-auto` 里横向滚动 —— 这正是 §5 表格规格要的行为。
+3. **`/settings` 账户条**（溢出 23px）：头像 + 「显示名 + 两枚 nowrap 徽章 + mono User ID」的信息块没有收缩权限。加 `min-w-0`，邮箱与 ID 允许 `break-all`，标签行允许换行。
+4. **`/admin/users` 筛选栏**（溢出 326px）：三个原生 `<select>` 的固有宽度由最长选项决定，整行被顶宽。容器允许 `flex-wrap`，三个下拉加 `min-w-0 flex-1`。
+5. **`/admin/sources` 来源卡**（溢出 37px）：来源名旁的 `Risk:` 徽章与随后的 mono URL 同理。加 `min-w-0` + `flex-wrap`，长 URL `break-all`。
+
+同一轮 375px 目视还发现一处不构成溢出、但同样读不通的排版：`/feed` 卡片的「目标查询词 + query chip + 市场标签」是单行不换行的 flex，市场标签 `US · en-US` 被挤到容器边缘后在连字符处断成 `US · en-` / `US` 两行。改为 `flex-wrap` 并给市场标签 `shrink-0 whitespace-nowrap`，窄屏下整块下沉到下一行，query chip 也拿回完整宽度。
+
+过程里还修掉两处自己引入/暴露的缺陷：
+
+- **`SiteChrome` 首版把页脚放到了正文上方**。导航栏与页脚作为两个独立 flex 子项交给根 layout 时顺序正确，收敛进一个组件的 fragment 后就成了「导航栏、页脚、正文」（`body` 是 `flex-col`）。现把 `<main>` 一并收进 `SiteChrome`，顺序由构造保证，不再依赖 layout 的摆放。
+- **三轴 `INSUFFICIENT` 徽章对比度 4.19:1**（Lighthouse 抓到）：`fg-subtle` 已经是最暗的文本令牌，又叠了一层 `opacity-80`。改为只在有色分支保留淡化，muted 分支直接用令牌本色（约 6:1）。同时给填充式危险按钮补了配对的 `danger-fg`：深色作用域的 `danger` 是亮粉色（为深底上的文字而设），配 `text-white` 只有 2.49:1，浅色作用域 `danger-fg` 仍为白，行为不变。
+
+上述改动后 `/feed`、`/opportunities/[slug]`、`/admin`、`/admin/users`、`/settings`、`/pricing` 的 Lighthouse 无障碍均为 100，`/admin/users` 从 96 修正到 100。
+
+契约影响：`TranslationDictionary` 里被声明成「返回字符串的函数」的键到此清零，字典值一律只能是字符串。`t` 的签名仍是 `(key: string) => string` —— 收紧成键路径类型收益明显但改动面大，仍留作后续独立任务（同 §5.2 的结论）。
+
+未修但已记录（均为本期之前既有，与配色重构无关）：
+
+- `ReportStudioClient` 的英文分支有 12 处直接渲染枚举原值（如 `COMMERCIAL_INVESTIGATION`、`HOMEPAGE_DIRECT`），只有中文分支走 `formatXxx()`。英文用户看到的是 SCREAMING_SNAKE。
+- `DecisionBar` 的 GO 按钮只向 `POST /api/v1/projects` 发 `opportunityId` / `title` / `targetKeywords`，而该接口本身接受 `decisionId` 与 `reportId`。§3.3 要求立项携带当次裁决，目前这条溯源链是断的。
+- `Navbar` 没有移动端菜单（主导航为 `hidden md:flex`，无汉堡入口），窄屏下只能靠页脚与页内链接导航。
+
+（第 5 条原为「`/logo-preview` 在产品内无任何引用」，该页已随 §5.4 删除。）
+
+### 5.4 浅色化与机制收口（2026-10-12）
+
+§5.1 的深色方案在同日被浅色方案取代。这不是回退到改造前的界面 —— 上一版浅色是「Tailwind 模板水平」，本次是同一套观测台语言换纸白画布。落地范围与依据：
+
+**删除的机件**（原 §5.1「待收口」项，本次一并做完）：`lib/theme/route-theme.ts`（含 `OBSERVATORY_ROUTES`、`themeForPath`、`themeBootstrapScript`）、`components/ThemeSync.tsx`、根 layout 里的阻塞内联脚本与 `<html suppressHydrationWarning>`。浅色下首帧就是纸白，不再存在深色底的白闪问题，也就不需要抢在首绘前写样式。副作用是 `Navbar` / `Footer` 各少了一处 `usePathname` 读取。
+
+**随之删除的死代码**：`Logo` 的 `tone` 属性与深色配色（`#6FF2B0` 那一套）。它存在的唯一理由是深底上近黑字标不可见，深色没了它就没有第二种取值，三个调用点全部回到默认。`/logo-preview`（为预览该属性而建、产品内零引用）与四个零引用资产（`public/logo.svg`、`images/dashboard_mockup.jpg`、`images/radar_matrix.jpg`、`images/report_preview.jpg`，合计约 1.9 MB）一并删除。
+
+**验收时发现并修掉的四个真缺陷**：
+
+1. **首页 H1 行高被静默覆盖（本次最严重的观感缺陷）**。`leading-[1.12]` 与 `sm:text-4xl` 并存时，后者同时写 `font-size` 与 `line-height` 且排在样式表更后，于是 ≥640px 下实际行高是 `2.5rem`——56px 的字号配 40px 行高，三行中文互相压字。修法是**在每个断点的 `text-*` 旁边重新声明一次 `leading-*`**，全站 11 处同形写法一并修（`page.tsx`、`SectionHeading`、`PricingClient`、`public/opportunities/[slug]`）。这条已固化为约定：`leading-*` 与响应式 `text-*` 必须配对出现。
+2. **反色井里的语义色是纸面深墨**。定价页价值锚板（`Panel tone="inverse"`）里的 `text-warn` / `text-signal` / `text-axis-m` / `text-accent` 四个读数以 2.6–2.8:1 渲染。这**不是本次引入的**：改造前的浅色主题下同样如此，深色主题期间被「信号色恰好是亮色」意外掩盖，浅色一恢复就重现。修法不是逐处改写，而是新增 `.on-inverse` 作用域在子树内重指向 `--c-inverse-*`（见 §5.1）。
+3. **文本令牌上的透明度修饰**。`text-fg/50` 在纸白上是 3.3:1，`text-signal/80` 是 4.23:1，均不达 AA；三处 `text-fg/50` 里还有一处注释声称「50% 已够 4.5:1」，该说法在原浅色配色下也不成立。五处一律改为整令牌（`text-fg-subtle` / `text-signal`）。约定：**不留透明度修饰在文本令牌上** —— 那不是「弱化」旋钮，是砍对比度。
+4. **反色井里的「文本」令牌同样是纸面深墨**（缺陷 2 的同源问题，首轮只改了信号族）。定价板复用 `SectionHeading`，而它是为纸面写的，眉标走 `text-fg-subtle` —— 在井里就是 18 26 22 打在 19 26 23 上，1.05:1，字面意义上不可见。`text-inverse-fg` 一级在井里本来是对的，缺的是二级与三级。修法同上：`.on-inverse` 把 `--c-fg` / `--c-fg-muted` / `--c-fg-subtle` 一并重指向新增的 `--c-inverse-fg-muted`（168 179 171，8.2:1）与 `--c-inverse-fg-subtle`（142 154 145，6.1:1）。为此必须先**把 `--c-fg` 从「填充色」的角色里解绑**：全站有两处写 `bg-fg text-canvas`（次要按钮、跳转链接），一旦 `--c-fg` 在井内被重指，这两处会在井里静默反转成「浅底浅字」。遂新增 `--c-solid` / `--c-solid-fg` 承载「页面主墨作为填充」，四个调用点（`Button` secondary、跳转链接、`StartExperimentButton`、`/admin/sources` 开关滑块）改走它。同理井内的 `warn` 是亮琥珀，实心徽章须配井内墨色而非白，新增 `--c-warn-fg` 并在作用域内重指。
+
+**核验方式**：令牌取值用脚本按 WCAG 公式逐一核算（文本令牌 × 三种底、`bg-X/10` 着色徽章、实心填充的配对前景、`line-control` 对三种底、反色井内的亮信号与三级文本），阈值 4.5:1 / 3:1；渲染结果用一段注入页面的运行时审计器复核，它遍历每个元素**直接持有的文本节点**、向上回溯合成有效背景（含半透明叠加）后逐项报出未达标者。脚本核算全绿；运行时审计覆盖 17 条可达路由（`/`、`/pricing`、`/feed`、`/settings`、`/compare`、`/methodology`、`/track-record`、`/terms`、`/login`、`/register`、`/reset-password`、`/verify-email`、`/forgot-password`、`/admin`、`/admin/users`、机会工作台 `/opportunities/[slug]` 与其研报工作室 `/opportunities/[slug]/report`）全部 0 处，并额外覆盖证据抽屉打开态与 `/admin/users` 的新建用户模态。`/pricing` 首轮报出 5 处（缺陷 2 与页脚一根分隔竖线），修复后归零。Lighthouse 快照模式在 `/`、`/pricing`、`/feed`、机会工作台（含抽屉打开态）、`/admin/users`（含模态打开态）上均为无障碍 100。
+
+两处**核验工具自身的坑**值得记下来，否则下一轮会重复踩：
+
+- **审计器只统计叶子节点，漏掉「文本 + 子元素」混排的容器**。首版写了 `if (el.children.length) continue`，于是 `<h2 class="… text-fg-subtle">` 这类既有直接文本又有子元素的标题被整条跳过；`/pricing` 上那处 3.1:1 是 Lighthouse 抓到的，审计器当时报的是 0。改为遍历每个元素的直接子文本节点后，才把它复现出来。
+- **开发服务器早于 `tailwind.config.ts` 的改动启动时，会一直供应缺少新工具类的 CSS**，而缺类不报错 —— 它就静默地不生效，元素退回继承色。本次是先给 `--c-inverse-fg-subtle` 写完类、`pnpm build` 也全绿，运行时却量到井内文本是 1.0:1：因为当时在跑的是改动前启动的 dev server，`text-inverse-fg-subtle` 这条规则根本不在样式表里（`document.styleSheets` 里查无此选择器即可确诊）。**结论：这类验收一律跑 `next build` 的产物，不要跑长驻的 dev server**；顺带确认 `.next` 里确实存在新类。
+
+**同轮修掉的两处观感问题**：首页窄屏 CTA 三件套原会折成「按钮 + 一个链接」/「另一个链接」两行、右侧留半行空白，改为窄屏竖排左对齐；`RadarSweep` 触点的 `shadow-[0_0_10px]` 光晕是深底读法，纸面上等于没有，改为 `0 0 0 3px` 的扩散环。
+
+**未能覆盖的两类路由**（是可达性问题，不是审计缺口）：
+
+- `/alerts`、`/projects`、`/billing` 三个页面首行即 `if (session.user.role === 'ADMIN') redirect('/admin')`。可用于验收的账号是运维护号，因此这三条在登录态下**结构上不可达**（实测硬导航后被弹回 `/admin`），本轮未能目视或量测。它们与已覆盖的应用内页共用同一套令牌与 `ui/` 原语，但「共用」不等于「验过」——记在这里，等有普通用户账号时补。
+- `/public/opportunities/[slug]` 当前 404：`/sitemap.xml` 只列出 `/`、`/methodology`、`/terms`、`/track-record`，即库里没有已公开发布的机会记录，该路由没有可渲染的对象。
+
+**遗留（本次未动，与配色无关）**：`Logo` 的 `variant="full"` 与 `variant="icon"` 两个分支在应用内无调用点；`LanguageSwitcher` 的 `toggle` 变体内部硬编码 `中文` / `EN` 而非走字典；`/admin/users` 的新建用户浮层没有 `role="dialog"` / `aria-modal`；§5.3 末尾那份「未修但已记录」清单里除 `/logo-preview` 之外的各项仍然成立。

@@ -8,36 +8,36 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 export function Footer() {
   const { t } = useI18n();
 
+  const linkClasses = 'text-xs text-fg-subtle transition-colors hover:text-accent';
+
   return (
-    <footer className="bg-white border-t border-slate-200 mt-20">
-      <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+    <footer className="mt-20 border-t border-line bg-surface">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="flex flex-col items-center justify-between gap-6 md:flex-row">
           <div className="flex items-center gap-3">
             <Logo variant="header" className="h-7 w-auto" idPrefix="footer" />
-            <span className="text-xs text-slate-400">|</span>
-            <span className="text-xs text-slate-500">
-              {t('footer.tagline')}
-            </span>
+            <span aria-hidden="true" className="text-xs text-fg-subtle">|</span>
+            <span className="text-xs text-fg-subtle">{t('footer.tagline')}</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-6 text-xs text-slate-500">
-            <Link href="/track-record" className="hover:text-blue-600 transition-colors">
+          <div className="flex flex-wrap items-center gap-6">
+            <Link href="/track-record" className={linkClasses}>
               {t('footer.trackRecord')}
             </Link>
-            <Link href="/feed" className="hover:text-blue-600 transition-colors">
+            <Link href="/feed" className={linkClasses}>
               {t('footer.liveFeed')}
             </Link>
-            <Link href="/pricing" className="hover:text-blue-600 transition-colors">
+            <Link href="/pricing" className={linkClasses}>
               {t('footer.pricing')}
             </Link>
-            <Link href="/terms" className="hover:text-blue-600 transition-colors">
+            <Link href="/terms" className={linkClasses}>
               {t('footer.terms')}
             </Link>
             <LanguageSwitcher variant="toggle" />
           </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
+        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-line pt-6 text-xs text-fg-subtle sm:flex-row">
           <p>{t('footer.copyright', { year: new Date().getFullYear() })}</p>
           <p>{t('footer.builtFor')}</p>
         </div>

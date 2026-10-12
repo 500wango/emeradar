@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { Navbar } from '@/components/Navbar';
-import { Footer } from '@/components/Footer';
+import { SiteChrome } from '@/components/SiteChrome';
 import { EvidenceDrawer } from '@/components/EvidenceDrawer';
+import { GrainOverlay } from '@/components/observatory/GrainOverlay';
 import { AuthProvider } from '@/lib/auth-context';
 import { I18nProvider } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
+import { fontVariables } from '@/lib/fonts';
 
 export const metadata: Metadata = {
   title: 'Emeradar | Search Opportunity Intelligence & Commercial Radar for Builders',
@@ -24,19 +25,18 @@ export default async function RootLayout({
   const locale = await getServerLocale();
 
   return (
-    <html lang={locale === 'zh-CN' ? 'zh-CN' : 'en'}>
-      <body className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased">
+    <html lang={locale === 'zh-CN' ? 'zh-CN' : 'en'} className={fontVariables}>
+      <body className="min-h-screen flex flex-col bg-canvas text-fg antialiased">
         <AuthProvider>
           <I18nProvider initialLocale={locale}>
             <a
               href="#main-content"
-              className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-slate-900 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
+              className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-solid focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-solid-fg"
             >
               {locale === 'zh-CN' ? '跳到主要内容' : 'Skip to main content'}
             </a>
-            <Navbar />
-            <main id="main-content" className="flex-1">{children}</main>
-            <Footer />
+            <GrainOverlay />
+            <SiteChrome>{children}</SiteChrome>
             <EvidenceDrawer />
           </I18nProvider>
         </AuthProvider>

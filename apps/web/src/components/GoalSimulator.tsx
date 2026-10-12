@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Calculator,
   Target,
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { SectionGoalSimulator } from '@emeradar/report';
 import { useI18n } from '@/lib/i18n';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Panel } from '@/components/ui/Panel';
 
 interface GoalSimulatorProps {
   data: SectionGoalSimulator;
@@ -22,7 +24,7 @@ interface GoalSimulatorProps {
 }
 
 export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
-  const { isZh } = useI18n();
+  const { t } = useI18n();
 
   const [monthlyTarget, setMonthlyTarget] = useState<number>(
     data.defaultMonthlyTargetUSD || 2000
@@ -55,65 +57,62 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
     setConversionRate(0.02);
   };
 
-  const getKgrBadge = (kgr: number) => {
+  const getKgrBadge = (kgr: number): { label: string; tone: BadgeTone } => {
     if (kgr < 0.25) {
-      return {
-        label: isZh ? '极佳 (<0.25 快速上词)' : 'Excellent (<0.25 Fast Rank)',
-        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      };
+      return { label: t('goalSim.kgrExcellent'), tone: 'signal' };
     } else if (kgr <= 1.0) {
-      return {
-        label: isZh ? '中等 (0.25~1.0 有机会)' : 'Moderate (0.25~1.0 Viable)',
-        color: 'bg-amber-50 text-amber-700 border-amber-200',
-      };
+      return { label: t('goalSim.kgrModerate'), tone: 'warn' };
     }
-    return {
-      label: isZh ? '偏难 (>1.0 需强外链)' : 'High (>1.0 Needs Strong Links)',
-      color: 'bg-rose-50 text-rose-700 border-rose-200',
-    };
+    return { label: t('goalSim.kgrHigh'), tone: 'danger' };
   };
 
   const kgrBadge = getKgrBadge(data.kgrRatio);
+  const kdTone: BadgeTone = data.estimatedKd < 30 ? 'signal' : data.estimatedKd < 60 ? 'warn' : 'danger';
+  const kdLabel =
+    data.estimatedKd < 30 ? t('goalSim.kdEasy') : data.estimatedKd < 60 ? t('goalSim.kdMedium') : t('goalSim.kdHard');
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+    <Panel className="space-y-6 p-6 sm:p-8">
       {/* Title & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+      <div className="flex flex-col justify-between gap-4 border-b border-line pb-5 sm:flex-row sm:items-center">
         <div>
-          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase tracking-wider mb-1">
-            <Calculator className="w-4 h-4" />
-            <span>{isZh ? '独立开发者目标拆解与 ROI 模拟器' : 'Builder Goal & Unit Economics Simulator'}</span>
+          <div className="mb-1 flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-[0.18em] text-info">
+            <Calculator className="h-4 w-4" />
+            <span>{t('goalSim.eyebrow')}</span>
           </div>
-          <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
-            {isZh ? '从 $MRR 目标反推 SEO 流量与外链预算' : 'Reverse Engineer $MRR to Traffic & Link Budget'}
+          <h3 className="text-xl font-extrabold tracking-tight text-fg">
+            {t('goalSim.title')}
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isZh
-              ? `针对${primaryQuery ? `「${primaryQuery}」` : '目标词'}，基于 Ahrefs KD 对照曲线、KGR 与阶梯外链成本模型直接推算盈亏平衡点。`
-              : `Targeting ${primaryQuery ? `"${primaryQuery}"` : 'target query'}, deterministic modeling based on Ahrefs KD curve, KGR, and tiered backlink costs.`}
+          <p className="mt-0.5 text-xs text-fg-muted">
+            {primaryQuery ? t('goalSim.descWithQuery', { query: primaryQuery }) : t('goalSim.desc')}
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleReset}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors self-start sm:self-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          className="inline-flex items-center gap-1.5 self-start rounded-sm border border-line bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg-muted transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:self-auto"
         >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>{isZh ? '重置基准' : 'Reset'}</span>
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span>{t('goalSim.reset')}</span>
         </button>
       </div>
 
+      {/* Explicit provenance: every figure below is a modelled assumption, not an observation. */}
+      <p className="rounded-sm border border-warn/40 bg-warn/10 px-3 py-2 text-[11px] leading-relaxed text-warn">
+        {t('goalSim.disclaimer')}
+      </p>
+
       {/* Simulator Inputs Grid */}
-      <div className="grid md:grid-cols-3 gap-6 p-5 rounded-2xl bg-slate-50/80 border border-slate-200/80">
+      <div className="grid gap-6 rounded-sm border border-line bg-surface-2 p-5 md:grid-cols-3">
         {/* Slider: Monthly Revenue Target */}
         <div className="space-y-2 md:col-span-2">
-          <div className="flex justify-between items-center text-xs">
-            <label htmlFor="goal-monthly-target" className="font-semibold text-slate-700 flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              {isZh ? '月度目标营收 (Monthly Target)' : 'Monthly Revenue Target'}
+          <div className="flex items-center justify-between text-xs">
+            <label htmlFor="goal-monthly-target" className="flex items-center gap-1.5 font-semibold text-fg-muted">
+              <DollarSign className="h-3.5 w-3.5 text-signal" />
+              {t('goalSim.monthlyTargetLabel')}
             </label>
-            <span className="font-mono font-bold text-sm text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            <span className="rounded-sm border border-signal/40 bg-signal/10 px-2 py-0.5 font-mono text-sm font-bold text-signal">
               ${monthlyTarget.toLocaleString()} / mo
             </span>
           </div>
@@ -127,9 +126,9 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
             step={100}
             value={monthlyTarget}
             onChange={(e) => setMonthlyTarget(Number(e.target.value))}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+            className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-line accent-accent"
           />
-          <div id="goal-monthly-target-range" className="flex justify-between text-[10px] text-slate-400 font-mono">
+          <div id="goal-monthly-target-range" className="flex justify-between font-mono text-[10px] text-fg-subtle">
             <span>$500</span>
             <span>$2,500</span>
             <span>$5,000</span>
@@ -140,8 +139,8 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
 
         {/* Pricing Model / ARPU */}
         <div className="space-y-2">
-          <label className="block text-xs font-semibold text-slate-700">
-            {isZh ? '客单价 / 月付 ARPU' : 'Monthly ARPU / Price'}
+          <label className="block text-xs font-semibold text-fg-muted">
+            {t('goalSim.arpuLabel')}
           </label>
           <div className="grid grid-cols-4 gap-1">
             {[19, 29, 49, 99].map((p) => (
@@ -149,184 +148,151 @@ export function GoalSimulator({ data, primaryQuery }: GoalSimulatorProps) {
                 key={p}
                 type="button"
                 onClick={() => setArpu(p)}
-                className={`py-1.5 text-xs font-semibold rounded-md border transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                className={`rounded-sm border py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                   arpu === p
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    ? 'border-accent bg-accent text-accent-fg'
+                    : 'border-line bg-surface text-fg-muted hover:text-fg'
                 }`}
               >
                 ${p}
               </button>
             ))}
           </div>
-          <div className="text-[10px] text-slate-400">
-            {isZh ? '转化率基准: 2.0% 注册付费' : 'Baseline conversion: 2.0%'}
+          <div className="text-[10px] text-fg-subtle">
+            {t('goalSim.conversionNote')}
           </div>
         </div>
       </div>
 
       {/* Dynamic Results Grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Card 1: Visitors Needed */}
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-500" />
-            <span>{isZh ? '每月需独立访问 (UV)' : 'Monthly UV Needed'}</span>
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-subtle">
+            <Zap className="h-3.5 w-3.5 text-warn" />
+            <span>{t('goalSim.uvLabel')}</span>
           </div>
-          <div className="text-xl font-extrabold text-slate-900 font-mono">
+          <div className="font-mono text-xl font-extrabold text-fg">
             ~{uvNeeded.toLocaleString()}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {isZh
-              ? `支撑 ${customersNeeded} 位有效付费用户`
-              : `To acquire ${customersNeeded} paying users`}
+          <p className="mt-1 text-[11px] text-fg-subtle">
+            {t('goalSim.uvDesc', { count: customersNeeded })}
           </p>
         </div>
 
         {/* Card 2: Cluster Search Volume Needed */}
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
-            <span>{isZh ? '对应词簇总搜索量' : 'Cluster Volume Target'}</span>
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-subtle">
+            <TrendingUp className="h-3.5 w-3.5 text-accent" />
+            <span>{t('goalSim.clusterLabel')}</span>
           </div>
-          <div className="text-xl font-extrabold text-slate-900 font-mono">
+          <div className="font-mono text-xl font-extrabold text-fg">
             ~{clusterSearchVolumeNeeded.toLocaleString()}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {isZh ? '假定排入 Top 3 (平均 CTR 28%)' : 'Assuming Top 3 ranks (28% CTR)'}
+          <p className="mt-1 text-[11px] text-fg-subtle">
+            {t('goalSim.clusterDesc')}
           </p>
         </div>
 
         {/* Card 3: Backlink Budget */}
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
-            <Link2 className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{isZh ? '阶梯外链预估预算' : 'Tiered Link Budget'}</span>
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-subtle">
+            <Link2 className="h-3.5 w-3.5 text-info" />
+            <span>{t('goalSim.linkBudgetLabel')}</span>
           </div>
-          <div className="text-xl font-extrabold text-indigo-600 font-mono">
+          <div className="font-mono text-xl font-extrabold text-info">
             ${linkCostLow.toLocaleString()} ~ ${linkCostHigh.toLocaleString()}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {isZh
-              ? `${data.requiredDomainsLow}~${data.requiredDomainsHigh} 条独立 RD (@$100~125/条)`
-              : `${data.requiredDomainsLow}~${data.requiredDomainsHigh} referring domains`}
+          <p className="mt-1 text-[11px] text-fg-subtle">
+            {t('goalSim.linkBudgetDesc', { low: data.requiredDomainsLow, high: data.requiredDomainsHigh })}
           </p>
         </div>
 
         {/* Card 4: Breakeven Time */}
-        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
-            <BarChart2 className="w-3.5 h-3.5 text-emerald-500" />
-            <span>{isZh ? '外链成本收回周期' : 'Breakeven Payback'}</span>
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-fg-subtle">
+            <BarChart2 className="h-3.5 w-3.5 text-signal" />
+            <span>{t('goalSim.breakevenLabel')}</span>
           </div>
-          <div className="text-xl font-extrabold text-emerald-600 font-mono">
-            ~{breakevenMonths} {isZh ? '个月' : 'mos'}
+          <div className="font-mono text-xl font-extrabold text-signal">
+            ~{breakevenMonths} {t('goalSim.breakevenUnit')}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {isZh ? '基于 70% 稳态毛利折算' : 'Based on 70% gross margin'}
+          <p className="mt-1 text-[11px] text-fg-subtle">
+            {t('goalSim.breakevenDesc')}
           </p>
         </div>
       </div>
 
       {/* Competitive Benchmark Block: KD vs Domains vs KGR */}
-      <div className="grid md:grid-cols-2 gap-4 pt-2">
+      <div className="grid gap-4 pt-2 md:grid-cols-2">
         {/* Ahrefs Calibrated Difficulty */}
-        <div className="p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <Target className="w-3.5 h-3.5 text-slate-500" />
-              {isZh ? 'Ahrefs 标定难度与域名评级要求' : 'Ahrefs Calibrated KD & Target DR'}
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-fg-muted">
+              <Target className="h-3.5 w-3.5 text-fg-subtle" />
+              {t('goalSim.kdTitle')}
             </span>
-            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-800">
-              KD {data.estimatedKd} / 100
-            </span>
+            <Badge tone={kdTone}>{`KD ${data.estimatedKd} · ${kdLabel}`}</Badge>
           </div>
 
           <div className="space-y-2 text-xs">
-            <div className="flex justify-between items-center text-slate-600">
-              <span>{isZh ? '建议目标域名评级 (Target DR):' : 'Target Domain Rating:'}</span>
-              <strong className="font-mono text-slate-900">{data.targetDrRange}</strong>
+            <div className="flex items-center justify-between text-fg-muted">
+              <span>{t('goalSim.targetDr')}</span>
+              <strong className="font-mono text-fg">{data.targetDrRange}</strong>
             </div>
-            <div className="flex justify-between items-center text-slate-600">
-              <span>{isZh ? '排入前 10 需关联独立域名 (RD):' : 'Required Referring Domains:'}</span>
-              <strong className="font-mono text-slate-900">
-                {data.requiredDomainsLow} ~ {data.requiredDomainsHigh} domains
+            <div className="flex items-center justify-between text-fg-muted">
+              <span>{t('goalSim.requiredRd')}</span>
+              <strong className="font-mono text-fg">
+                {data.requiredDomainsLow} ~ {data.requiredDomainsHigh}
               </strong>
-            </div>
-          </div>
-
-          {/* KD Visual Bar */}
-          <div className="mt-3.5">
-            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-full rounded-full ${
-                  data.estimatedKd < 30
-                    ? 'bg-emerald-500'
-                    : data.estimatedKd < 60
-                    ? 'bg-amber-500'
-                    : 'bg-rose-500'
-                }`}
-                style={{ width: `${data.estimatedKd}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
-              <span>Easy (0-29)</span>
-              <span>Medium (30-59)</span>
-              <span>Hard (60-100)</span>
             </div>
           </div>
         </div>
 
         {/* KGR & EKGR Ratio Analysis */}
-        <div className="p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100/60 border border-slate-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              {isZh ? '长尾黄金比例 (KGR & EKGR)' : 'Keyword Golden Ratio (KGR)'}
+        <div className="rounded-sm border border-line bg-surface-2 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-fg-muted">
+              <Sparkles className="h-3.5 w-3.5 text-warn" />
+              {t('goalSim.kgrTitle')}
             </span>
-            <span
-              className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded border ${kgrBadge.color}`}
-            >
-              {kgrBadge.label}
-            </span>
+            <Badge tone={kgrBadge.tone}>{kgrBadge.label}</Badge>
           </div>
 
           <div className="space-y-2 text-xs">
-            <div className="flex justify-between items-center text-slate-600">
+            <div className="flex items-center justify-between text-fg-muted">
               <span>KGR = allintitle / monthly search:</span>
-              <strong className="font-mono text-slate-900">
+              <strong className="font-mono text-fg">
                 {data.kgrRatio.toFixed(3)}
               </strong>
             </div>
-            <div className="flex justify-between items-center text-slate-600">
-              <span>EKGR (含难度加权扩展):</span>
-              <strong className="font-mono text-slate-900">
+            <div className="flex items-center justify-between text-fg-muted">
+              <span>{t('goalSim.ekgrLabel')}</span>
+              <strong className="font-mono text-fg">
                 {data.ekgrRatio.toFixed(3)}
               </strong>
             </div>
           </div>
 
-          <p className="text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-200/60 leading-relaxed">
-            {isZh
-              ? '💡 KGR < 0.25 意味着当 Google 收录你的新页面时，极有可能在前 50 名乃至前几页迅速获得曝光。'
-              : '💡 KGR < 0.25 indicates that once indexed by Google, your new page is highly likely to rank in the top 50 immediately.'}
+          <p className="mt-3 border-t border-line pt-2 text-[11px] leading-relaxed text-fg-subtle">
+            {t('goalSim.kgrNote')}
           </p>
         </div>
       </div>
 
       {/* Assumptions & Methodology Footer */}
-      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-150 text-[11px] text-slate-500 space-y-1">
-        <div className="font-semibold text-slate-700 mb-1 flex items-center gap-1">
-          <ShieldAlert className="w-3.5 h-3.5 text-slate-400" />
-          <span>{isZh ? '模型假设与计算规则' : 'Modeling Assumptions'}</span>
+      <div className="space-y-1 rounded-sm border border-line bg-surface-2 p-3.5 text-[11px] text-fg-subtle">
+        <div className="mb-1 flex items-center gap-1 font-semibold text-fg-muted">
+          <ShieldAlert className="h-3.5 w-3.5 text-fg-subtle" />
+          <span>{t('goalSim.assumptionsTitle')}</span>
         </div>
         {data.assumptions.map((item, idx) => (
           <div key={idx} className="flex items-start gap-1.5">
-            <span className="text-slate-400">•</span>
+            <span className="text-fg-subtle">•</span>
             <span>{item}</span>
           </div>
         ))}
       </div>
-    </div>
+    </Panel>
   );
 }

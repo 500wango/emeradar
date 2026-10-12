@@ -12,6 +12,8 @@ import {
 import { BuildArchetype } from '@emeradar/core';
 import { useI18n } from '@/lib/i18n';
 import { safeExternalUrl } from '@/lib/format';
+import { Panel } from '@/components/ui/Panel';
+import { Badge } from '@/components/ui/Badge';
 
 interface SerpResultItem {
   rank: number;
@@ -39,7 +41,7 @@ export function UserPainPointsPanel({
   topIdea,
   serpResults = [],
 }: UserPainPointsPanelProps) {
-  const { isZh } = useI18n();
+  const { t } = useI18n();
 
   // Extract real community questions (StackOverflow, HackerNews)
   const communityDiscussions = serpResults.filter((r) => {
@@ -56,38 +58,42 @@ export function UserPainPointsPanel({
     (r) => r.result_type === 'EDITORIAL_MEDIA' || r.result_type === 'LISTICLE_AFFILIATE'
   );
 
+  const shape = recommendedArchetype.replace(/_/g, ' ');
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 mb-6">
+    <Panel className="p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-line mb-6">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+            <span className="p-1.5 rounded-sm bg-info/10 text-info">
               <MessageSquare className="w-4 h-4" />
             </span>
-            <h2 className="text-base font-bold text-slate-900">
-              {isZh ? '来源标注提及' : 'Source-labeled mentions'}
-            </h2>
+            <h2 className="text-base font-bold text-fg">{t('painPoints.title')}</h2>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            {isZh
-              ? `针对「${primaryQuery}」。仅当域名匹配时，条目才归入 Stack Overflow、Hacker News 或 GitHub。`
-              : `For "${primaryQuery}". A row is listed under Stack Overflow, Hacker News, or GitHub only when its domain says so.`}
+          <p className="text-xs text-fg-subtle mt-1">
+            {t('painPoints.desc', { query: primaryQuery })}
           </p>
         </div>
 
-        <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700 shrink-0">
-          {isZh ? '目标形态: ' : 'Target shape: '} {recommendedArchetype.replace(/_/g, ' ')} (Class {executionClass})
-        </span>
+        {/* 这里刻意不用 Badge：Badge 是 nowrap 的（它承载的是 DEMAND / Tier A
+            这类短仪器标签），而这一条是拼出来的长句子 —— 在 375 宽度下单枚徽章
+            就有 490px，会把整个栅格列顶到 540px，页面横向滚出 180px。 */}
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle sm:shrink-0 sm:text-right">
+          {t('painPoints.shapeBadge')}{' '}
+          <span className="text-fg">
+            {shape} (Class {executionClass})
+          </span>
+        </p>
       </div>
 
       <div className="space-y-6">
         {/* Real Community Q&A */}
         <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
-            <HelpCircle className="w-4 h-4 text-amber-600" />
-            <span>{isZh ? 'Stack Overflow 与 Hacker News 问答' : 'Stack Overflow and Hacker News URLs'}</span>
-            <span className="text-[10px] font-mono text-slate-400">
-              ({communityDiscussions.length} {isZh ? '条已捕获' : 'captured'})
+          <div className="flex items-center gap-2 text-xs font-bold text-fg mb-2.5">
+            <HelpCircle className="w-4 h-4 text-warn" />
+            <span>{t('painPoints.qaTitle')}</span>
+            <span className="text-[10px] font-mono text-fg-subtle">
+              {t('painPoints.qaCaptured', { count: communityDiscussions.length })}
             </span>
           </div>
 
@@ -96,44 +102,40 @@ export function UserPainPointsPanel({
               {communityDiscussions.map((item) => (
                 <div
                   key={item.rank}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors"
+                  className="p-3 rounded-sm bg-surface-2 border border-line hover:border-accent/50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
                       href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5"
+                      className="text-xs font-semibold text-fg hover:text-accent hover:underline inline-flex items-center gap-1.5"
                     >
                       <span>{item.title}</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <ExternalLink className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
                     </a>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
-                      {item.domain}
-                    </span>
+                    <Badge tone="warn">{item.domain}</Badge>
                   </div>
                   {item.snippet && (
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      {item.snippet}
-                    </p>
+                    <p className="text-[11px] text-fg-subtle mt-1 leading-relaxed">{item.snippet}</p>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-400">
-              {isZh ? '暂无归档的 stackoverflow.com 或 news.ycombinator.com 链接。' : 'No stackoverflow.com or news.ycombinator.com URLs are stored.'}
+            <div className="p-3 rounded-sm bg-surface-2 border border-line text-xs text-fg-subtle">
+              {t('painPoints.noQa')}
             </div>
           )}
         </div>
 
         {/* Real Open Source Repos */}
         <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
-            <Github className="w-4 h-4 text-slate-800" />
-            <span>{isZh ? 'GitHub 开源项目链接' : 'github.com URLs'}</span>
-            <span className="text-[10px] font-mono text-slate-400">
-              ({openSourceTools.length} {isZh ? '个已捕获' : 'captured'})
+          <div className="flex items-center gap-2 text-xs font-bold text-fg mb-2.5">
+            <Github className="w-4 h-4 text-fg" />
+            <span>{t('painPoints.githubTitle')}</span>
+            <span className="text-[10px] font-mono text-fg-subtle">
+              {t('painPoints.githubCaptured', { count: openSourceTools.length })}
             </span>
           </div>
 
@@ -142,33 +144,29 @@ export function UserPainPointsPanel({
               {openSourceTools.map((item) => (
                 <div
                   key={item.rank}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors"
+                  className="p-3 rounded-sm bg-surface-2 border border-line hover:border-accent/50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
                       href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5 font-mono"
+                      className="text-xs font-semibold text-fg hover:text-accent hover:underline inline-flex items-center gap-1.5 font-mono"
                     >
                       <span>{item.title}</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <ExternalLink className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
                     </a>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 shrink-0">
-                      GitHub
-                    </span>
+                    <Badge tone="neutral">GitHub</Badge>
                   </div>
                   {item.snippet && (
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      {item.snippet}
-                    </p>
+                    <p className="text-[11px] text-fg-subtle mt-1 leading-relaxed">{item.snippet}</p>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-400">
-              {isZh ? '暂无归档的 github.com 链接。' : 'No github.com URLs are stored.'}
+            <div className="p-3 rounded-sm bg-surface-2 border border-line text-xs text-fg-subtle">
+              {t('painPoints.noGithub')}
             </div>
           )}
         </div>
@@ -176,11 +174,11 @@ export function UserPainPointsPanel({
         {/* Industry Media & Listicles */}
         {mediaArticles.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 mb-2.5">
-              <BookOpen className="w-4 h-4 text-blue-600" />
-              <span>{isZh ? '行业媒体与评测推荐文章' : 'Editorial and listicle rows (domain shown)'}</span>
-              <span className="text-[10px] font-mono text-slate-400">
-                ({mediaArticles.length} {isZh ? '篇已捕获' : 'captured'})
+            <div className="flex items-center gap-2 text-xs font-bold text-fg mb-2.5">
+              <BookOpen className="w-4 h-4 text-accent" />
+              <span>{t('painPoints.mediaTitle')}</span>
+              <span className="text-[10px] font-mono text-fg-subtle">
+                {t('painPoints.mediaCaptured', { count: mediaArticles.length })}
               </span>
             </div>
 
@@ -188,26 +186,22 @@ export function UserPainPointsPanel({
               {mediaArticles.map((item) => (
                 <div
                   key={item.rank}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100/70 transition-colors"
+                  className="p-3 rounded-sm bg-surface-2 border border-line hover:border-accent/50 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <a
                       href={safeExternalUrl(item.url) ?? '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline inline-flex items-center gap-1.5"
+                      className="text-xs font-semibold text-fg hover:text-accent hover:underline inline-flex items-center gap-1.5"
                     >
                       <span>{item.title}</span>
-                      <ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <ExternalLink className="w-3.5 h-3.5 text-fg-subtle shrink-0" />
                     </a>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 shrink-0">
-                      {item.domain}
-                    </span>
+                    <Badge tone="accent">{item.domain}</Badge>
                   </div>
                   {item.snippet && (
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      {item.snippet}
-                    </p>
+                    <p className="text-[11px] text-fg-subtle mt-1 leading-relaxed">{item.snippet}</p>
                   )}
                 </div>
               ))}
@@ -216,23 +210,17 @@ export function UserPainPointsPanel({
         )}
 
         {/* Builder Opportunity Concept */}
-        <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200">
+        <div className="p-4 rounded-sm bg-signal/10 border border-signal/30">
           <div className="flex items-center gap-2 mb-1.5">
-            <Sparkles className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
-              {isZh ? '系统归档构建建议' : 'Stored recommendation'}
-            </h3>
+            <Sparkles className="w-4 h-4 text-signal" />
+            <h3 className="text-xs font-bold text-signal">{t('painPoints.storedRecommendation')}</h3>
           </div>
-          <p className="text-xs text-emerald-900 leading-relaxed font-medium">
-            {topIdea}
-          </p>
-          <p className="text-[11px] text-emerald-800 mt-2">
-            {isZh
-              ? `归档形态: ${recommendedArchetype.replace(/_/g, ' ')} · 规模等级 Class ${executionClass}。本条为系统存储建议，非上列条目的机械总结。`
-              : `Shape on file: ${recommendedArchetype.replace(/_/g, ' ')} · Class ${executionClass}. This sentence is the stored recommendation, not a summary of the rows above.`}
+          <p className="text-xs text-fg leading-relaxed font-medium">{topIdea}</p>
+          <p className="text-[11px] text-fg-subtle mt-2">
+            {t('painPoints.storedRecommendationNote', { shape, cls: executionClass })}
           </p>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }

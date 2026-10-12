@@ -3,23 +3,18 @@
 import React, { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Logo } from '@/components/Logo';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
-import {
-  ShieldCheck,
-  AlertCircle,
-  ArrowRight,
-  Lock,
-  Mail,
-  User,
-  Loader2,
-} from 'lucide-react';
+import { ArrowRight, Loader2, Lock, Mail, ShieldCheck, User } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { AuthError, AuthShell } from '@/components/ui/AuthShell';
+import { buttonVariants } from '@/components/ui/Button';
+import { Input, FieldLabel } from '@/components/ui/Field';
 
 function RegisterFormContent() {
   const router = useRouter();
   const { register } = useAuth();
-  const { t, isZh } = useI18n();
+  const { t } = useI18n();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -30,11 +25,11 @@ function RegisterFormContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError(isZh ? '请填写您的邮箱和密码' : 'Please fill in your email and password');
+      setError(t('auth.emailPasswordRequired'));
       return;
     }
     if (password.length < 8) {
-      setError(isZh ? '密码长度至少需 8 位字符' : 'Password must be at least 8 characters');
+      setError(t('auth.passwordTooShort'));
       return;
     }
 
@@ -48,147 +43,103 @@ function RegisterFormContent() {
       });
       router.push('/verify-email?sent=1&next=%2Fonboarding');
     } catch (err: any) {
-      setError(err.message || (isZh ? '注册遇到问题，请尝试其他邮箱。' : 'Registration failed. Please try a different email.'));
+      setError(err.message || t('auth.registerFailedHint'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-gradient-to-b from-slate-50 via-white to-slate-100">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link href="/" className="inline-block mb-6">
-          <Logo variant="header" className="h-10 w-auto mx-auto" idPrefix="reg" />
-        </Link>
-        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          {t('auth.registerTitle')}
-        </h2>
-        <p className="mt-2 text-sm text-slate-600">
-          {t('auth.registerDesc')}
-        </p>
-      </div>
+    <AuthShell
+      title={t('auth.registerTitle')}
+      desc={t('auth.registerDesc')}
+      width="lg"
+      footnote={
+        <>
+          <ShieldCheck className="h-3.5 w-3.5 text-signal" />
+          {t('auth.securityFootnote')}
+        </>
+      }
+    >
+      {error && <AuthError title={t('auth.registerFailed')} message={error} />}
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-xl px-4 sm:px-0">
-        <div className="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-2xl border border-slate-200/80">
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-semibold block">{t('auth.registerFailed')}</span>
-                <span>{error}</span>
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Display Name */}
-            <div>
-              <label htmlFor="register-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                {t('auth.nameLabel')}
-              </label>
-              <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="h-4 w-4" />
-                </div>
-                <input
-                  id="register-name"
-                  name="name"
-                  type="text"
-                  autoComplete="name"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder={t('auth.namePlaceholder')}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div>
-              <label htmlFor="register-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                {t('auth.emailLabel')}
-              </label>
-              <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="h-4 w-4" />
-                </div>
-                <input
-                  id="register-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={t('auth.emailPlaceholder')}
-                  required
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label htmlFor="register-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                {t('auth.passwordLabel')}
-              </label>
-              <div className="relative rounded-xl shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="h-4 w-4" />
-                </div>
-                <input
-                  id="register-password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={isZh ? '至少包含 8 位字符' : 'Minimum 8 characters'}
-                  required
-                  minLength={8}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-slate-50/50 border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-                />
-              </div>
-            </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shadow-md shadow-blue-500/20 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>{t('auth.signingUp')}</span>
-                </>
-              ) : (
-                <>
-                  <span>{t('auth.signUpBtn')}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Footer */}
-          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>{t('auth.alreadyHaveAccount')}</span>
-            <Link
-              href="/login"
-              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            >
-              {t('auth.signInLink')}
-            </Link>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <FieldLabel htmlFor="register-name">{t('auth.nameLabel')}</FieldLabel>
+          <div className="relative mt-2">
+            <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            <Input
+              id="register-name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={t('auth.namePlaceholder')}
+              className="pl-10"
+            />
           </div>
         </div>
 
-        {/* Info */}
-        <div className="mt-6 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
-          <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>{t('auth.securityFootnote')}</span>
+        <div>
+          <FieldLabel htmlFor="register-email">{t('auth.emailLabel')}</FieldLabel>
+          <div className="relative mt-2">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            <Input
+              id="register-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={t('auth.emailPlaceholder')}
+              required
+              className="pl-10"
+            />
+          </div>
         </div>
+
+        <div>
+          <FieldLabel htmlFor="register-password">{t('auth.passwordLabel')}</FieldLabel>
+          <div className="relative mt-2">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+            <Input
+              id="register-password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t('auth.passwordMinPlaceholder')}
+              required
+              minLength={8}
+              className="pl-10"
+            />
+          </div>
+        </div>
+
+        <button type="submit" disabled={loading} className={cn(buttonVariants({ size: 'md' }), 'mt-1 w-full')}>
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('auth.signingUp')}
+            </>
+          ) : (
+            <>
+              {t('auth.signUpBtn')}
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
+        </button>
+      </form>
+
+      <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5 text-xs text-fg-subtle">
+        <span>{t('auth.alreadyHaveAccount')}</span>
+        <Link href="/login" className="font-mono text-accent transition-colors hover:brightness-110">
+          {t('auth.signInLink')}
+        </Link>
       </div>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -196,9 +147,9 @@ export default function RegisterPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-        </div>
+        <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-accent" />
+        </main>
       }
     >
       <RegisterFormContent />
