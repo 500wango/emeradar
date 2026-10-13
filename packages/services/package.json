@@ -15,7 +15,8 @@
     "@emeradar/ledger": "workspace:*",
     "@emeradar/report": "workspace:*",
     "@emeradar/collectors": "workspace:*",
-    "@emeradar/llm": "workspace:*"
+    "@emeradar/llm": "workspace:*",
+    "nodemailer": "^10.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",

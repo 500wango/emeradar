@@ -190,7 +190,7 @@ docker exec -i restore-drill psql -U postgres -d emeradar -tAc \
 | `--force` | 另起一个带时间戳的对象，不覆盖 |
 | R2 不可达 | 快速失败（单次尝试、短超时），不长时间挂起 |
 | 上传后字节数对不上 | 报错退出 1 并告警 |
-| 任一环节失败 | 若配了 Resend 则邮件告警 |
+| 任一环节失败 | 若配了 SMTP 或 Resend 则邮件告警 |
 | 成功 | 默认静默；`BACKUP_ALERT_ON_SUCCESS=1` 时才发信 |
 
 退出码与 `/var/log/emeradar-backup.log` 记录每次运行结果。

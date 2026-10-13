@@ -41,19 +41,45 @@ log() { printf '%s [backup] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 # Best effort: a broken alert must never be the reason a backup "fails".
 # Reads only variables from .backup.env — never sources the app .env, whose
 # quoting is not guaranteed to be shell-safe.
+#
+# Two channels, in the same order as the application
+# (packages/services/src/email.service.ts): SMTP first, then Resend. SMTP goes
+# through curl because curl already speaks SMTPS and AUTH; a second hand-rolled
+# SMTP client on this host would only be a second way to get it wrong.
 notify() {
   [ -n "${BACKUP_ALERT_TO:-}" ] || return 0
-  [ -n "${RESEND_API_KEY:-}" ] || return 0
-  [ -n "${ALERT_FROM_EMAIL:-}" ] || return 0
+  local from="${MAIL_FROM:-${ALERT_FROM_EMAIL:-}}"
+  [ -n "$from" ] || return 0
   local status="$1" text subject body
   text="${2:-}"
   subject="[emeradar] backup $status on $(hostname)"
   body=$(printf '%s' "$text" | tr -d '"\\' | tr '\n' ' ' | cut -c1-1500)
+
+  if [ -n "${SMTP_HOST:-}" ] && [ -n "${SMTP_USER:-}" ] && [ -n "${SMTP_PASSWORD:-}" ]; then
+    # Same default as the app: SMTP_SECURE wins when set, otherwise port 465 means
+    # implicit TLS and anything else means the connection must upgrade with STARTTLS.
+    local port="${SMTP_PORT:-465}" secure=0 scheme smtp_flags
+    if [ "${SMTP_SECURE:-}" = "true" ] || { [ -z "${SMTP_SECURE:-}" ] && [ "$port" = "465" ]; }; then
+      secure=1
+    fi
+    if [ "$secure" = "1" ]; then scheme="smtps"; smtp_flags="--ssl-reqd"; else scheme="smtp"; smtp_flags="--ssl"; fi
+    local message
+    message=$(mktemp)
+    printf 'From: %s\nTo: %s\nSubject: %s\n\n%s\n' "$from" "$BACKUP_ALERT_TO" "$subject" "$body" >"$message"
+    curl -sS -m 30 --url "$scheme://$SMTP_HOST:$port" $smtp_flags \
+      --user "$SMTP_USER:$SMTP_PASSWORD" \
+      --mail-from "$from" --mail-rcpt "$BACKUP_ALERT_TO" \
+      --upload-file "$message" >/dev/null 2>&1 || true
+    rm -f "$message"
+    return 0
+  fi
+
+  [ -n "${RESEND_API_KEY:-}" ] || return 0
   curl -sS -m 20 -X POST https://api.resend.com/emails \
-    -H "Authorization: Bearer $RESEND_API_KEY" \
+    -H "Authorization: Bearer ${RESEND_API_KEY}" \
     -H 'Content-Type: application/json' \
     --data-binary "$(printf '{"from":"%s","to":["%s"],"subject":"%s","text":"%s"}' \
-      "$ALERT_FROM_EMAIL" "$BACKUP_ALERT_TO" "$subject" "$body")" \
+      "$from" "$BACKUP_ALERT_TO" "$subject" "$body")" \
     >/dev/null 2>&1 || true
 }
 

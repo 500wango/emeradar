@@ -15,6 +15,14 @@ x-app-environment: &app-environment
   AISA_API_KEY: ${AISA_API_KEY:-}
   AISA_SEARCH_URL: ${AISA_SEARCH_URL:-https://api.aisa.one/apis/v1/tavily/search}
   BROWSERLESS_API_KEY: ${BROWSERLESS_API_KEY:-}
+  # 邮件通道：SMTP 优先（自建 Stalwart / 任何 SMTP 服务商），其次 Resend。
+  # 两个都没配时发送只返回 false 并写日志，不会伪造"已发送"。
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-465}
+  SMTP_SECURE: ${SMTP_SECURE:-}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-}
   # 后台任务连续失败时的告警收件人（逗号分隔）。留空则回落到库里在职的 ADMIN 账号，

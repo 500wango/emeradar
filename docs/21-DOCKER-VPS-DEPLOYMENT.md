@@ -41,6 +41,8 @@ NEXT_PUBLIC_SITE_URL=https://emeradar.com
 
 按需填写采集、LLM、通知服务密钥。管理员密码仅传给 PostgreSQL 容器，应用服务使用显式配置列表，不接收管理员密码。
 
+邮件通道（注册验证、找回密码、后台任务失败告警、备份告警）见 `.env.example`：优先 `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASSWORD` + `MAIL_FROM`（自建邮件服务器或任何 SMTP 服务商），否则 `RESEND_API_KEY` + `MAIL_FROM`。`MAIL_FROM` 必须属于已配置 SPF/DKIM 的域，否则收件方会按 SPF/DMARC 判失败。未配置时发送只返回 `false` 并写日志，接口不会伪造“已送达”——所以部署后要用一次真实注册验证邮件确实到达收件箱（不只是“接口返回 200”）。
+
 ## 首次启动
 
 逐条执行，失败时先排查：
