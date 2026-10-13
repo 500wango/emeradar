@@ -1091,4 +1091,30 @@ export const en: TranslationDictionary = {
     empty: 'No related queries stored yet.',
     demandNote: 'Demand is scored from repeated observations, not from this link. A missing series is left missing.',
   },
+  seo: {
+    home: {
+      title: 'Emeradar — Search opportunity intelligence and commercial signal radar',
+      description:
+        'Review search demand, SERP weakness and published pricing evidence before writing code. Every opportunity record carries its sources, observation date and limits, and published decisions stay auditable. Free accounts see decisions delayed by 45 days.',
+    },
+    pricing: {
+      title: 'Pricing: Free vs Pro',
+      description:
+        'Free browses decisions delayed by 45 days plus the full public track record. Pro unlocks the zero-delay radar feed and monthly report exports. Report generation and report export are metered separately.',
+    },
+    trackRecord: {
+      title: 'Verifiable track record: prediction ledger and outcomes',
+      description:
+        'Every published decision and checkpoint outcome is archived as of its publication date, hits and misses together. The ledger can be verified independently; thin samples stay blank instead of being filled with estimates.',
+    },
+    methodology: {
+      title: 'Methodology: demand, commercial and SERP-weakness evidence',
+      description:
+        'How the three evidence axes are collected and scored, when a candidate qualifies as buildable, and why missing data stays missing. Observation gates and thresholds are published.',
+    },
+    terms: {
+      title: 'Terms of service',
+      description: 'Emeradar terms of service: account and subscription terms, data use, disclaimers and termination.',
+    },
+  },
 };

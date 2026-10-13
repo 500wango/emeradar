@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getServerI18n } from '@/lib/i18n/server';
+import { pageMetadata } from '@/lib/seo/site';
 import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 
 /**
@@ -15,6 +16,16 @@ const SECTIONS = [
   ['terms.changesTitle', 'terms.changesBody'],
   ['terms.contactTitle', 'terms.contactBody'],
 ] as const;
+
+export async function generateMetadata() {
+  const { locale, t } = await getServerI18n();
+  return pageMetadata({
+    title: t('seo.terms.title'),
+    description: t('seo.terms.description'),
+    path: '/terms',
+    locale,
+  });
+}
 
 export default async function TermsPage() {
   const { t } = await getServerI18n();

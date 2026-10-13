@@ -1071,4 +1071,16 @@ export interface TranslationDictionary {
     empty: string;
     demandNote: string;
   };
+  /**
+   * 页面级 SEO 文案。放在 i18n 字典里而不是单独的常量表，是因为爬虫拿到的是
+   * 服务端按 locale 渲染的那一版：<title> 与页面正文必须同语言，否则搜索引擎
+   * 会按内容重写标题（页面上是中文、title 是英文，等于把标题交给别人决定）。
+   */
+  seo: {
+    home: { title: string; description: string };
+    pricing: { title: string; description: string };
+    trackRecord: { title: string; description: string };
+    methodology: { title: string; description: string };
+    terms: { title: string; description: string };
+  };
 }

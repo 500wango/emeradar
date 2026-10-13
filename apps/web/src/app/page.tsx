@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { getServerI18n } from '@/lib/i18n/server';
+import { pageMetadata } from '@/lib/seo/site';
 import { getHomeTelemetry } from '@/lib/observatory/telemetry';
 import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
@@ -31,6 +32,16 @@ function UnbreakableTail({ text }: { text: string }) {
       <span className="whitespace-nowrap">{trimmed.slice(cut + 1)}</span>
     </>
   );
+}
+
+export async function generateMetadata() {
+  const { locale, t } = await getServerI18n();
+  return pageMetadata({
+    title: t('seo.home.title'),
+    description: t('seo.home.description'),
+    path: '/',
+    locale,
+  });
 }
 
 export default async function HomePage() {

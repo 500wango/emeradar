@@ -3,6 +3,7 @@ import { ArrowUpRight } from 'lucide-react';
 import { TrackRecordService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
 import { getServerI18n } from '@/lib/i18n/server';
+import { pageMetadata } from '@/lib/seo/site';
 import { Badge, type BadgeTone, VerdictBadge, type Verdict } from '@/components/ui/Badge';
 import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
@@ -44,6 +45,16 @@ const outcomeTones: Record<string, BadgeTone> = {
 
 const TH = 'py-3 px-5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle';
 const TD = 'py-4 px-5 align-middle';
+
+export async function generateMetadata() {
+  const { locale, t } = await getServerI18n();
+  return pageMetadata({
+    title: t('seo.trackRecord.title'),
+    description: t('seo.trackRecord.description'),
+    path: '/track-record',
+    locale,
+  });
+}
 
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();

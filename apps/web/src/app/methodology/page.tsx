@@ -1,10 +1,21 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { getServerI18n } from '@/lib/i18n/server';
+import { pageMetadata } from '@/lib/seo/site';
 import { buttonVariants } from '@/components/ui/Button';
 import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 import { AxisBands } from '@/components/observatory/AxisBands';
+
+export async function generateMetadata() {
+  const { locale, t } = await getServerI18n();
+  return pageMetadata({
+    title: t('seo.methodology.title'),
+    description: t('seo.methodology.description'),
+    path: '/methodology',
+    locale,
+  });
+}
 
 /**
  * The methodology page is the document the rest of the product cites whenever

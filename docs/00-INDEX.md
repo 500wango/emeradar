@@ -34,6 +34,7 @@
 | 24 | PRODUCT-IMPROVEMENT-PLAN | 产品审查后的 P0/P1 改进顺序、验收与发布门槛 | 产品、全员 |
 | 25 | BACKUP-AND-RESTORE | 备份放哪、怎么确认可用、出事怎么恢复 | 运维 |
 | 26 | SECURITY-AUDIT | 生产主机对外暴露什么、加固了什么、怎么验证、还剩什么 | 运维 |
+| 27 | SEO-BASELINE | 站点 SEO 与 Google 文档的差距、改了什么、怎么验证、还剩什么 | 前端、增长 |
 
 ## 2. 依赖关系
 
