@@ -1,95 +1,77 @@
-import {
-  runDailyPipeline,
-  discoverSources,
-  generateDiscoveryIntents,
-  validateDiscoveryIntents,
-  generateExperimentCards,
-  assessCommercialOpportunities,
-  renderCommercialAssessment,
-  TrackRecordService,
-  PredictionEpisodeService,
-} from '@emeradar/services';
-import { closePool, query } from '@emeradar/db';
+import { closePool } from '@emeradar/db';
+import { TASKS, findTask } from './tasks';
+import { checkWorkerHealth, startScheduler } from './queue';
 
+/**
+ * 命令行的两种身份：
+ *
+ *   - `<task>`   手工执行**一次**某个任务，参数与从前一致。它和排期跑的是同一个
+ *                `TaskSpec.run`，所以"排期上跑的"与"我手工跑的"不可能不一致。
+ *   - `start`    以常驻消费者身份启动调度器（ADR-003）。
+ *
+ * 失败一律以抛出结束，由这里统一转成退出码：任务实现里**不允许**调用
+ * `process.exit`——那会跳过 `finally` 里的连接池关闭，也会让常驻进程在跑任务的中途
+ * 直接消失（从前 `verify-ledger` 就是这么写的）。
+ */
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0] || 'run-daily';
 
+  if (command === 'start') {
+    await runResident();
+    return;
+  }
+
   try {
-    if (command === 'run-daily') {
-      const date = args[1] || new Date().toISOString().slice(0, 10);
-      console.log(`[cli] Executing daily pipeline for ${date}...`);
-      const result = await runDailyPipeline(date);
-      console.log('[cli] Result:', result);
-      // Outcomes mature on their own schedule; grade them after the day's
-      // verdicts are committed so the public record stays current.
-      const outcomes = await PredictionEpisodeService.evaluateDueEpisodes(date);
-      console.log('[cli] Episode outcomes:', outcomes);
-    } else if (command === 'discover') {
-      console.log('[cli] Collecting new source signals...');
-      const result = await discoverSources();
-      console.log('[cli] Discovery result:', result);
-      if (result.failed === result.sources && result.sources > 0) process.exitCode = 1;
-    } else if (command === 'generate-intents') {
-      const limit = Number(args[1] || 100);
-      const created = await generateDiscoveryIntents(Number.isFinite(limit) ? Math.max(1, Math.min(500, limit)) : 100);
-      console.log(`[cli] Generated ${created} unverified intent hypotheses.`);
-    } else if (command === 'validate-intents') {
-      const limit = Number(args[1] || 5);
-      const validated = await validateDiscoveryIntents(Number.isFinite(limit) ? Math.max(1, Math.min(20, limit)) : 5);
-      console.log(`[cli] Validated ${validated} discovery intent hypotheses.`);
-    } else if (command === 'generate-experiments') {
-      const created = await generateExperimentCards(Number(args[1] || 20));
-      console.log(`[cli] Generated ${created} early experiment cards.`);
-    } else if (command === 'sync-gsc') {
-      const days = Math.max(1, Math.min(90, Number(args[1] || 30)));
-      const end = new Date();
-      end.setUTCDate(end.getUTCDate() - 2);
-      const start = new Date(end);
-      start.setUTCDate(start.getUTCDate() - days + 1);
-      const projects = await query<{ id: string; user_id: string }>(`SELECT p.id, p.user_id FROM projects p JOIN gsc_connections g ON g.project_id = p.id WHERE p.project_kind IN ('FORMAL','EXPERIMENT') AND p.status <> 'ARCHIVED' AND g.property_url IS NOT NULL`);
-      let synced = 0;
-      for (const project of projects.rows) {
-        try {
-          const result = await (await import('@emeradar/services')).ProjectService.syncGscProject(project.id, project.user_id, start.toISOString().slice(0, 10), end.toISOString().slice(0, 10));
-          synced++;
-          console.log(`[cli] Synced ${project.id}: ${result.count} detail rows.`);
-        } catch (error) {
-          console.error(`[cli] GSC sync failed for ${project.id}:`, error);
-        }
-      }
-      console.log(`[cli] GSC sync complete: ${synced}/${projects.rows.length} projects.`);
-    } else if (command === 'verify-ledger') {
-      const date = args[1] || new Date().toISOString().slice(0, 10);
-      console.log(`[cli] Verifying cryptographic Merkle ledger for ${date}...`);
-      const verification = await TrackRecordService.verifyCheckpoint(date);
-      console.log('[cli] Verification result:', verification);
-      if (verification.verified) {
-        console.log('✅ Checkpoint Merkle Root matches 100% of underlying verdicts.');
-      } else {
-        console.error('❌ Checkpoint verification FAILED! Data corruption detected.');
-        process.exit(1);
-      }
-    } else if (command === 'evaluate-episodes') {
-      const date = args[1] || new Date().toISOString().slice(0, 10);
-      console.log(`[cli] Evaluating prediction episodes due by ${date}...`);
-      const outcomes = await PredictionEpisodeService.evaluateDueEpisodes(date);
-      console.log('[cli] Episode outcomes:', outcomes);
-    } else if (command === 'assess-commercial') {
-      const date = args[1] || new Date().toISOString().slice(0, 10);
-      console.log(`[cli] Re-banding the M-axis for ${date} (read-only, nothing is written)...`);
-      const report = await assessCommercialOpportunities(date);
-      console.log(renderCommercialAssessment(report));
-    } else {
-      console.log(`Unknown command: ${command}`);
-      console.log('Available commands: run-daily [date], discover, generate-intents [limit], validate-intents [limit], generate-experiments [limit], sync-gsc [days], evaluate-episodes [date], verify-ledger [date], assess-commercial [date]');
+    if (command === 'health') {
+      // 容器 healthcheck 用：只读库，不起第二个队列实例（见 checkWorkerHealth）。
+      const health = await checkWorkerHealth();
+      console.log(`[cli] ${health.detail}`);
+      if (!health.ok) process.exitCode = 1;
+      return;
     }
+
+    const task = findTask(command);
+    if (!task) {
+      console.log(`Unknown command: ${command}`);
+      console.log('Available commands:');
+      console.log('  start                    常驻调度器（按 cron 排期消费全部任务）');
+      console.log('  health                   常驻 worker 的健康检查（容器 healthcheck 用）');
+      for (const t of TASKS) {
+        console.log(`  ${t.command.padEnd(24)} ${t.description}（${t.cron ? `${t.cron} UTC` : '仅手工触发'}）`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    // 位置参数原样透传，与从前的 `args[1]` 是同一个含义。
+    await task.run(args.slice(1), { trigger: 'cli' });
   } catch (err) {
     console.error('[cli] Command failed with error:', err);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await closePool();
   }
+}
+
+/**
+ * 常驻模式。**不走**上面那个 `finally`：连接池在常驻进程里是长期资源，任务还会
+ * 一直用它，关掉它等于让调度器活着但什么也干不了。
+ */
+async function runResident() {
+  const scheduler = await startScheduler();
+  let stopping = false;
+  const shutdown = async (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[cli] 收到 ${signal}，等待正在执行的任务结束后退出...`);
+    await scheduler.stop();
+    process.exit(0);
+  };
+  // 部署时的滚动更新发 SIGTERM：跑完手头这一次再走，否则管线可能在写账本的中途
+  // 被掐断。SIGINT 同理，给本地 Ctrl-C 用。
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 main();

@@ -1,4 +1,5 @@
 import { query } from '@emeradar/db';
+import { AppError } from '@emeradar/core';
 import {
   MerkleTree,
   calculateCheckpointHash,
@@ -127,6 +128,23 @@ export class TrackRecordService {
   }
 
   /**
+   * 最新一条账本检查点的日期，账本还没开始时为 `null`。
+   *
+   * "最新"是验证入口唯一说得通的默认对象：账本只在有裁决的日子推进，所以"今天"
+   * 常常根本没有检查点，而按今天去验会得到一个"失败"——那个失败说的是"今天没有
+   * 账本"，不是"账本被改过"。这两件事必须能被分开，否则一个每天都会响的假 P0
+   * 会把真正的账本告警淹掉。
+   *
+   * 定时任务与公开验证端点都从这里取默认日期，免得两处各自写一个 `MAX(obs_date)`。
+   */
+  static async latestCheckpointDate(): Promise<string | null> {
+    const res = await query<{ obs_date: string | null }>(
+      `SELECT MAX(obs_date)::text AS obs_date FROM ledger_checkpoints`
+    );
+    return res.rows[0]?.obs_date ?? null;
+  }
+
+  /**
    * Recompute and cryptographically verify Merkle root for a given date
    */
   static async verifyCheckpoint(obsDate: string): Promise<{
@@ -145,7 +163,10 @@ export class TrackRecordService {
     );
 
     if (ckpRes.rows.length === 0) {
-      throw new Error(`No checkpoint found for date ${obsDate}`);
+      // 用 `notFound` 而不是裸 `Error`：公开验证端点要按"这一天的检查点不存在"回 404，
+      // 而不是回一个笼统的 400。裸 Error 到了路由层只能被归成"请求有问题"，而请求
+      // 本身可能是完全合法的——只是那一天没有账本。
+      throw AppError.notFound(`Ledger checkpoint for ${obsDate}`);
     }
 
     const storedRoot = ckpRes.rows[0].merkle_root;
@@ -185,7 +206,7 @@ export class TrackRecordService {
               d_basis_points, m_basis_points, w_basis_points, confidence,
               input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash,
               raw_verdict, flags, explanation, features_hash, hash_version,
-              d_band, m_band, w_band
+              d_band, m_band, w_band, prediction_spec
        FROM verdicts WHERE obs_date = $1 ORDER BY opportunity_id COLLATE "C" ASC`,
       [obsDate]
     );
@@ -195,9 +216,11 @@ export class TrackRecordService {
     let rowsValid = true;
     for (const row of verdictsRes.rows) {
       // 版本由 hash_version 列决定，字段集必须与写入时一致。v2 行把依据字段
-      // 纳入了哈希，若仍按 v1 的 11 个字段重算，账本一旦出现 v2 行，这一天的
-      // 公开验证就会整体报失败 —— 而公开可验证正是账本存在的理由。
-      // 残缺的 v2 行由 verifyRowHash 判为"验不过"而非抛异常（见 isCompleteV2Row）。
+      // 纳入了哈希，v3 行再纳入预测规格。若仍按 v1 的 11 个字段重算，账本一旦
+      // 出现 v2/v3 行，这一天的公开验证就会整体报失败 —— 而公开可验证正是账本
+      // 存在的理由。**这份 SELECT 必须与字段集同步**：少选一列（例如
+      // prediction_spec）会让带规格的 v3 行按"规格为 null"复算，同样整体报失败。
+      // 残缺的行由 verifyRowHash 判为"验不过"而非抛异常（见 isCompleteV3Row）。
       const { data, hashVersion } = buildRowHashInput(row);
 
       rowsValid =

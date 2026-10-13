@@ -455,6 +455,10 @@ create table verdicts (
   actor_id text,
   prev_hash char(64) not null,
   row_hash char(64) not null,
+  -- 06 §4.2：行哈希按 hash_version 逐版本演进（1 = 11 字段，2 = +判定依据，
+  -- 3 = +本列）。规格入哈希意味着"事后改判据"会在复算时暴露，而不只是靠约定。
+  hash_version smallint not null default 1,
+  prediction_spec jsonb,                       -- v3：判据版本 / 地平线 / 目标事件
   computed_at timestamptz not null default now()
 );
 create unique index verdicts_one_system_row

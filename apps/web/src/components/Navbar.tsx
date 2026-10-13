@@ -20,7 +20,7 @@ import {
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
-import { planLabelKey } from '@/lib/plan-display';
+import { planLabelKey, resolvePlanCode } from '@/lib/plan-display';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { cn } from '@/lib/cn';
 
@@ -68,7 +68,12 @@ export function Navbar() {
     PRO: 'bg-signal/10 text-signal border-signal/40',
     FREE: 'bg-surface-2 text-fg-muted border-line',
   };
-  const currentTier = user?.tier ?? 'PRO';
+  // `resolvePlanCode` prefers the resolved `planCode` over the raw `tier` mirror.
+  // The old default here was `'PRO'` — so a signed-in user whose profile had not
+  // loaded yet, or whose tier was missing, was shown the *paid* plan badge until
+  // the request landed. The fallback is now the free plan: defaulting to a plan
+  // the user may not have is the one direction that cannot be defended.
+  const currentTier = resolvePlanCode(user);
   const currentTierClasses = tierBadgeClasses[currentTier] ?? tierBadgeClasses.FREE;
   const currentTierLabel = t(planLabelKey(currentTier));
 

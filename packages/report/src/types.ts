@@ -75,6 +75,8 @@ export interface VerdictBasis {
     verdictReason: string;
   };
   hashVersion?: number;
+  /** Sealed v3 spec; null means no prediction, absent means not retained. */
+  predictionSpec?: { criteriaVersion: string; horizons: number[]; target: string } | null;
 }
 
 export interface Section1ExecutiveSummary {

@@ -270,8 +270,11 @@ function SettingsContent() {
 
   // Until the entitlements request lands, name the plan from the session payload;
   // afterwards use the subscription-aware read so this card cannot disagree with
-  // the quota gauges rendered directly beneath it.
-  const currentPlan = entitlements ? resolvePlanCode(entitlements) : user.tier;
+  // the quota gauges rendered directly beneath it. Both branches go through
+  // `resolvePlanCode`, which prefers the resolved `planCode` the profile now
+  // carries over the raw `tier` mirror — falling back to the mirror here would
+  // reintroduce the disagreement this branch exists to avoid.
+  const currentPlan = entitlements ? resolvePlanCode(entitlements) : resolvePlanCode(user);
 
   const planTone: 'info' | 'signal' | 'neutral' =
     currentPlan === 'TEAM' ? 'info' : currentPlan === 'PRO' ? 'signal' : 'neutral';

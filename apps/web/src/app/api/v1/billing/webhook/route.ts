@@ -1,21 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { StripeService } from '@emeradar/services';
-
-/** Maps a Stripe subscription status onto our local subscription status. */
-function mapSubscriptionStatus(stripeStatus: string | undefined): 'ACTIVE' | 'PAST_DUE' | 'CANCELED' {
-  switch (stripeStatus) {
-    case 'active':
-    case 'trialing':
-      return 'ACTIVE';
-    case 'canceled':
-    case 'unpaid':
-    case 'incomplete_expired':
-      return 'CANCELED';
-    default:
-      // past_due / incomplete keep a grace period rather than cutting access off.
-      return 'PAST_DUE';
-  }
-}
+import { StripeService, mapStripeSubscriptionStatus } from '@emeradar/services';
 
 function toIsoOrNull(epochSeconds: unknown): string | null {
   return typeof epochSeconds === 'number' && Number.isFinite(epochSeconds)
@@ -57,6 +41,17 @@ export async function POST(request: NextRequest) {
   const eventType = typeof event.type === 'string' ? event.type : '';
   const object = event.data?.object ?? {};
 
+  if (['charge.refunded', 'charge.dispute.created', 'charge.dispute.closed'].includes(eventType)) {
+    try {
+      await StripeService.processPaymentEvent(eventId, eventType, object);
+      return NextResponse.json({ received: true });
+    } catch (error) {
+      await StripeService.recordAttributionFailure(eventType,eventId,object).catch(() => undefined);
+      console.error('[Stripe Webhook] Payment reconciliation failed:',error);
+      return NextResponse.json({ error: 'Webhook processing error' }, { status: 500 });
+    }
+  }
+
   // Idempotency: claim the event id before processing. A duplicate delivery is
   // acknowledged without re-applying its effects.
   const claimed = await StripeService.markWebhookEventProcessed(eventId, eventType);
@@ -78,11 +73,16 @@ export async function POST(request: NextRequest) {
 
         // For payment-mode (lifetime) checkouts "completed" can fire before the
         // funds settle, so require a paid payment_status.
-        const paid = object?.payment_status === 'paid' || object?.payment_status === undefined;
+        const paid = await StripeService.validatePaidCheckout(object);
         if (userId && paid) {
           await StripeService.activateSubscription(userId, planCode, billingCycle, {
             stripeCustomerId: typeof object?.customer === 'string' ? object.customer : null,
             stripeSubscriptionId: typeof object?.subscription === 'string' ? object.subscription : null,
+            // Lifetime checkouts are payment-mode: no Subscription object exists,
+            // so the payment intent is the only handle a later dispute or refund
+            // can be attributed through.
+            stripePaymentIntentId:
+              typeof object?.payment_intent === 'string' ? object.payment_intent : null,
           });
           console.log(`[Stripe Webhook] Activated subscription for user ${userId} (${planCode}).`);
         }
@@ -91,11 +91,12 @@ export async function POST(request: NextRequest) {
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const status = mapSubscriptionStatus(object?.status);
+        const status = mapStripeSubscriptionStatus(object?.status);
         await StripeService.updateSubscriptionState(
           object?.id,
           status,
-          toIsoOrNull(object?.current_period_end)
+          toIsoOrNull(object?.current_period_end),
+          typeof object?.cancel_at_period_end === 'boolean' ? object.cancel_at_period_end : null
         );
         break;
       }
@@ -108,7 +109,9 @@ export async function POST(request: NextRequest) {
           await StripeService.deactivateSubscription(userId);
           console.log(`[Stripe Webhook] Subscription canceled, downgraded user ${userId} to FREE.`);
         } else {
-          console.warn('[Stripe Webhook] subscription.deleted could not be attributed to a user.');
+          // A cancellation we cannot attribute is an account that keeps its paid
+          // entitlements indefinitely — worth a durable record, not a log line.
+          await StripeService.recordAttributionFailure(eventType, eventId, object);
         }
         break;
       }
@@ -126,35 +129,10 @@ export async function POST(request: NextRequest) {
         const userId = await StripeService.updateSubscriptionState(object?.subscription, 'PAST_DUE');
         if (userId) {
           console.warn(`[Stripe Webhook] Payment failed for user ${userId}; subscription marked PAST_DUE.`);
-        }
-        break;
-      }
-
-      case 'charge.dispute.created': {
-        const userId = await StripeService.resolveUserIdFromStripeObject(object);
-        if (userId) {
-          await StripeService.suspendForDispute(userId);
-          console.warn(`[Stripe Webhook] Chargeback opened; user ${userId} suspended.`);
         } else {
-          console.warn('[Stripe Webhook] dispute.created could not be attributed to a user.');
-        }
-        break;
-      }
-
-      case 'charge.dispute.closed': {
-        // Lost disputes stay suspended; won disputes are left to manual review.
-        const userId = await StripeService.resolveUserIdFromStripeObject(object);
-        console.warn(`[Stripe Webhook] Dispute closed (${object?.status}) for user ${userId ?? 'unknown'}.`);
-        break;
-      }
-
-      case 'charge.refunded': {
-        const userId = await StripeService.resolveUserIdFromStripeObject(object);
-        if (userId) {
-          await StripeService.deactivateSubscription(userId);
-          console.log(`[Stripe Webhook] Refund issued; user ${userId} downgraded to FREE.`);
-        } else {
-          console.warn('[Stripe Webhook] charge.refunded could not be attributed to a user.');
+          // Unattributed, this is the start of a dunning clock that never runs and
+          // a grace window that never ends.
+          await StripeService.recordAttributionFailure(eventType, eventId, object);
         }
         break;
       }

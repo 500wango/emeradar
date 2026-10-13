@@ -1,6 +1,8 @@
 import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { readPlanEntitlements, SubscriptionLifecycleService } from './subscription-lifecycle.service';
+import { processPaymentEvent } from './stripe-payment.service';
 
 export interface CheckoutSessionOptions {
   userId: string;
@@ -12,9 +14,16 @@ export interface CheckoutSessionOptions {
 export interface StripeLinkOptions {
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
+  /**
+   * Set for one-time (lifetime) purchases. Stripe creates no Subscription object
+   * for payment-mode checkouts, so this is the only handle that later dispute and
+   * refund events carry.
+   */
+  stripePaymentIntentId?: string | null;
   /** When provided (from Stripe), the period end is used verbatim instead of being recomputed. */
   currentPeriodEnd?: string | null;
 }
+
 
 const PLAN_PRICES = {
   PRO: {
@@ -30,6 +39,33 @@ const PLAN_PRICES = {
 } as const;
 
 const LIFETIME_AMOUNT_CENTS = 39900;
+
+/**
+ * Maps a Stripe subscription status onto our local subscription status.
+ *
+ * Lives here rather than inline in the webhook route so it can be tested: the
+ * default branch is the load-bearing one. Stripe has statuses we have no column
+ * for (`incomplete`, `paused`, and whatever it adds next), and the fallback keeps
+ * a grace period instead of cutting access off on a status we simply do not
+ * recognise — but that also means an unknown status silently reads as PAST_DUE,
+ * which is worth having a test for.
+ */
+export function mapStripeSubscriptionStatus(
+  stripeStatus: string | undefined
+): 'ACTIVE' | 'PAST_DUE' | 'CANCELED' {
+  switch (stripeStatus) {
+    case 'active':
+    case 'trialing':
+      return 'ACTIVE';
+    case 'canceled':
+    case 'unpaid':
+    case 'incomplete_expired':
+      return 'CANCELED';
+    default:
+      // past_due / incomplete / paused / anything new: keep the grace period.
+      return 'PAST_DUE';
+  }
+}
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -49,6 +85,10 @@ function safeReturnUrl(value: string | undefined): string {
 }
 
 export class StripeService {
+  static async processPaymentEvent(eventId: string, type: string, object: any): Promise<void> {
+    const user = await processPaymentEvent(eventId, type, object);
+    if (user) await SubscriptionLifecycleService.reconcileAlerts(user);
+  }
   /**
    * Creates a Stripe Checkout Session for a subscription upgrade.
    *
@@ -115,11 +155,32 @@ export class StripeService {
       );
     }
 
+    // Reuse the Stripe customer we already know, so lifecycle webhooks land on an
+    // object we can attribute. Stripe rejects a request carrying both `customer`
+    // and `customer_email`, so it is one or the other:
+    //   - known customer → pass `customer`
+    //   - first purchase  → pass `customer_email`, and Stripe creates the customer.
+    //     We store the id it returns at activation, so every later checkout (plan
+    //     change, renewal, second purchase) takes the first branch.
+    // The alternative — creating a Customer up front — would need somewhere to
+    // persist an id for a user who has no subscription row yet, i.e. a
+    // placeholder row that looks like a subscription. Not worth it for the same
+    // eventual attribution.
+    const customerRes = await query<{ stripe_customer_id: string | null }>(
+      `SELECT stripe_customer_id FROM subscriptions WHERE user_id = $1`,
+      [userId]
+    );
+    const knownCustomerId = customerRes.rows[0]?.stripe_customer_id ?? null;
+
     const form = new URLSearchParams();
     form.append('mode', isLifetime ? 'payment' : 'subscription');
     form.append('payment_method_types[]', 'card');
     form.append('client_reference_id', userId);
-    form.append('customer_email', user.email);
+    if (knownCustomerId) {
+      form.append('customer', knownCustomerId);
+    } else {
+      form.append('customer_email', user.email);
+    }
     form.append('line_items[0][price_data][currency]', 'usd');
     form.append('line_items[0][price_data][product_data][name]', `Emeradar ${config.name} (${isLifetime ? 'Founding Lifetime' : billingCycle})`);
     form.append('line_items[0][price_data][unit_amount]', String(amountCents));
@@ -162,6 +223,11 @@ export class StripeService {
       );
     }
 
+    await query(
+      `INSERT INTO stripe_checkout_intents (id, user_id, plan_code, billing_cycle, amount_cents, currency, mode)
+       VALUES ($1, $2, $3, $4, $5, 'usd', $6)`,
+      [data.id, userId, planCode, billingCycle, amountCents, isLifetime ? 'payment' : 'subscription']
+    );
     return {
       url: data.url,
       sessionId: data.id,
@@ -181,10 +247,39 @@ export class StripeService {
     link: StripeLinkOptions = {}
   ): Promise<void> {
     await transaction(async (client) => {
+      await client.query(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, [userId]);
+      const purchaseId = link.stripeSubscriptionId ? `subscription:${link.stripeSubscriptionId}`
+        : link.stripePaymentIntentId ? `payment:${link.stripePaymentIntentId}` : null;
+      if (purchaseId) {
+        const existing = await client.query(`SELECT id,user_id FROM stripe_purchases WHERE
+          stripe_subscription_id=$1 OR stripe_payment_intent_id=$2`,
+          [link.stripeSubscriptionId ?? null,link.stripePaymentIntentId ?? null]);
+        // A replay of an old checkout must never revive a refunded/canceled purchase
+        // or overwrite a newer grant. The first activation and history commit together.
+        if (existing.rows.length) {
+          if (existing.rows.length !== 1 || existing.rows[0].user_id !== userId) throw new Error('Purchase ownership conflict');
+          return;
+        }
+        await client.query(`INSERT INTO stripe_purchases(id,user_id,stripe_subscription_id,stripe_payment_intent_id)
+          VALUES($1,$2,$3,$4)`,[purchaseId,userId,link.stripeSubscriptionId ?? null,link.stripePaymentIntentId ?? null]);
+      }
+      // `users.tier` is written here because this is a lifecycle writer: since the
+      // entitlement reader stopped consulting it, the column is a **display
+      // mirror of this table**, and the writers that decide a subscription are the
+      // only ones that may set it. See the tier-normalization block in
+      // packages/db/src/schema.sql.
       await client.query(
         `UPDATE users SET tier = $2, updated_at = NOW() WHERE id = $1`,
         [userId, planCode]
       );
+
+      // Snapshot the plan catalog into the subscription (docs/13 §3.3): an
+      // operator editing a plan must not retroactively change what an existing
+      // subscriber is entitled to within the current period. Nothing wrote this
+      // column before — which is why the reader had to fall back to the live
+      // catalog, and why a partial snapshot (one key) could shadow the whole
+      // catalog.
+      const snapshot = await readPlanEntitlements(client, planCode);
 
       const subId = `sub_${randomUUID()}`;
       const periodEndSql = `CASE
@@ -197,16 +292,31 @@ export class StripeService {
       await client.query(
         `INSERT INTO subscriptions (
           id, user_id, plan_code, status, current_period_start, current_period_end,
-          stripe_customer_id, stripe_subscription_id
+          entitlements_snapshot, cancel_at_period_end,
+          stripe_customer_id, stripe_subscription_id, stripe_payment_intent_id, stripe_purchase_id
         ) VALUES (
-          $1, $2, $3, 'ACTIVE', NOW(), ${periodEndSql}, $6, $7
+          $1, $2, $3, 'ACTIVE', NOW(), ${periodEndSql},
+          $8::jsonb, false, $6, $7, $9, $10
         )
         ON CONFLICT (user_id) DO UPDATE SET
           plan_code = EXCLUDED.plan_code,
           status = 'ACTIVE',
+          -- current_period_start is deliberately NOT refreshed. This method is
+          -- called from the checkout success page via verifyAndActivateSession,
+          -- which re-runs on every reload of the same session; moving the anchor
+          -- would silently reset the quota window B3 aligns to. Idempotent by
+          -- design means re-activating the same subscription changes nothing the
+          -- user can observe.
           current_period_end = EXCLUDED.current_period_end,
+          entitlements_snapshot = EXCLUDED.entitlements_snapshot,
+          -- A fresh activation is by definition not a pending cancellation.
+          cancel_at_period_end = false,
+          past_due_since = NULL,
           stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
-          stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id)`,
+          stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+          stripe_payment_intent_id = EXCLUDED.stripe_payment_intent_id,
+          stripe_purchase_id = EXCLUDED.stripe_purchase_id,
+          payment_hold_purchase_id = NULL, payment_hold_prior_status = NULL`,
         [
           subId,
           userId,
@@ -215,9 +325,17 @@ export class StripeService {
           link.currentPeriodEnd ?? null,
           link.stripeCustomerId ?? null,
           link.stripeSubscriptionId ?? null,
+          JSON.stringify(snapshot ?? {}),
+          link.stripePaymentIntentId ?? null,
+          purchaseId,
         ]
       );
     });
+
+    // A re-subscribe must also give back the alert rules the downgrade took away —
+    // but only those; rules the user turned off themselves stay off (see
+    // reconcileAlerts).
+    await SubscriptionLifecycleService.reconcileAlerts(userId);
   }
 
   /**
@@ -226,6 +344,65 @@ export class StripeService {
    * Fails closed: an unconfigured Stripe key or an unverifiable session never
    * results in entitlements being granted.
    */
+  static async validatePaidCheckout(session: any): Promise<boolean> {
+    if (session?.payment_status !== 'paid' || typeof session.id !== 'string') return false;
+    const result = await query<{
+      user_id: string; plan_code: string; billing_cycle: string;
+      amount_cents: number; currency: string; mode: string;
+    }>(`SELECT user_id, plan_code, billing_cycle, amount_cents, currency, mode
+        FROM stripe_checkout_intents WHERE id = $1`, [session.id]);
+    const intent = result.rows[0];
+    if (!intent) {
+      await this.recoverLegacyCheckoutIntent(session);
+      return this.validatePaidCheckout(session);
+    }
+    return session.mode === intent.mode && session.amount_total === intent.amount_cents
+      && session.currency === intent.currency
+      && session.metadata?.userId === intent.user_id
+      && session.metadata?.planCode === intent.plan_code
+      && session.metadata?.billingCycle === intent.billing_cycle
+      && (!session.client_reference_id || session.client_reference_id === intent.user_id)
+      && (intent.mode === 'payment'
+        ? typeof session.payment_intent === 'string' && Boolean(session.payment_intent)
+        : typeof session.subscription === 'string' && Boolean(session.subscription));
+  }
+
+  /** Recover pre-migration sessions from Stripe, never from unverified metadata alone. */
+  private static async recoverLegacyCheckoutIntent(session: any): Promise<void> {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('Checkout requires reconciliation: Stripe is not configured');
+    const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(session.id)}`, {
+      headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error('Checkout requires reconciliation: Stripe lookup failed');
+    const authoritative = await response.json();
+    const plan = authoritative.metadata?.planCode;
+    const cycle = authoritative.metadata?.billingCycle;
+    const userId = authoritative.metadata?.userId;
+    const validPlan = plan === 'PRO' || plan === 'TEAM';
+    const validCycle = cycle === 'monthly' || cycle === 'yearly' || cycle === 'lifetime';
+    const expectedAmount = validPlan && validCycle
+      ? cycle === 'lifetime' ? LIFETIME_AMOUNT_CENTS : PLAN_PRICES[plan as keyof typeof PLAN_PRICES][cycle as 'monthly' | 'yearly']
+      : null;
+    if (!validPlan || !validCycle || typeof userId !== 'string' || !userId
+      || authoritative.id !== session.id || authoritative.status !== 'complete'
+      || authoritative.payment_status !== 'paid' || authoritative.currency !== 'usd'
+      || authoritative.amount_total !== expectedAmount
+      || authoritative.mode !== (cycle === 'lifetime' ? 'payment' : 'subscription')
+      || (authoritative.client_reference_id && authoritative.client_reference_id !== userId)
+      || session.metadata?.userId !== userId || session.metadata?.planCode !== plan
+      || session.metadata?.billingCycle !== cycle || session.amount_total !== authoritative.amount_total
+      || session.mode !== authoritative.mode || session.currency !== authoritative.currency
+      || session.payment_intent !== authoritative.payment_intent || session.subscription !== authoritative.subscription) {
+      throw new Error('Checkout requires reconciliation: authoritative session does not match the supported contract');
+    }
+    await query(
+      `INSERT INTO stripe_checkout_intents (id, user_id, plan_code, billing_cycle, amount_cents, currency, mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+      [authoritative.id, userId, plan, cycle, authoritative.amount_total, authoritative.currency, authoritative.mode]
+    );
+  }
+
   static async verifyAndActivateSession(sessionId: string, expectedUserId?: string): Promise<boolean> {
     if (!sessionId) return false;
 
@@ -242,7 +419,7 @@ export class StripeService {
       });
       if (!res.ok) return false;
       const session = await res.json();
-      if (session.payment_status === 'paid' || session.status === 'complete') {
+      if (await this.validatePaidCheckout(session)) {
         const userId = session.metadata?.userId || session.client_reference_id;
         if (expectedUserId && userId !== expectedUserId) return false;
         const planCode = (session.metadata?.planCode as 'PRO' | 'TEAM') || 'PRO';
@@ -255,6 +432,9 @@ export class StripeService {
           await this.activateSubscription(userId, planCode, billingCycle, {
             stripeCustomerId: typeof session.customer === 'string' ? session.customer : null,
             stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : null,
+            // Present on payment-mode (lifetime) sessions; null for subscriptions.
+            stripePaymentIntentId:
+              typeof session.payment_intent === 'string' ? session.payment_intent : null,
           });
           return true;
         }
@@ -275,10 +455,16 @@ export class StripeService {
         [userId]
       );
       await client.query(
-        `UPDATE subscriptions SET status = 'CANCELED' WHERE user_id = $1`,
+        `UPDATE subscriptions SET status = 'CANCELED', cancel_at_period_end = false WHERE user_id = $1`,
         [userId]
       );
     });
+
+    // Downgrading used to leave the alert rules behind: the account fell to FREE's
+    // one-rule allowance while twenty rules kept evaluating and mailing. The
+    // cascade caps them; `disabled_reason` is what makes the cap reversible
+    // without resurrecting rules the user had switched off.
+    await SubscriptionLifecycleService.reconcileAlerts(userId);
   }
 
   /**
@@ -305,44 +491,245 @@ export class StripeService {
   }
 
   /**
-   * Applies a lifecycle status change coming from Stripe to our local row.
-   * Returns the affected user id (null when the subscription is unknown).
+   * Lifetime purchases create no Subscription object, so the payment intent is the
+   * only thing a refund or dispute carries that we can look up locally.
    */
-  static async updateSubscriptionState(
-    stripeSubscriptionId: string,
-    status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED',
-    periodEnd?: string | null
-  ): Promise<string | null> {
-    if (!stripeSubscriptionId) return null;
+  static async findUserIdByStripePaymentIntent(stripePaymentIntentId: string): Promise<string | null> {
+    if (!stripePaymentIntentId) return null;
     const res = await query<{ user_id: string }>(
-      `UPDATE subscriptions
-          SET status = $2,
-              current_period_end = COALESCE($3::timestamptz, current_period_end)
-        WHERE stripe_subscription_id = $1
-        RETURNING user_id`,
-      [stripeSubscriptionId, status, periodEnd ?? null]
+      `SELECT user_id FROM subscriptions WHERE stripe_payment_intent_id = $1 LIMIT 1`,
+      [stripePaymentIntentId]
     );
     return res.rows[0]?.user_id ?? null;
   }
 
   /**
-   * Best-effort attribution of a Stripe event object to one of our users, using
-   * metadata first and falling back to the stored customer/subscription ids.
+   * Last resort: walk a charge id back to a user through Stripe.
+   *
+   * Dispute events can arrive with only `charge` populated (and the `invoice` is
+   * not embedded, so `subscription` is not on the object). One expanded GET
+   * recovers the chain: charge → payment_intent (lifetime) or charge → invoice →
+   * subscription → user. It costs one API call, and only on the events where
+   * attribution has already failed everywhere else — disputes and refunds, which
+   * is exactly where silently losing the user means giving away entitlements.
+   */
+  static async findUserIdByStripeCharge(stripeChargeId: string): Promise<string | null> {
+    if (!stripeChargeId) return null;
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+      console.error('[StripeService] Cannot resolve a charge without STRIPE_SECRET_KEY.');
+      return null;
+    }
+    try {
+      const res = await fetch(
+        `https://api.stripe.com/v1/charges/${encodeURIComponent(stripeChargeId)}?expand[]=invoice`,
+        { headers: { Authorization: `Bearer ${stripeKey}` }, signal: AbortSignal.timeout(10_000) }
+      );
+      if (!res.ok) {
+        console.error(`[StripeService] Charge lookup for ${stripeChargeId} returned ${res.status}.`);
+        return null;
+      }
+      const charge = await res.json();
+
+      const paymentIntentId =
+        typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+      if (paymentIntentId) {
+        const byPaymentIntent = await this.findUserIdByStripePaymentIntent(paymentIntentId);
+        if (byPaymentIntent) return byPaymentIntent;
+      }
+
+      const invoice = charge.invoice;
+      const subscriptionId =
+        typeof invoice?.subscription === 'string' ? invoice.subscription : invoice?.subscription?.id;
+      if (subscriptionId) return this.findUserIdByStripeSubscription(subscriptionId);
+    } catch (error) {
+      console.error(`[StripeService] Charge lookup for ${stripeChargeId} failed:`, error);
+    }
+    return null;
+  }
+
+  /**
+   * Applies a lifecycle status change coming from Stripe to our local row, and
+   * returns the affected user id (null when the subscription is unknown).
+   *
+   * This is the single choke point for webhook-driven status changes. It used to
+   * touch the subscription row only, while `users.tier` kept saying PRO — and
+   * since the entitlement reader consulted `tier`, a cancelled or past-due
+   * account kept every paid entitlement. The tier mirror is therefore maintained
+   * here, in the same statement, and the read side no longer needs to guess.
+   */
+  static async updateSubscriptionState(
+    stripeSubscriptionId: string,
+    status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED',
+    periodEnd?: string | null,
+    cancelAtPeriodEnd?: boolean | null,
+    transactionClient?: { query: typeof query }
+  ): Promise<string | null> {
+    if (!stripeSubscriptionId) return null;
+
+    const apply = async (client: { query: typeof query }) => {
+      const res = await client.query<{ user_id: string; plan_code: string }>(
+        `UPDATE subscriptions
+            SET status = $2,
+                current_period_end = COALESCE($3::timestamptz, current_period_end),
+                -- Dunning starts at the first failure and is never re-based by a
+                -- later one: restamping it on every retry would make the 7-day
+                -- grace period restart indefinitely. Cleared on recovery.
+                past_due_since = CASE
+                  WHEN $2 = 'PAST_DUE' THEN COALESCE(past_due_since, NOW())
+                  ELSE NULL
+                END,
+                cancel_at_period_end = COALESCE($4::boolean, cancel_at_period_end)
+          WHERE stripe_subscription_id = $1
+          RETURNING user_id, plan_code`,
+        [stripeSubscriptionId, status, periodEnd ?? null, cancelAtPeriodEnd ?? null]
+      );
+
+      const row = res.rows[0];
+      if (!row) return null;
+
+      // The mirror follows the subscription: PAST_DUE keeps the paid tier during
+      // the grace window (the read side is what enforces the window's end), and
+      // CANCELED drops it. Writing FREE on CANCELED is what makes the display
+      // agree with the (now fail-closed) entitlement reader.
+      await client.query(`UPDATE users SET tier = $2, updated_at = NOW() WHERE id = $1`, [
+        row.user_id,
+        status === 'CANCELED' ? 'FREE' : row.plan_code,
+      ]);
+
+      return row.user_id;
+    };
+    const affectedUserId = transactionClient ? await apply(transactionClient) : await transaction(apply);
+
+    // Same cascade as an explicit cancellation: a subscription Stripe reports as
+    // canceled is a downgrade whichever endpoint heard about it.
+    if (affectedUserId && status === 'CANCELED' && !transactionClient) {
+      await SubscriptionLifecycleService.reconcileAlerts(affectedUserId);
+    }
+
+    return affectedUserId;
+  }
+
+  /**
+   * Best-effort attribution of a Stripe event object to one of our users.
+   *
+   * Ordered cheapest-and-most-reliable first: metadata we set ourselves, then the
+   * subscription, then the payment intent (the lifetime path), then — one API call
+   * — the charge, whose expanded invoice carries the subscription. Dispute and
+   * refund objects are the ones that reach the last step.
    */
   static async resolveUserIdFromStripeObject(obj: any): Promise<string | null> {
     if (!obj) return null;
     if (typeof obj.metadata?.userId === 'string' && obj.metadata.userId) return obj.metadata.userId;
+
     const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription?.id;
     if (subId) {
       const bySub = await this.findUserIdByStripeSubscription(subId);
       if (bySub) return bySub;
     }
+
+    const paymentIntentId =
+      typeof obj.payment_intent === 'string' ? obj.payment_intent : obj.payment_intent?.id;
+    if (paymentIntentId) {
+      const byPaymentIntent = await this.findUserIdByStripePaymentIntent(paymentIntentId);
+      if (byPaymentIntent) return byPaymentIntent;
+    }
+
+    const chargeId = typeof obj.charge === 'string' ? obj.charge : obj.charge?.id;
+    if (chargeId) {
+      const byCharge = await this.findUserIdByStripeCharge(chargeId);
+      if (byCharge) return byCharge;
+    }
+
     const customerId = typeof obj.customer === 'string' ? obj.customer : obj.customer?.id;
     if (customerId) {
       const byCustomer = await this.findUserIdByStripeCustomer(customerId);
       if (byCustomer) return byCustomer;
     }
     return null;
+  }
+
+  /**
+   * Records an attribution failure where an operator can actually find it.
+   *
+   * Keep a durable audit record before failing the webhook. The route releases
+   * its claim and responds 500, allowing Stripe to retry transient attribution
+   * failures rather than permanently acknowledging an unapplied event.
+   */
+  static async recordAttributionFailure(eventType: string, eventId: string, obj: any): Promise<void> {
+    if (eventId && typeof obj?.id === 'string') {
+      await query(
+        `INSERT INTO stripe_event_retries (event_id, event_type, object_id)
+         VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING`,
+        [eventId, eventType, obj.id]
+      );
+    }
+    console.error(
+      `[StripeService] ${eventType} (${eventId}) could not be attributed to a user; ` +
+        'entitlements were NOT revoked. Inspect audit_log for action = stripe.attribution_failed.'
+    );
+    try {
+      await query(
+        `INSERT INTO audit_log (id, actor_id, actor_type, action, target_type, target_id, payload)
+         VALUES ($1, NULL, 'SYSTEM', 'stripe.attribution_failed', 'STRIPE_EVENT', $2, $3::jsonb)`,
+        [
+          `aud_${randomUUID()}`,
+          eventId || eventType,
+          JSON.stringify({
+            eventType,
+            eventId,
+            objectId: typeof obj?.id === 'string' ? obj.id : null,
+            customer: typeof obj?.customer === 'string' ? obj.customer : null,
+            subscription: typeof obj?.subscription === 'string' ? obj.subscription : null,
+            paymentIntent:
+              typeof obj?.payment_intent === 'string' ? obj.payment_intent : (obj?.payment_intent?.id ?? null),
+            charge: typeof obj?.charge === 'string' ? obj.charge : (obj?.charge?.id ?? null),
+          }),
+        ]
+      );
+    } catch (error) {
+      // Never let the audit write turn a handled event into a 500.
+      console.error('[StripeService] Failed to record the attribution failure:', error);
+    }
+    throw new Error('Unresolved Stripe attribution; retry required');
+  }
+
+  /**
+   * Lifts a dispute suspension when the bank sides with us.
+   *
+   * `suspendForDispute` cancels the subscription row, but it does not touch
+   * `current_period_end` — so the paid-through date survives and is what decides
+   * whether the account comes back as ACTIVE (still inside the paid period) or
+   * PAST_DUE (period already over). Reinstating on a date we still hold is the
+   * difference between a customer who won their chargeback keeping what they paid
+   * for, and being silently cut off.
+   *
+   * A row the user had already flagged for cancellation is left cancelled: the
+   * dispute does not undo their own decision.
+   */
+  static async releaseDisputeSuspension(userId: string): Promise<void> {
+    await transaction(async (client) => {
+      await client.query(
+        `UPDATE users SET status = 'ACTIVE', updated_at = NOW()
+          WHERE id = $1 AND status = 'SUSPENDED'`,
+        [userId]
+      );
+      await client.query(
+        `UPDATE subscriptions
+            SET status = CASE WHEN current_period_end > NOW() THEN 'ACTIVE' ELSE 'PAST_DUE' END
+          WHERE user_id = $1 AND status = 'CANCELED' AND cancel_at_period_end = false`,
+        [userId]
+      );
+      // Mirror follows the subscription again.
+      await client.query(
+        `UPDATE users u SET tier = s.plan_code, updated_at = NOW()
+           FROM subscriptions s
+          WHERE u.id = $1 AND s.user_id = u.id AND s.status IN ('ACTIVE','PAST_DUE')`,
+        [userId]
+      );
+    });
+
+    await SubscriptionLifecycleService.reconcileAlerts(userId);
   }
 
   /**

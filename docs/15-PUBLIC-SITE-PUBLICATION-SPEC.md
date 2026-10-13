@@ -24,6 +24,12 @@ Status: Draft ｜ 依赖：01 §7、03 §15、06 §11、14 ｜ 被依赖：16、
 | `/data-sources` | 数据源登记与合规 | 静态（SSG） | 04 登记表脱敏公开视图 | 消除合规疑虑 |
 | `/track-record` | 预测战绩公开大盘 | ISR（每日 S8 刷新） | `public.track_record_summary` + Episodes | 展示判断如何经受结果检验，驱动 Pro 转化 |
 | `/opportunities/[slug]` | 延迟机会公开页 | ISR / 按需生成 | `public_pages` (page_type='OPPORTUNITY') | 免费体验 → 注册解锁实时 Feed |
+
+> **路径以代码为准（2026-10-13 核对）**：本节与 §6.2 写的 `/opportunities/[slug]`，
+> 实际路由是 **`/public/opportunities/[slug]`**（`apps/web/src/app/public/opportunities/[slug]/page.tsx`，
+> `sitemap.ts` 也按此拼 URL）。两处不是同一个页面：`/opportunities/[slug]` 是登录后的
+> 应用内机会详情页，公开投影在 `/public/...` 下。规格里的写法会被读成"公开页就是那个
+> 需要登录的页面"，故此处以代码为准标注，不改代码 —— 改路由会让已发布的 URL 失效。
 | `/markets/[slug]` | 细分市场热度聚合页 | ISR（每周） | `public_pages` (page_type='MARKET') | 广谱长尾搜索获客 |
 | `/compare/[slug]` | 精选过期对比页 | ISR（按需） | `public_pages` (page_type='COMPARE') | 比较意图搜索获客 |
 
@@ -128,6 +134,8 @@ S6 账本更新完成
 ```
 
 ### 6.2 延迟机会详情页（`/opportunities/[slug]`）
+
+> 实际路由见 §2 表格下方的核对说明：`/public/opportunities/[slug]`。
 注入 `Article` 与 `ItemPage` 复合结构：
 ```json
 {

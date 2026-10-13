@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { pool, closePool } from './client';
 
 export interface SeedOpportunityDef {
@@ -247,6 +246,19 @@ const SEED_OPPORTUNITIES: SeedOpportunityDef[] = [
 ];
 
 export async function seedRadarOpportunities(): Promise<void> {
+  // 显式开关，而不是"能跑就跑"。
+  //
+  // 这份种子会写入**观测数据**（autocomplete / SERP / 分数快照），而管线正是读这些
+  // 观测来决定一个机会值不值得发布。跑在生产库上，等于把编造的 SERP 结果喂给一台
+  // 会为此签署真实哈希的机器：账本内容会变成真的（可验证），但它证明的东西是假的。
+  // 所以它必须是**有人明确要**才发生的事，而不是环境变量没设好时的默认后果。
+  if (process.env.EMERADAR_SEED_DEMO !== '1') {
+    throw new Error(
+      '[seed-radar] 拒绝执行：这是演示数据种子，会把编造的观测写入数据库。' +
+        '确认目标库只是本地/一次性库后，用 EMERADAR_SEED_DEMO=1 重跑。'
+    );
+  }
+
   const client = await pool.connect();
   const obsDate = new Date().toISOString().slice(0, 10);
   console.log(`[seed-radar] Seeding high-conviction builder opportunities for ${obsDate}...`);
@@ -422,39 +434,25 @@ export async function seedRadarOpportunities(): Promise<void> {
         ]
       );
 
-      // 8. Seed Append-Only Verdict with cryptographic hashes
-      const rowHash = createHash('sha256')
-        .update(`${opp.id}|${obsDate}|${opp.verdict}|${opp.dScore}|${opp.mScore}|${opp.wScore}`)
-        .digest('hex');
-      const prevHash = createHash('sha256').update(`genesis_${opp.id}`).digest('hex');
-
-      await client.query(
-        `INSERT INTO verdicts (
-           id, opportunity_id, obs_date, scoring_config_version,
-           verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
-           confidence, input_snapshot_ids, cited_evidence_ids, prev_hash, row_hash
-         ) VALUES (
-           $1, $2, $3, 'sc-1.0.0',
-           $4, $5, $6, $7, $8,
-           $9, $10, $11, $12, $13
-         )
-         ON CONFLICT (opportunity_id, obs_date) DO NOTHING`,
-        [
-          `vdt_${opp.id}_${obsDate.replace(/-/g, '')}`,
-          opp.id,
-          obsDate,
-          opp.verdict,
-          opp.lifecycle,
-          opp.dScore,
-          opp.mScore,
-          opp.wScore,
-          opp.confidence,
-          [`snp_${opp.id}_${obsDate}`],
-          [],
-          prevHash,
-          rowHash,
-        ]
-      );
+      // 8. **不写 verdicts**。
+      //
+      // 这里曾经用 `sha256(opp.id|obsDate|verdict|分数)` 现造一个 `row_hash`，再拿
+      // `sha256('genesis_' + opp.id)` 当 `prev_hash`，把演示数据插进 `verdicts`。
+      // 那不是"近似真实"的数据，是一张**伪造的收据**：
+      //
+      // 1. `prev_hash` 指向一个常量，而不是当日上一行的 `row_hash`（按 opportunity_id
+      //    排序）；`row_hash` 也不是 `calculateRowHash` 的结果。于是这些行一旦与某天
+      //    的真实管线输出同处一个 obs_date，`generateDailyLedger` 会把它们一起收进
+      //    默克尔树，那一天的账本就**整体验不过**——伪造收据的代价不是"少了可信度"，
+      //    而是"把真账也弄坏了"。实测本地库 38 行的 `prev_hash` 无一指向同机会的其它行。
+      // 2. 裁决是这套系统唯一的"带收据的声明"。凭空写一行，等于让 `verdicts` 这张表
+      //    同时装着"我检查过"和"我没检查过"两种东西，而看表的人无法区分——这正是
+      //    `docs/05 §7.2`「永不改写历史账本」要防的事，只是伪造比改写更容易被忽略。
+      //
+      // 演示机会照旧入库（queries / opportunities / 观测 / snapshot），它们本来就是
+      // 给界面用的样本。缺了裁决行，它们会显示成"尚未裁决"——这是事实：没人对它们
+      // 做过观测。要让它们成为真预测，就让管线去跑它们，走 `pipeline.ts` 那条会写
+      // `prediction_episodes`、会计算真实哈希的路。
     }
 
     await client.query('COMMIT');

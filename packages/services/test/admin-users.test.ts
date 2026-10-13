@@ -1,9 +1,17 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { query } from '@emeradar/db';
+import { makeDisposableDb } from './helpers/disposable-db';
 import { AdminService, AuthService } from '../src';
 
 describe('Admin User Management Integration Tests', () => {
+  const harness = makeDisposableDb('emeradar_admin_users_test');
+  before(async () => {
+    await harness.setup();
+    assert.ok(harness.available, harness.skipReason);
+  });
+  after(async () => harness.teardown());
+
   const adminEmail = `admin_tester_${Date.now()}@emeradar.test`;
   let adminUserId = '';
   let targetUserId = '';

@@ -21,5 +21,11 @@ RUN pnpm --filter @emeradar/worker build
 # and the runtime executes TS via tsx, so it is intentionally not changed here.
 RUN chown -R node:node /app /pnpm
 USER node
-ENTRYPOINT ["pnpm", "--filter", "@emeradar/worker"]
-CMD ["run-daily"]
+ENTRYPOINT ["node", "--import", "/app/apps/worker/node_modules/tsx/dist/loader.mjs", "/app/apps/worker/src/cli.ts"]
+# 默认必须是常驻调度器，不能是某一次任务。
+#
+# 这两个身份差一个词，后果却相反：`docker compose up -d worker` 若默认跑一次
+# `run-daily` 然后退出，`restart: unless-stopped` 就会把整条管线**反复跑**——
+# 而它看起来完全正常（日志里每次都有一次"成功"）。要跑单次任务就显式给命令：
+#   docker compose -f docker-compose.prod.yml run --rm worker verify-ledger
+CMD ["start"]

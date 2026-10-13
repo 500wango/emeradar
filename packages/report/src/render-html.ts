@@ -104,6 +104,10 @@ function renderDecisionBasisHtml(basis: VerdictBasis | undefined, locale: Locale
   </table>`);
   }
 
+  if (basis.hashVersion === 3 && basis.predictionSpec !== undefined) {
+    parts.push(`<p><strong>${isZh ? '封存预测规格' : 'Sealed prediction specification'}</strong>: <code>${esc(JSON.stringify(basis.predictionSpec))}</code></p>`);
+  }
+
   if (basis.hashVersion !== undefined) {
     parts.push(
       `  <p style="font-size: 12px; color: #64748b;">${isZh ? '账本哈希版本' : 'Ledger hash version'}：<code>v${basis.hashVersion}</code>${

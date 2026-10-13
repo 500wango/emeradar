@@ -102,6 +102,29 @@ packages/
 - **S6 单写入者约束（ADR-014）**：`verdicts` 表的哈希链要求"同一 `obs_date` 内按 `opportunity_id` 升序前后依赖"，因此 S6 **只能由一个 Worker 实例执行**，禁止多实例并发写入该表。实现：S5 输出全部落入 `verdicts_pending` 暂存表（无哈希链约束，可并发写）；S6 由单一进程读取当日全部暂存行，按 `opportunity_id` 排序后在内存中串行计算 `row_hash` 与 Merkle 根，最后单次批量 `COPY` 写入 `verdicts` 并清空暂存表。追踪池规模（≤ 2,000 机会）下，此串行内存计算 + 批量提交预期在数百毫秒至数秒内完成，不构成管线瓶颈；若追踪池规模显著增长（见 04 §11），需重新评估是否引入分桶两级 Merkle 结构。
   调度层通过 pg-boss 的单例作业（同一 `obs_date` 的 S6 任务加咨询锁 `pg_advisory_lock`）保证同一时刻至多一个 S6 实例在跑，重复调度直接跳过。
 
+### 5.1 队列与调度（ADR-003 的落地形态）
+
+调度不是仓库之外的一份配置：排期、重试、死信策略与任务实现在**同一份代码**里（`apps/worker/src/tasks.ts`），`apps/worker` 以常驻消费者运行（`docker compose up -d worker`）。队列名 = 手工执行时的子命令名，因此告警里写着的任务名就是运维要敲的命令。
+
+| 队列 | cron（UTC） | 重试 | 超时 | 失败告警阈值 |
+|---|---|---|---|---|
+| `run-daily` | `30 3 * * *` | 1 次，退避 600s | 1h | 连续 2 次 |
+| `discover` | `45 3 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
+| `generate-intents` | `0 4 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
+| `validate-intents` | `15 4 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
+| `generate-experiments` | `30 4 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
+| `sync-gsc` | `0 5 * * *` | 2 次，退避 600s | 30m | 连续 2 次 |
+| `evaluate-episodes` | `0 6 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
+| `sweep-subscriptions` | `15 6 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
+| `verify-ledger` | `0 7 * * *` | **不重试** | 15m | 连续 1 次（P0） |
+| `assess-commercial` | 仅手工 | 不重试 | 15m | — |
+
+- **重试耗尽进死信**：统一落到 `emeradar-dead-letter`，消费它只做两件事——写一条 `audit_log`（`job.dead_lettered`）并让队列清空，不再重复发邮件（同一事件在重试过程中已经发过）。
+- **失败可见**：每次执行写 `audit_log`（`job.succeeded` / `job.failed` / `job.alerted` / `job.dead_lettered`）。**连续失败次数从审计表本身推导**（"上次成功之后的失败条数"），不另设计数器——计数器是第二份状态，必然会与审计漂移，而它还必须跨进程重启成立。
+- **`verify-ledger` 默认验最新检查点，不是"今天"**：账本只在有裁决的日子推进，"今天没有检查点"是常态而非故障。把它当失败会让 P0 通道每天说一次假话，真话也就没人看了。
+- **队列参数不会因重新部署而更新**：pg-boss 的 `createQueue` 是 `ON CONFLICT DO NOTHING`。改重试次数需要显式 `UPDATE pgboss.queue`，这条与 `schema.sql` 里"无条件谓词每次部署重放"的教训同源。
+- **发布节奏不依赖时钟对齐**：`run-daily` 在 03:30 UTC、最迟 07:00 出验证结果，与 §5 的 SLA 一致；cron 表达式显式带 `tz: 'UTC'`，不依赖宿主机时区。
+
 ## 6. 确定性边界
 
 ```text

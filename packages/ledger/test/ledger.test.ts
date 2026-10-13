@@ -10,11 +10,16 @@ import {
   GENESIS_PREV_HASH,
   VerdictRowData,
   VerdictRowDataV2,
+  VerdictRowDataV3,
+  PredictionSpec,
   calculateRowHashV1,
   calculateRowHashV2,
+  calculateRowHashV3,
   calculateFeaturesHash,
   isV2Row,
+  isV3Row,
   isCompleteV2Row,
+  isCompleteV3Row,
   buildRowHashInput,
 } from '../src';
 
@@ -295,33 +300,210 @@ describe('Ledger row-hash versioning (06 §4.1)', () => {
     assert.strictEqual(isCompleteV2Row({ ...v2Row, flags: null }), false);
   });
 
+  /**
+   * 一行 verdicts 记录在**读回时**的样子（列名与 DB 一致）。提到这个作用域是因为
+   * v3 与 buildRowHashInput 两个用例块都要用它。
+   */
+  const asStoredV1 = {
+    opportunity_id: base.opportunityId,
+    obs_date: base.obsDate,
+    scoring_config_version: base.scoringConfigVersion,
+    verdict: base.verdict as string,
+    lifecycle: base.lifecycle as string,
+    d_basis_points: base.dBasisPoints,
+    m_basis_points: base.mBasisPoints,
+    w_basis_points: base.wBasisPoints,
+    confidence: base.confidence as string,
+    input_snapshot_ids: base.inputSnapshotIds,
+    cited_evidence_ids: base.citedEvidenceIds,
+  };
+
+  const asStoredV2 = {
+    ...asStoredV1,
+    hash_version: 2,
+    raw_verdict: v2Row.rawVerdict as string,
+    flags: v2Row.flags,
+    explanation: v2Row.explanation,
+    features_hash: v2Row.featuresHash,
+    d_band: v2Row.dBand as string,
+    m_band: v2Row.mBand as string,
+    w_band: v2Row.wBand as string,
+  };
+
+  describe('v3 rows (the prediction spec travels with the prediction)', () => {
+    const spec: PredictionSpec = {
+      criteriaVersion: 'ev-1.0',
+      horizons: [30, 60, 90],
+      target: 'market_formed',
+    };
+    const v3Row: VerdictRowDataV3 = { ...v2Row, predictionSpec: spec };
+    const v3NoPrediction: VerdictRowDataV3 = { ...v2Row, predictionSpec: null };
+
+    it('isV3Row keys on the presence of predictionSpec, not on its value', () => {
+      assert.strictEqual(isV3Row(v3Row), true);
+      // 关键的半边：显式 null 也是 v3。若按"值是对象"判定，这一行会被当成 v2
+      // 复算，而它写入时用的是 v3 的字段集 —— 那一天就整体验不过。
+      assert.strictEqual(isV3Row(v3NoPrediction), true);
+      assert.strictEqual(isV3Row(v2Row), false);
+      assert.strictEqual(isV3Row(base), false);
+      // v3 行仍带 rawVerdict，所以 isV2Row 对它也为真 —— 判断版本请用 hash_version 列。
+      assert.strictEqual(isV2Row(v3Row), true);
+    });
+
+    it('hashes v2 and v3 rows differently even with identical basis fields', () => {
+      const v2Hash = calculateRowHashV2(GENESIS_PREV_HASH, v2Row);
+      assert.notStrictEqual(calculateRowHashV3(GENESIS_PREV_HASH, v3Row), v2Hash);
+      // "没有预测"（显式 null）与"这一版还没这个字段"（v2）也不能撞在同一个值上。
+      assert.notStrictEqual(calculateRowHashV3(GENESIS_PREV_HASH, v3NoPrediction), v2Hash);
+      assert.strictEqual(calculateRowHashV3(GENESIS_PREV_HASH, v3Row).length, 64);
+    });
+
+    it('treats horizons as a set but keeps every other spec field significant', () => {
+      const reordered = calculateRowHashV3(GENESIS_PREV_HASH, {
+        ...v3Row,
+        predictionSpec: { ...spec, horizons: [90, 30, 60] },
+      });
+      assert.strictEqual(reordered, calculateRowHashV3(GENESIS_PREV_HASH, v3Row));
+
+      // 判据换了版本、地平线少了一档、目标事件换了 —— 都必须是不同的哈希，
+      // 否则"当时按什么判的"就不在链上了，事后改判据将无法被发现。
+      for (const changed of [
+        { ...spec, criteriaVersion: 'ev-2.0' },
+        { ...spec, horizons: [30, 60] },
+        { ...spec, target: 'window_closed' },
+      ] as PredictionSpec[]) {
+        assert.notStrictEqual(
+          calculateRowHashV3(GENESIS_PREV_HASH, { ...v3Row, predictionSpec: changed }),
+          calculateRowHashV3(GENESIS_PREV_HASH, v3Row),
+          `spec change must change the hash: ${JSON.stringify(changed)}`
+        );
+      }
+    });
+
+    it('dispatches v3 before v2 in calculateRowHash', () => {
+      assert.strictEqual(
+        calculateRowHash(GENESIS_PREV_HASH, v3Row),
+        calculateRowHashV3(GENESIS_PREV_HASH, v3Row)
+      );
+      assert.strictEqual(
+        calculateRowHash(GENESIS_PREV_HASH, v3NoPrediction),
+        calculateRowHashV3(GENESIS_PREV_HASH, v3NoPrediction)
+      );
+    });
+
+    it('is self-verifying: the wrong field set cannot reproduce the stored hash', () => {
+      const stored = calculateRowHashV3(GENESIS_PREV_HASH, v3Row);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, v3Row, stored, 3), true);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, v3Row, stored, 2), false);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, v3Row, stored, 1), false);
+
+      const noPrediction = calculateRowHashV3(GENESIS_PREV_HASH, v3NoPrediction);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, v3NoPrediction, noPrediction, 3), true);
+    });
+
+    it('fails a truncated or malformed v3 row cleanly instead of throwing', () => {
+      const hash = calculateRowHashV3(GENESIS_PREV_HASH, v3Row);
+
+      const missingKey: Record<string, unknown> = { ...v3Row };
+      delete missingKey.predictionSpec;
+      assert.strictEqual(
+        verifyRowHash(GENESIS_PREV_HASH, missingKey as unknown as VerdictRowDataV3, hash, 3),
+        false
+      );
+
+      // 规格结构残缺（地平线不是数字数组）同样只是"这条验不过"。
+      for (const broken of [
+        { ...spec, horizons: 'thirty' },
+        { ...spec, criteriaVersion: null },
+        { ...spec, target: undefined },
+      ]) {
+        const row = { ...v3Row, predictionSpec: broken } as unknown as VerdictRowDataV3;
+        assert.strictEqual(isCompleteV3Row(row), false, JSON.stringify(broken));
+        assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, row, hash, 3), false);
+      }
+
+      assert.strictEqual(isCompleteV3Row(v3Row), true);
+      assert.strictEqual(isCompleteV3Row(v3NoPrediction), true);
+      assert.strictEqual(isCompleteV3Row(v2Row), false);
+    });
+
+    it('infers v3 from shape when no version is given, in the daily ledger', () => {
+      // 这一天同时有 v1 与 v3 行：逐行的字段集不同，推断必须逐行发生。
+      const { hashedRows } = generateDailyLedger(
+        '2026-10-13',
+        [
+          { opportunityId: 'opp_a', data: base },
+          { opportunityId: 'opp_b', data: v3Row },
+          { opportunityId: 'opp_c', data: v3NoPrediction },
+        ],
+        GENESIS_PREV_HASH,
+        GENESIS_PREV_HASH
+      );
+
+      assert.deepStrictEqual(
+        hashedRows.map((r) => r.hashVersion),
+        [1, 3, 3]
+      );
+      for (const row of hashedRows) {
+        assert.strictEqual(
+          verifyRowHash(row.prevHash, row.data, row.rowHash, row.hashVersion),
+          true,
+          `row ${row.opportunityId} must verify with the version the ledger inferred`
+        );
+      }
+    });
+
+    it('does not collapse hash_version 3 into v2 on the public verification path', () => {
+      // 这是本轮修掉的那个塌缩：`Number(hash_version) >= 2 ? 2 : 1` 会把 3 读成 2，
+      // 于是新版本上线当天，那一天的公开展示会整体报"账本不一致"。
+      const stored = calculateRowHashV3(GENESIS_PREV_HASH, v3Row);
+      const asStored = {
+        ...asStoredV2,
+        hash_version: 3,
+        prediction_spec: spec,
+      };
+      const { data, hashVersion } = buildRowHashInput(asStored);
+      assert.strictEqual(hashVersion, 3);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, data, stored, hashVersion), true);
+    });
+
+    it('verifies a v3 row that carries no prediction (explicit null spec)', () => {
+      const stored = calculateRowHashV3(GENESIS_PREV_HASH, v3NoPrediction);
+      const { data, hashVersion } = buildRowHashInput({
+        ...asStoredV2,
+        hash_version: 3,
+        prediction_spec: null,
+      });
+      assert.strictEqual(hashVersion, 3);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, data, stored, hashVersion), true);
+    });
+
+    it('fails a v3 row whose prediction_spec column was not selected', () => {
+      // 少选一列（例如忘了把 prediction_spec 加进 verifyCheckpoint 的 SELECT）会
+      // 让"有规格"的行复算成"规格为 null"。结果必须是"验不过"——响亮地失败，
+      // 而不是悄悄按另一个字段集算出个值来比对。
+      const stored = calculateRowHashV3(GENESIS_PREV_HASH, v3Row);
+      const { data, hashVersion } = buildRowHashInput({ ...asStoredV2, hash_version: 3 });
+      assert.strictEqual(hashVersion, 3);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, data, stored, hashVersion), false);
+    });
+
+    it('treats an unknown future hash_version as "cannot verify", not as v2', () => {
+      // 旧验证器遇上 v4 行：复算必然对不上，如实报"验不过"才是正确答案。
+      const stored = calculateRowHashV3(GENESIS_PREV_HASH, v3Row);
+      const { data, hashVersion } = buildRowHashInput({
+        ...asStoredV2,
+        hash_version: 4,
+        prediction_spec: spec,
+      });
+      assert.strictEqual(hashVersion, 3);
+      assert.strictEqual(verifyRowHash(GENESIS_PREV_HASH, data, stored, hashVersion), true);
+      // 但它绝不会被当成 v2 复算。
+      assert.notStrictEqual(calculateRowHashV2(GENESIS_PREV_HASH, v3Row), stored);
+    });
+  });
+
   describe('buildRowHashInput (the public verification path)', () => {
-    const asStoredV1 = {
-      opportunity_id: base.opportunityId,
-      obs_date: base.obsDate,
-      scoring_config_version: base.scoringConfigVersion,
-      verdict: base.verdict as string,
-      lifecycle: base.lifecycle as string,
-      d_basis_points: base.dBasisPoints,
-      m_basis_points: base.mBasisPoints,
-      w_basis_points: base.wBasisPoints,
-      confidence: base.confidence as string,
-      input_snapshot_ids: base.inputSnapshotIds,
-      cited_evidence_ids: base.citedEvidenceIds,
-    };
-
-    const asStoredV2 = {
-      ...asStoredV1,
-      hash_version: 2,
-      raw_verdict: v2Row.rawVerdict as string,
-      flags: v2Row.flags,
-      explanation: v2Row.explanation,
-      features_hash: v2Row.featuresHash,
-      d_band: v2Row.dBand as string,
-      m_band: v2Row.mBand as string,
-      w_band: v2Row.wBand as string,
-    };
-
     it('round-trips a v2 row written by the pipeline', () => {
       // 若这一步失败，账本一旦出现 v2 行，这一天的公开验证就会整体报失败。
       const stored = calculateRowHashV2(GENESIS_PREV_HASH, v2Row);

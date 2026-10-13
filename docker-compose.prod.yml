@@ -1,6 +1,11 @@
 x-app-environment: &app-environment
   NODE_ENV: production
   DATABASE_URL: postgresql://emeradar_app:${EMERADAR_DB_PASSWORD:?Set a hex EMERADAR_DB_PASSWORD in .env}@postgres:5432/emeradar
+  # pg-boss 的 LISTEN/NOTIFY 与会话级锁不能被 transaction 模式的连接池切断（ADR-003 /
+  # ADR-012）。当前拓扑里没有 PgBouncer，因此留空即可：空值会回落到 DATABASE_URL
+  # （见 packages/db/src/client.ts）。变量本身仍然要在这里声明——PgBouncer 上线那天
+  # "队列走哪条连接"必须已经是一个显式的配置项，而不是当天临时想起来的一个改动。
+  DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL:-}
   APP_ORIGIN: ${APP_ORIGIN:-https://emeradar.com}
   NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://emeradar.com}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set STRIPE_SECRET_KEY in .env}
@@ -12,6 +17,10 @@ x-app-environment: &app-environment
   BROWSERLESS_API_KEY: ${BROWSERLESS_API_KEY:-}
   RESEND_API_KEY: ${RESEND_API_KEY:-}
   ALERT_FROM_EMAIL: ${ALERT_FROM_EMAIL:-}
+  # 后台任务连续失败时的告警收件人（逗号分隔）。留空则回落到库里在职的 ADMIN 账号，
+  # 见 apps/worker/src/job-failure.ts —— 告警通道的配置本身也会被忘掉，而"系统管理员"
+  # 这个身份已经在库里了。
+  OPS_ALERT_EMAIL: ${OPS_ALERT_EMAIL:-}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
   GSC_REDIRECT_URI: ${GSC_REDIRECT_URI:-}
@@ -89,7 +98,9 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   worker:
-    profiles: [jobs]
+    # 常驻消费者（ADR-003）：排期、重试与死信策略都在 apps/worker/src/tasks.ts 里，
+    # 所以它必须一直在，而不是由宿主机 cron 每次叫醒一次。**没有** `profiles` ——
+    # `up -d worker` 就该把它拉起来，与 web 同级。
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -97,6 +108,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+    # Compose sends SIGKILL after this deadline; pg-boss gets 120s to drain active work.
+    stop_grace_period: 150s
+    # 只验证"队列实例在心跳"，不验证端口 —— 这个容器不对外提供服务。
+    healthcheck:
+      test: ["CMD", "pnpm", "--filter", "@emeradar/worker", "health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      # 心跳口径是"三次未跳动即视为安静"（默认 30 秒一跳），起动阶段给它一次宽限，
+      # 免得刚拉起就被判成不健康。
+      start_period: 120s
     mem_limit: 768m
     cpus: 0.75
     logging:

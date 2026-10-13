@@ -31,9 +31,12 @@ jobs:
             git fetch origin master
             git checkout master
             git reset --hard origin/master
-            docker compose -f docker-compose.prod.yml --profile jobs --profile migrate config --quiet
-            COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
+            docker compose -f docker-compose.prod.yml --profile migrate config --quiet
+            COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml --profile migrate build
             docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 postgres
             docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
+            # worker 是常驻消费者（ADR-003）：与 web 一起 `up -d`。`--no-build` 用的
+            # 就是上面那次 build 的镜像，所以它和 web 是同一份代码。
+            docker compose -f docker-compose.prod.yml up -d --no-build worker
             docker compose -f docker-compose.prod.yml up -d --no-build web caddy
             curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused --max-time 10 http://127.0.0.1:3000/login >/dev/null

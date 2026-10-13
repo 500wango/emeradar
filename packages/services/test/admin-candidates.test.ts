@@ -1,9 +1,17 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { query } from '@emeradar/db';
+import { makeDisposableDb } from './helpers/disposable-db';
 import { AdminService } from '../src';
 
 describe('Admin Candidate Promotion & Moderation Tests', () => {
+  const harness = makeDisposableDb('emeradar_admin_candidates_test');
+  before(async () => {
+    await harness.setup();
+    assert.ok(harness.available, harness.skipReason);
+  });
+  after(async () => harness.teardown());
+
   const testCandidateId = `opp_test_cand_${Date.now()}`;
   const testSlug = `test-niche-pipeline-${Date.now()}`;
   const testTitle = 'Test Automated Pipeline Niche';

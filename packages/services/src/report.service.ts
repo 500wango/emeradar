@@ -138,8 +138,9 @@ export class ReportService {
       } | null;
       hash_version: number;
       features_hash: string | null;
+      prediction_spec: import('@emeradar/report').VerdictBasis['predictionSpec'];
     }>(
-      `SELECT id, obs_date::text, verdict, raw_verdict, flags, explanation, hash_version, features_hash
+      `SELECT id, obs_date::text, verdict, raw_verdict, flags, explanation, hash_version, features_hash, prediction_spec
        FROM verdicts WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
       [opp.id]
     );
@@ -252,6 +253,7 @@ export class ReportService {
         basisState,
         hashVersion: ledgerRow.hash_version,
         featuresHash: ledgerRow.features_hash,
+        predictionSpec: ledgerRow.prediction_spec,
         obsDate: snapshotObsDate,
         locale,
         primaryQuery: opp.primary_query || opp.title,

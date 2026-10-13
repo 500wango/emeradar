@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MerkleTree } from './merkle';
-import { calculateRowHash, isV2Row, HashVersion, VerdictRowData } from './row-hash';
+import { calculateRowHash, isV2Row, isV3Row, HashVersion, VerdictRowData } from './row-hash';
 
 export interface DailyLedgerSummary {
   obsDate: string; // YYYY-MM-DD
@@ -28,7 +28,7 @@ export function calculateCheckpointHash(
 export interface DailyLedgerRecord {
   opportunityId: string;
   data: VerdictRowData;
-  /** 省略时由数据形状推断（带 rawVerdict 即 v2）。 */
+  /** 省略时由数据形状推断（v3 = 带 predictionSpec 键，v2 = 带 rawVerdict）。 */
   hashVersion?: HashVersion;
 }
 
@@ -66,7 +66,9 @@ export function generateDailyLedger(
   }[] = [];
 
   for (const item of sorted) {
-    const hashVersion = item.hashVersion ?? (isV2Row(item.data) ? 2 : 1);
+    // v3 先判：它同样带 rawVerdict，顺序反了会被按 v2 复算。
+    const hashVersion =
+      item.hashVersion ?? (isV3Row(item.data) ? 3 : isV2Row(item.data) ? 2 : 1);
     const rowHash = calculateRowHash(currentPrevHash, item.data);
     hashedRows.push({
       opportunityId: item.opportunityId,

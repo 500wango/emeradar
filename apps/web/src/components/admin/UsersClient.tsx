@@ -21,6 +21,7 @@ import {
   UserX,
 } from 'lucide-react';
 import { AdminUserListItem, AdminUserStats } from '@emeradar/services';
+import { resolvePlanCode } from '@/lib/plan-display';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -45,6 +46,22 @@ const tierTone = (tier: string): BadgeTone => {
   if (tier === 'TEAM') return 'signal';
   if (tier === 'PRO') return 'info';
   return 'neutral';
+};
+
+/**
+ * Plan wording for the admin table, matching the filter dropdown above it.
+ *
+ * `TEAM` is a legacy compatibility value — the product sells Free and Builder
+ * Pro — so an account holding it is named as legacy here rather than printed as
+ * a tier someone could buy. The rest of the interface goes through
+ * `planLabelKey`, which is translated; this file carries hardcoded Chinese copy
+ * throughout, so it reuses the dropdown's vocabulary instead of mixing in a
+ * second source of switchable wording.
+ */
+const tierLabel = (tier: string): string => {
+  if (tier === 'TEAM') return '历史套餐 (TEAM)';
+  if (tier === 'PRO') return '专业版 (PRO)';
+  return '免费版 (FREE)';
 };
 
 const statusTone = (status: string): BadgeTone => {
@@ -435,11 +452,15 @@ export function UsersClient({
                         </Badge>
                       </td>
 
-                      {/* Tier */}
+                      {/* Plan — named from the resolved plan code rather than the
+                          raw `tier` column: `tier` is a mirror that only agrees
+                          with the entitlements while every writer keeps it in
+                          step, and this column is what an operator reads when
+                          deciding whether someone is paying. */}
                       <td className="px-4 py-3.5">
-                        <Badge tone={tierTone(u.tier)}>
+                        <Badge tone={tierTone(resolvePlanCode(u))}>
                           <CreditCard className="h-3 w-3" />
-                          <span>{u.tier}</span>
+                          <span>{tierLabel(resolvePlanCode(u))}</span>
                         </Badge>
                       </td>
 
@@ -496,7 +517,7 @@ export function UsersClient({
                             size="sm"
                             onClick={() => {
                               setEditTierUser(u);
-                              setSelectedTier(u.tier);
+                              setSelectedTier(resolvePlanCode(u) as 'FREE' | 'PRO' | 'TEAM');
                             }}
                             title="调整会员套餐"
                           >
@@ -793,8 +814,12 @@ export function UsersClient({
 
             <div className="space-y-2">
               {[
-                { value: 'FREE', label: 'FREE (免费版)', desc: '查看基础雷达、1个追踪项目' },
-                { value: 'PRO', label: 'PRO (专业版)', desc: '解锁高置信深度报告、5个项目、无限实时扫描' },
+                { value: 'FREE', label: 'FREE (免费版)', desc: '查看基础雷达、1个追踪项目、1 条告警规则' },
+                // The numbers here mirror `plans.entitlements`, which is what the
+                // grant actually inserts. They used to read "5个项目、无限实时扫描"
+                // while the catalog said 50 projects and 30 scans/day, so an
+                // operator picked PRO expecting one thing and shipped another.
+                { value: 'PRO', label: 'PRO (专业版)', desc: '解锁高置信深度报告、50 个项目、20 条告警规则、每日 30 次实时扫描' },
                 { value: 'TEAM', label: 'TEAM（历史兼容）', desc: '团队版已下线：仅用于存量账号，不提供团队协同席位' },
               ].map((t) => (
                 <label

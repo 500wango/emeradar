@@ -45,21 +45,62 @@ export interface EpisodeOutcome {
   observed: Record<string, number | boolean | null>;
 }
 
+/** 判据来自快照，还是来自"这个 Episode 太老、没有快照"的回落。 */
+export type CriteriaSource = 'snapshot' | 'active-spec-fallback';
+
+/**
+ * 一个评估规格的**全部内容**（06 §7）。
+ *
+ * 它是数据，不是散落的常量，因为判据必须能随预测一起被封存（06 §7「预先固定」）。
+ * 常量版的判据有一个静默的失效方式：改一个数字，此后所有**尚未评估**的历史
+ * Episode 都会按新判据判定，而它们的记录里仍写着原来的 `eval_spec` 版本 ——
+ * 没有任何地方会报错，账本一个字都不用改，历史就被重写了。
+ */
+export interface EvaluationCriteria {
+  /** 06 §7 的 `eval_spec` 版本，如 `ev-1.0`。 */
+  criteriaVersion: string;
+  horizons: readonly number[];
+  /** 被判定的目标事件（06 §7.1）。 */
+  target: 'market_formed';
+  thresholds: {
+    /** 06 §7.1 `sustained_new_queries`：窗口内新增簇 query 的下限。 */
+    newQueries: number;
+    /** 06 §7.1 `cluster_expansion`：末端簇规模相对预测日的倍数下限。 */
+    clusterExpansionMultiplier: number;
+    /** W 档低于此值即 `LOW`；与 window.ts 的分档阈值同一个数。 */
+    wLowBasisPoints: number;
+    /** 06 §7.1 `window_closed`：窗口内 specialist + authoritative 域名数下限。 */
+    windowCloseEvidence: number;
+  };
+}
+
+/**
+ * 当前生效的评估规格（`ev-1.0`）。
+ *
+ * 改这里的任何一个数字都等于定义一个新规格：必须同时改 `criteriaVersion`
+ * （06 §7「变更即新版本，历史评估保留」），否则已经写进账本的旧预测会声称
+ * 自己是按新判据判的。
+ */
+export const ACTIVE_EVAL_CRITERIA: EvaluationCriteria = {
+  criteriaVersion: 'ev-1.0',
+  horizons: [30, 60, 90],
+  target: 'market_formed',
+  thresholds: {
+    newQueries: 10,
+    clusterExpansionMultiplier: 1.5,
+    wLowBasisPoints: 4500,
+    windowCloseEvidence: 3,
+  },
+};
+
 export class PredictionEpisodeService {
-  static readonly EVAL_SPEC_VERSION = 'ev-1.0';
+  static readonly EVAL_SPEC_VERSION = ACTIVE_EVAL_CRITERIA.criteriaVersion;
+
+  /** 结果列是固定的三档（`outcome_30d/60d/90d`），判据里的地平线只能从中取。 */
   static readonly HORIZONS = [30, 60, 90] as const;
 
   /** 06 §6: re-entering an opportunity within this window continues the same episode. */
   static readonly EPISODE_REENTRY_GRACE_DAYS = 14;
-
-  /** 06 §7.1 `sustained_new_queries`. */
-  static readonly NEW_QUERY_THRESHOLD = 10;
-  /** 06 §7.1 `cluster_expansion`. */
-  static readonly CLUSTER_EXPANSION_MULTIPLIER = 1.5;
-  /** 06 §7.1 `window_closed`: e_specialist + e_authoritative >= 3. */
-  static readonly WINDOW_CLOSE_EVIDENCE_THRESHOLD = 3;
-  /** window.ts bands W below 4500 as LOW, which is the spec's "window closed". */
-  static readonly W_LOW_BASIS_POINTS = 4500;
 
   /** A single evaluator pass is bounded so an unbounded backlog cannot stall the run. */
   static readonly MAX_EPISODES_PER_RUN = 500;
@@ -98,6 +139,10 @@ export class PredictionEpisodeService {
    * episode and the verdict it anchors commit together.
    *
    * The id is derived from the verdict id, so replaying the same day is a no-op.
+   *
+   * 判据快照在这里落库（06 §7「在观测结果前写定」）：写的是**当下**生效的规格，
+   * 而不是评估时再读常量。评估器只认这一份快照，因此此后修改判据不会回头改动
+   * 这条预测的成败口径。
    */
   static async recordEpisode(
     client: Queryable,
@@ -107,9 +152,12 @@ export class PredictionEpisodeService {
       verdict: string;
       previousVerdict: string | null | undefined;
       obsDate: string;
+      /** 省略时取当前生效规格；显式传入只用于测试。 */
+      criteria?: EvaluationCriteria;
     }
   ): Promise<boolean> {
     if (!this.isPredictionVerdict(params.verdict)) return false;
+    const criteria = params.criteria ?? ACTIVE_EVAL_CRITERIA;
 
     const last = await client.query<{ predicted_at: string }>(
       `SELECT predicted_at::text FROM prediction_episodes
@@ -130,8 +178,9 @@ export class PredictionEpisodeService {
     const res = await client.query(
       `INSERT INTO prediction_episodes (
          id, verdict_id, opportunity_id, published_verdict, predicted_at,
-         outcome_30d, outcome_60d, outcome_90d, metrics
-       ) VALUES ($1, $2, $3, $4, $5, 'PENDING', 'PENDING', 'PENDING', $6)
+         outcome_30d, outcome_60d, outcome_90d, metrics,
+         criteria_version, criteria_snapshot
+       ) VALUES ($1, $2, $3, $4, $5, 'PENDING', 'PENDING', 'PENDING', $6, $7, $8)
        ON CONFLICT (id) DO NOTHING`,
       [
         `eps_${params.verdictId}`,
@@ -139,7 +188,9 @@ export class PredictionEpisodeService {
         params.opportunityId,
         params.verdict,
         params.obsDate,
-        JSON.stringify({ evalSpecVersion: this.EVAL_SPEC_VERSION, openedBy: 'daily-pipeline' }),
+        JSON.stringify({ evalSpecVersion: criteria.criteriaVersion, openedBy: 'daily-pipeline' }),
+        criteria.criteriaVersion,
+        JSON.stringify(criteria),
       ]
     );
     return (res.rowCount ?? 0) > 0;
@@ -149,8 +200,15 @@ export class PredictionEpisodeService {
    * Evaluates every episode whose T+30/60/90 horizon has passed and whose
    * outcome at that horizon is not yet recorded. Safe to run repeatedly: an
    * outcome is only ever written while it is still PENDING.
+   *
+   * 判据逐 Episode 取自它自己的快照。快照缺失（本功能上线前开的 Episode）时回落到
+   * 当前生效规格，并把 `criteriaSource` 一并写进指标 —— 否则事后无法区分"按它被
+   * 预测时的判据判的"和"按今天的判据补判的"，两者混在一张表里就是又一次静默改写。
    */
-  static async evaluateDueEpisodes(today = new Date().toISOString().slice(0, 10)): Promise<{
+  static async evaluateDueEpisodes(
+    today = new Date().toISOString().slice(0, 10),
+    fallbackCriteria: EvaluationCriteria = ACTIVE_EVAL_CRITERIA
+  ): Promise<{
     episodes: number;
     evaluated: number;
     hits: number;
@@ -164,11 +222,13 @@ export class PredictionEpisodeService {
       outcome_60d: string | null;
       outcome_90d: string | null;
       metrics: Record<string, unknown> | null;
+      criteria_snapshot: EvaluationCriteria | null;
     }>(
       // PENDING is the placeholder written when the episode opens, so it counts
       // as "not yet graded" exactly like NULL does.
       `SELECT e.id, e.opportunity_id, e.predicted_at::text,
-              e.outcome_30d, e.outcome_60d, e.outcome_90d, e.metrics
+              e.outcome_30d, e.outcome_60d, e.outcome_90d, e.metrics,
+              e.criteria_snapshot
        FROM prediction_episodes e
        WHERE (
            e.outcome_30d IS NULL OR e.outcome_30d = 'PENDING'
@@ -186,7 +246,14 @@ export class PredictionEpisodeService {
     let misses = 0;
 
     for (const episode of due.rows) {
-      for (const horizon of this.HORIZONS) {
+      const snapshot = episode.criteria_snapshot;
+      const criteriaSource: CriteriaSource = snapshot ? 'snapshot' : 'active-spec-fallback';
+      const criteria = snapshot ?? fallbackCriteria;
+      // 结果列是固定三档，所以只评估二者交集里的地平线：一个只声明了 h=60 的
+      // 规格不该去写 outcome_30d/90d 两列。
+      const horizons = this.HORIZONS.filter((h) => criteria.horizons.includes(h));
+
+      for (const horizon of horizons) {
         const stored = episode[`outcome_${horizon}d` as const];
         // NULL means never evaluated; PENDING is the placeholder written at
         // open time, so both are due once the horizon has passed.
@@ -199,7 +266,8 @@ export class PredictionEpisodeService {
           episode.opportunity_id,
           episode.predicted_at,
           horizonDate,
-          horizon
+          horizon,
+          criteria
         );
 
         const updated = await query(
@@ -213,7 +281,8 @@ export class PredictionEpisodeService {
             outcome.outcome,
             today,
             JSON.stringify({
-              evalSpecVersion: this.EVAL_SPEC_VERSION,
+              evalSpecVersion: criteria.criteriaVersion,
+              criteriaSource,
               [`h${horizon}`]: {
                 horizonDate,
                 clusterExpansion: outcome.clusterExpansion,
@@ -239,12 +308,16 @@ export class PredictionEpisodeService {
   /**
    * Computes `market_formed` and `window_closed` at a horizon (06 §7.1) from
    * evidence observed no later than `horizonDate`.
+   *
+   * 判据必须由调用方给出（默认当前生效规格，仅为便利）：函数体内**不得**再读
+   * 类上的常量，否则快照就白存了 —— 判定仍会跟着常量漂移。
    */
   static async evaluateEpisodeAtHorizon(
     opportunityId: string,
     startDate: string,
     horizonDate: string,
-    horizonDays: number
+    horizonDays: number,
+    criteria: EvaluationCriteria = ACTIVE_EVAL_CRITERIA
   ): Promise<EpisodeOutcome> {
     const [startCount, horizonCount, newQueries, wRes, authorityCount] = await Promise.all([
       this.distinctSuggestionsAsOf(opportunityId, startDate),
@@ -260,12 +333,12 @@ export class PredictionEpisodeService {
     ]);
 
     const clusterExpansion =
-      startCount > 0 && horizonCount >= startCount * this.CLUSTER_EXPANSION_MULTIPLIER;
-    const sustainedNewQueries = newQueries >= this.NEW_QUERY_THRESHOLD;
+      startCount > 0 && horizonCount >= startCount * criteria.thresholds.clusterExpansionMultiplier;
+    const sustainedNewQueries = newQueries >= criteria.thresholds.newQueries;
     const marketFormed = clusterExpansion && sustainedNewQueries;
 
     const wBasisPoints = wRes.rows[0]?.w_basis_points ?? null;
-    const windowClosed = this.isWindowClosed(wBasisPoints, authorityCount);
+    const windowClosed = this.isWindowClosed(wBasisPoints, authorityCount, criteria);
 
     return {
       horizonDays,
@@ -289,10 +362,14 @@ export class PredictionEpisodeService {
    * enough specialist/authoritative results entered the SERP during the window.
    * The 4500 threshold is the same one window.ts uses to band W as LOW.
    */
-  static isWindowClosed(wBasisPoints: number | null, authoritativeDomains: number): boolean {
+  static isWindowClosed(
+    wBasisPoints: number | null,
+    authoritativeDomains: number,
+    criteria: EvaluationCriteria = ACTIVE_EVAL_CRITERIA
+  ): boolean {
     return (
-      (wBasisPoints !== null && wBasisPoints < this.W_LOW_BASIS_POINTS) ||
-      authoritativeDomains >= this.WINDOW_CLOSE_EVIDENCE_THRESHOLD
+      (wBasisPoints !== null && wBasisPoints < criteria.thresholds.wLowBasisPoints) ||
+      authoritativeDomains >= criteria.thresholds.windowCloseEvidence
     );
   }
 

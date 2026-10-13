@@ -23,6 +23,17 @@ describe('Review fixes (rate limit, audit, GSC batching, preferences, entitlemen
        VALUES ($1, $2, 'Fix Check', 'USER', 'PRO', 'ACTIVE')`,
       [userId, 'fixcheck@example.com']
     );
+    // The subscription row is what actually grants PRO — `users.tier` is only a
+    // display mirror (see entitlement.service.ts). A tier-only fixture would now
+    // be a FREE account, and the assertion at the end of this file would be
+    // testing nothing. Cascades away with the user row in `after`.
+    await query(
+      `INSERT INTO subscriptions (id, user_id, plan_code, status, current_period_start, current_period_end, entitlements_snapshot)
+       VALUES ($1, $2, 'PRO', 'ACTIVE', NOW(), NOW() + INTERVAL '30 days', '{}'::jsonb)
+       ON CONFLICT (user_id) DO UPDATE SET
+         plan_code = 'PRO', status = 'ACTIVE', current_period_end = NOW() + INTERVAL '30 days'`,
+      [`sub_${userId}`, userId]
+    );
     await query(
       `INSERT INTO projects (id, user_id, project_kind, title, domain, build_type, status)
        VALUES ($1, $2, 'EXPERIMENT', 'Fix Check', 'fixcheck.example', 'LIGHTWEIGHT_TOOL', 'IN_DEVELOPMENT')

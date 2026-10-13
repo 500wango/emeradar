@@ -5,9 +5,10 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/migrations && cp src/migrations/*.sql dist/migrations/",
     "migrate": "tsx src/migrate.ts",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@emeradar/core": "workspace:*",

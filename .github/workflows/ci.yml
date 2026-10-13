@@ -38,11 +38,24 @@ jobs:
       - name: Lint / typecheck
         run: pnpm lint
 
-      # Only packages whose tests are self-contained and need no external
-      # services are run here.
+      # `pnpm lint` typechecks **only** apps/web: it is the only package with a
+      # `lint` script, and turbo runs nothing where the script is absent. So
+      # every other package — including @emeradar/services (quotas, entitlements,
+      # the ledger) and @emeradar/worker — was unchecked here. A type error in
+      # them passed CI and then failed the image build during deploy, because
+      # Dockerfile.worker/Dockerfile.web run `tsc` / `next build`. Building the
+      # non-web packages here is the same gate, just earlier: for them `build` is
+      # plain `tsc`, emits into dist/ and needs no database.
       #
-      # Intentionally excluded:
-      #   - @emeradar/services: its tests require a real PostgreSQL instance.
+      # `next build` is deliberately excluded: it is the one part that would make
+      # this step depend on a Next.js build environment for no extra coverage
+      # (apps/web is already covered by the lint step above).
+      - name: Typecheck non-web packages
+        run: pnpm exec turbo run build --filter='!@emeradar/web'
+
+      # Only packages whose tests are self-contained and need no external
+      # services are run here. @emeradar/services runs in the sibling `services`
+      # job below, which supplies the PostgreSQL it needs.
       # @emeradar/core runs on vitest (declared in its own devDependencies), so
       # it is included: it carries the SSRF guard and request-validation suites.
       - name: Unit tests (@emeradar/core)
@@ -62,3 +75,78 @@ jobs:
 
       - name: Unit tests (@emeradar/llm)
         run: pnpm --filter @emeradar/llm test
+
+  # Integration surface: the billing webhook branches, entitlement resolution,
+  # the ledger's append-only triggers and the daily pipeline had **zero** CI
+  # coverage. They are the code that decides what a paying customer is allowed to
+  # do, so "someone runs them locally" was never a real gate.
+  services:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: emeradar
+        ports:
+          - 5432:5432
+        # Without the health gate the steps race the server's first-boot initdb
+        # and fail on connection refused.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Read by the pool in packages/db/src/client.ts (process.env beats the
+      # checked-in localhost default) and inherited by every test process.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/emeradar
+      # NOTE: when the worker starts using DATABASE_DIRECT_URL (queue + advisory
+      # lock connections), it must be set here too, or those tests connect to a
+      # database that does not exist in this job.
+      #
+      # Set it now rather than waiting: the fallback in packages/db/src/client.ts
+      # (`DATABASE_DIRECT_URL || DATABASE_URL`) is what keeps this job working
+      # today, and it is exactly the kind of silent success that hides the
+      # omission — a queue test would pass against the pooled URL and fail in
+      # production for the reason this comment was originally written about.
+      # This job has no pooler, so pointing it at the same database states the
+      # intended target explicitly instead of relying on the fallback.
+      DATABASE_DIRECT_URL: postgres://postgres:postgres@localhost:5432/emeradar
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `migrate`, deliberately not `seed`: migrate is what the production deploy
+      # chain runs. If the suite only passes after a seed, it is validating a
+      # database shape that production never has — which is how the plan catalog
+      # came to be missing `max_projects`/`max_alerts` in production (see the
+      # plans block in packages/db/src/schema.sql). The catalog is part of the
+      # schema now, so migrate alone must be enough to run these.
+      - name: Apply schema
+        run: pnpm db:migrate
+
+      # The CI postgres superuser can CREATE DATABASE, so the disposable-database
+      # harness (test/helpers/disposable-db.ts) actually builds its throwaway
+      # databases here instead of taking its `t.skip` path. Locally that skip is
+      # the norm and the ledger-integrity suite silently does nothing.
+      - name: Integration tests (@emeradar/services)
+        run: pnpm --filter @emeradar/services test
+
+      - name: Queue integration and worker health tests
+        run: pnpm --filter @emeradar/worker test

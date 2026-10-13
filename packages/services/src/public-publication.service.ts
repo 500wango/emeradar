@@ -7,8 +7,48 @@ export interface PublicationDecision {
   qualityReport: Record<string, unknown>;
 }
 
+/**
+ * docs/15 §5 的公开页质量门。
+ *
+ * 此前这里的门线是**照着数据填的**：正文 ≥ 40 词 —— 而 docs/15 §5 要求英文
+ * 600 词 / 中文 800 字。40 词这个数不是规格的近似，是"当前卡片字段加起来的长度"，
+ * 于是门槛永远通过、页面永远 `indexable = true`，而它对外表达的是"这条通过了六项
+ * 质检"。同时 `hasProofAndLimits`（"证明了什么 / 未证明什么"两栏非空）与
+ * `hasDistinctiveContent` 用的是**同一个条件**，报告里却列成两项独立检查 ——
+ * 于是五项检查里有一项是重名，另有一项（模板文本率）从未实现。
+ *
+ * 现在的口径：门线取规格值；**没实现的检查显式列进 `notEvaluated`**，而不是拿一个
+ * 别的条件顶上。改门线的直接后果是真实的：当前公开页正文只有标题 + whyNow +
+ * topIdea，远不到 600 词，因此页面会以 `indexable = false` 发布（页面照旧可访问，
+ * 只是 noindex 且不进 sitemap，这正是 docs/15 §5 对未通过质检的处置）。
+ */
 export class PublicPublicationService {
-  static async evaluateOpportunity(opportunityId: string, now = new Date()): Promise<PublicationDecision> {
+  /** docs/15 §5：正文纯文本 ≥ 600 词（英文）。 */
+  static readonly MIN_BODY_WORDS_EN = 600;
+  /** docs/15 §5：正文纯文本 ≥ 800 字（中文）。 */
+  static readonly MIN_BODY_WORDS_ZH = 800;
+
+  /**
+   * 统计"正文有效字数"。拉丁文本按空格分词，中日文按字符（规格本身就是分别定的）。
+   */
+  static countBodyUnits(text: string, locale: string): number {
+    const trimmed = text.trim();
+    if (!trimmed) return 0;
+    const lang = locale.toLowerCase();
+    if (lang.startsWith('zh') || lang.startsWith('ja')) {
+      // 空白与常见中文标点不算"有效字数"——它们不承载信息。
+      return trimmed
+        .replace(/\s+/g, '')
+        .replace(/[，。、；：！？（）【】「」《》""'']/g, '').length;
+    }
+    return trimmed.split(/\s+/).filter(Boolean).length;
+  }
+
+  static async evaluateOpportunity(
+    opportunityId: string,
+    now = new Date(),
+    locale = 'en-US'
+  ): Promise<PublicationDecision> {
     const res = await query<any>(
       `SELECT o.id, o.slug, o.title, o.first_observed_date, c.verdict, c.lifecycle, c.w_band, c.m_band,
               c.why_now_summary, c.top_idea,
@@ -25,17 +65,52 @@ export class PublicPublicationService {
     const firstVerdictDate = row.first_verdict_date || row.first_observed_date;
     const ageDays = Math.floor((now.getTime() - new Date(firstVerdictDate).getTime()) / 86400000);
     const eligible = Boolean(row.verdict) && ageDays >= 45 && ['MEDIUM', 'LOW', 'INSUFFICIENT'].includes(row.w_band) && row.m_band !== 'INSUFFICIENT';
+
+    // 这三段文字就是公开页真正渲染的全部正文（见
+    // apps/web/src/app/public/opportunities/[slug]/page.tsx），不是它的代理指标 ——
+    // 所以这个字数与访问者看到的字数是同一个数。
     const bodyText = `${row.title || ''} ${row.why_now_summary || ''} ${row.top_idea || ''}`;
-    const qualityReport = {
-      evidenceCount: Number(row.evidence_count),
-      weakResultCount: Number(row.weak_result_count),
-      hasCommercialProof: row.m_band !== 'INSUFFICIENT',
-      hasSerpWeakness: Number(row.weak_result_count) > 0,
-      hasDistinctiveContent: Boolean(row.top_idea && row.why_now_summary),
-      wordCount: bodyText.trim().split(/\s+/).filter(Boolean).length,
-      hasProofAndLimits: Boolean(row.why_now_summary && row.top_idea),
+    const minWordCount = locale.toLowerCase().startsWith('zh')
+      ? this.MIN_BODY_WORDS_ZH
+      : this.MIN_BODY_WORDS_EN;
+    const wordCount = this.countBodyUnits(bodyText, locale);
+    const evidenceCount = Number(row.evidence_count);
+    const weakResultCount = Number(row.weak_result_count);
+
+    const checks: Record<string, boolean> = {
+      /** docs/15 §5 第 1 行：正文有效字数。 */
+      bodyLength: wordCount >= minWordCount,
+      /** 第 2 行：可追溯的 evidence 引用 ≥ 3。 */
+      evidenceDensity: evidenceCount >= 3,
+      /** 第 4 行：至少一个具体弱竞争对手 URL 与理由。 */
+      serpWeaknessSpecificity: weakResultCount > 0,
+      /** 卡片确实写了"为什么是现在"和"做什么"。 */
+      distinctiveContent: Boolean(row.top_idea && row.why_now_summary),
     };
-    const indexable = eligible && qualityReport.evidenceCount >= 3 && qualityReport.hasSerpWeakness && qualityReport.hasDistinctiveContent && qualityReport.hasProofAndLimits && qualityReport.wordCount >= 40;
+    const failedChecks = Object.keys(checks).filter((name) => !checks[name]);
+
+    const qualityReport = {
+      checks,
+      failedChecks,
+      /**
+       * 尚未实现的检查，显式列出而不是拿别的条件顶上。
+       *  - `templateTextRatio`（第 5 行）：需要"模板语料 vs 动态内容"的划分，当前
+       *    正文全部来自卡片字段，没有可比的模板基线。
+       *  - `proofAndLimits`（第 3 行）：需要"证明了什么 / 未证明什么"两栏的实际内容，
+       *    数据模型里没有这两个字段。此前它被 `hasDistinctiveContent` 顶替，于是
+       *    报告读起来像查过，实际是同一个条件换了名字。
+       */
+      notEvaluated: ['templateTextRatio', 'proofAndLimits'] as const,
+      wordCount,
+      minWordCount,
+      lengthUnit: locale.toLowerCase().startsWith('zh') ? 'characters' : 'words',
+      evidenceCount,
+      weakResultCount,
+      hasCommercialProof: row.m_band !== 'INSUFFICIENT',
+      hasSerpWeakness: weakResultCount > 0,
+      hasDistinctiveContent: Boolean(row.top_idea && row.why_now_summary),
+    };
+    const indexable = eligible && failedChecks.length === 0;
     return {
       eligible,
       indexable,
@@ -45,7 +120,7 @@ export class PublicPublicationService {
   }
 
   static async publishOpportunity(opportunityId: string, locale = 'en-US'): Promise<PublicationDecision> {
-    const decision = await this.evaluateOpportunity(opportunityId);
+    const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale);
     // `title` lives on opportunities, not on the card; the previous single-table
     // read referenced a column that has never existed there, so every
     // projection threw and was swallowed by the caller's catch.

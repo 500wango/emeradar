@@ -633,7 +633,7 @@ export class OpportunityService {
       `SELECT id, obs_date, scoring_config_version, verdict, lifecycle,
               d_basis_points, m_basis_points, w_basis_points, confidence,
               raw_verdict, flags, explanation, features_hash, hash_version,
-              prev_hash, row_hash, created_at
+              prediction_spec, prev_hash, row_hash, created_at
        FROM verdicts
        WHERE opportunity_id = $1
        ORDER BY obs_date DESC

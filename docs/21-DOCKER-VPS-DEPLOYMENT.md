@@ -1,6 +1,6 @@
 # 新 VPS：Docker 独立部署
 
-本方案取代旧 VPS 共享数据库方案。Compose 包含常驻的 web、PostgreSQL 16，以及一次性的 worker / migrate，使用自己的网络和数据库数据卷。
+本方案取代旧 VPS 共享数据库方案。Compose 包含常驻的 web、PostgreSQL 16 与 worker（队列消费者），以及一次性的 migrate，使用自己的网络和数据库数据卷。
 
 ## 前置条件
 
@@ -8,7 +8,7 @@
 - 部署目录为 `/opt/emeradar`，SSH 部署用户能执行 Docker 并拉取仓库。
 - 域名为 `emeradar.com`，需要将 `@` 和 `www` 的 A/AAAA 记录指向新 VPS。Compose 内置 Caddy 自动申请和续期 HTTPS 证书，生产登录使用 Secure cookie。
 - 公网只开放 80/443；PostgreSQL 不映射宿主机端口，web 只绑定 `127.0.0.1:3000`。镜像构建的资源占用不受运行时容器内存限额约束。
-- 当前 VPS 为 1 核 / 1.6GB RAM / 38GB 磁盘；Compose 已将 PostgreSQL/web/worker/Caddy 的运行时配额收紧，部署构建串行执行以降低 OOM 风险。worker 仍是一次性任务，不与 web 同时常驻。
+- 当前 VPS 为 4 核 / 7.9GB RAM / 96GB 磁盘（2026-10-11 迁移后的机器；此前那台 1 核 / 1.6GB 已停机）。Compose 已将 PostgreSQL/web/worker/Caddy 的运行时配额收紧，部署构建串行执行以降低 OOM 风险。worker 自本轮起是**常驻消费者**，与 web 同时运行（见下节）。
 
 ## 首次配置
 
@@ -46,11 +46,11 @@ NEXT_PUBLIC_SITE_URL=https://emeradar.com
 逐条执行，失败时先排查：
 
 ```bash
-docker compose -f docker-compose.prod.yml --profile jobs --profile migrate config --quiet
-docker compose -f docker-compose.prod.yml --profile jobs --profile migrate build
+docker compose -f docker-compose.prod.yml --profile migrate config --quiet
+docker compose -f docker-compose.prod.yml --profile migrate build
 docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 postgres
 docker compose -f docker-compose.prod.yml --profile migrate run --rm migrate
-docker compose -f docker-compose.prod.yml up -d --no-build web caddy
+docker compose -f docker-compose.prod.yml up -d --no-build worker web caddy
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml logs --tail=100 web
 curl --fail --retry 12 --retry-delay 5 --retry-connrefused https://emeradar.com/login
@@ -92,16 +92,46 @@ docker compose -f docker-compose.prod.yml exec -T postgres \
 
 ## 每日 worker
 
-worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。时间按宿主机时区执行；日志接入宿主机日志轮转：
+worker 自本轮起是**常驻消费者**（ADR-003）：排期、重试与死信策略都在 `apps/worker/src/tasks.ts` 里，随代码一起评审、一起部署。宿主机 crontab 里**不再有** worker 条目；唯一保留的 cron 是上面那条备份。
 
-```cron
-30 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker run-daily >> /var/log/emeradar-worker.log 2>&1
-45 3 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker discover >> /var/log/emeradar-worker.log 2>&1
-0 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker generate-intents >> /var/log/emeradar-worker.log 2>&1
-15 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker validate-intents >> /var/log/emeradar-worker.log 2>&1
-30 4 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker generate-experiments >> /var/log/emeradar-worker.log 2>&1
-0 5 * * * cd /opt/emeradar && docker compose -f docker-compose.prod.yml --profile jobs run --rm worker sync-gsc >> /var/log/emeradar-worker.log 2>&1
+```bash
+docker compose -f docker-compose.prod.yml up -d worker          # 启动/更新常驻调度器
+docker compose -f docker-compose.prod.yml logs -f --tail=200 worker
+docker compose -f docker-compose.prod.yml ps worker             # healthcheck 状态
 ```
+
+排期（UTC，与常量同源，改动见 `tasks.ts`）：
+
+| 任务 | cron | 说明 |
+|---|---|---|
+| `run-daily` | `30 3 * * *` | 采集 → 观测 → 裁决 → 账本 → 告警（S6 单写入者） |
+| `discover` | `45 3 * * *` | 采集源信号 |
+| `generate-intents` | `0 4 * * *` | 生成意图假设 |
+| `validate-intents` | `15 4 * * *` | LLM 验证意图假设（花预算） |
+| `generate-experiments` | `30 4 * * *` | 生成早期实验卡片 |
+| `sync-gsc` | `0 5 * * *` | 拉取 Search Console 指标 |
+| `evaluate-episodes` | `0 6 * * *` | 结算到期预测（`run-daily` 的兜底） |
+| `sweep-subscriptions` | `15 6 * * *` | 取消超宽限期的 PAST_DUE 订阅 |
+| `verify-ledger` | `0 7 * * *` | 验证最新账本检查点（失败即 P0，不重试） |
+
+需要手工跑一次某个任务时，显式给命令（默认 CMD 是 `start`，不是某个任务）：
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm worker verify-ledger
+docker compose -f docker-compose.prod.yml run --rm worker sweep-subscriptions 14
+```
+
+任务连续失败会写 `audit_log`（`job.failed` / `job.alerted` / `job.dead_lettered`）并在达到阈值时发告警邮件（收件人取 `OPS_ALERT_EMAIL`，未配置时取库里在职的 `ADMIN`）。查询：
+
+```sql
+SELECT action, target_id, occurred_at FROM audit_log
+ WHERE action LIKE 'job.%' ORDER BY occurred_at DESC LIMIT 50;
+SELECT name, state, COUNT(*) FROM pgboss.job GROUP BY 1, 2;
+```
+
+> worker 每次启动先 `createQueue`，再用 `updateQueue` 对齐已有队列的重试、超时、死信和通知参数。已有 job 保留创建时的参数；不可变的 policy/partition 不符会阻止启动，需停机排空后显式迁移，不能直接改表或删掉积压任务。
+>
+> Compose `stop_grace_period: 150s` 给 pg-boss 的 120 秒 graceful drain 留出连接关闭余量；不是承诺一小时任务一定完成。超时、进程崩溃后的任务可能重试，业务仍须幂等。
 
 ## GitHub 自动部署
 
@@ -115,7 +145,7 @@ worker 是一次性任务，由宿主机 cron 调度，不配置常驻重启。�
 
 不要沿用旧 VPS 的目标信息。先完成仓库克隆、生产 `.env` 和 SSH / Docker 权限配置。
 
-仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 web/Caddy → 重试 HTTPS 登录页检查。worker 镜像同步更新，任务由 cron 触发。保留数据卷，不做全局镜像清理。
+仅推送 `master` 自动部署：串行拉取代码 → 构建全部应用镜像 → 启动并等待 PostgreSQL 健康 → 迁移 → 更新 worker（常驻调度器）→ 更新 web/Caddy → 重试 HTTPS 登录页检查。任务由 worker 内部的队列排期触发，不再依赖宿主机 cron。保留数据卷，不做全局镜像清理。
 
 工作流会重置受 Git 管理的文件；Compose/Dockerfile 修改要提交，私有配置只放服务器 `.env`。查看 Actions 结果确认部署，push 成功不等于上线。
 

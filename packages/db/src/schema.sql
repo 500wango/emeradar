@@ -417,8 +417,17 @@ ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS raw_verdict TEXT;
 ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS flags TEXT[];
 ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS explanation JSONB;
 ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS features_hash CHAR(64);
--- hash_version: 1 = 原 11 字段集（存量行），2 = 11 字段 + 依据字段。默认 1 使存量行零改写。
+-- hash_version: 1 = 原 11 字段集（存量行），2 = 11 字段 + 依据字段，
+--               3 = v2 + prediction_spec（预测规格）。默认 1 使存量行零改写。
 ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS hash_version SMALLINT NOT NULL DEFAULT 1;
+
+-- prediction_spec（v3）：这一行**当时声明**的判据 —— 判据版本、评估地平线、目标
+-- 事件（见 packages/ledger/src/row-hash.ts 的 PredictionSpec）。它就参与 row_hash，
+-- 所以事后改判据会在链上暴露，而不是靠"没人去改常量"这句口头约定。
+--
+-- NULL 有两种来源，语义不同：v1/v2 行是"这一版还没记这个字段"，v3 行是"这一行没有
+-- 发布预测"。前者不入哈希、后者以 null 入哈希，因此两者验算结果不会相撞。
+ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS prediction_spec JSONB;
 -- 三轴档位。必须封存，不能从 opportunity_cards 现读：那是"当前"快照，拿它当历史
 -- 会让 w_band 的时序永远是一条水平线，W_DROPPING 与窗口收窄的降级路径永不触发。
 ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS d_band TEXT;
@@ -430,6 +439,10 @@ ALTER TABLE verdicts ADD COLUMN IF NOT EXISTS w_band TEXT;
 -- 先 DROP 再 ADD 而非 IF NOT EXISTS：约束的定义本身会演进（band 三列是后补的），
 -- 沿用 IF NOT EXISTS 会让本地已建的旧定义静默留任。此刻没有任何 v2 行存在
 -- （v2 写入路径尚未跑过），所以重建约束不会扫描到不合规的行。
+--
+-- v3 行同样受这条约束（它也带依据字段），所以不必为 v3 再加一条：规格是否该有、
+-- 该长什么样由写入侧的 PredictionSpec 与 `isCompleteV3Row` 管，而 SQL 这边无法
+-- 表达"BUILD_NOW/EARLY_BET 行必须有规格"这类跨列规则（会变成第二份判据）。
 ALTER TABLE verdicts DROP CONSTRAINT IF EXISTS verdicts_v2_requires_basis;
 ALTER TABLE verdicts ADD CONSTRAINT verdicts_v2_requires_basis
   CHECK (
@@ -459,6 +472,75 @@ CREATE TABLE IF NOT EXISTS prediction_episodes (
   metrics JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 判据快照（06 §7「评估规格版本化并**预先固定**（在观测结果前写定）」）。
+--
+-- criteria_snapshot 是这条预测被判定时用的**完整**规格（阈值在内），criteria_version
+-- 是它的版本号，单独成列只为一眼可查与可索引。评估器只认快照，不读代码常量：
+-- 常量是可以被编辑的，而"编辑一个数字就静默改写了所有尚未评估的历史预测"是这套
+-- 系统里最不容易被发现的失真 —— 账本一个字节都没变，记录的版本号也照样自洽。
+--
+-- 计划里这一项还写了 `horizon_days`，这里**没有**采纳：地平线是三档并存的
+-- （outcome_30d/60d/90d 三列 + metrics.h30/h60/h90），再加一个单值的 horizon_days
+-- 就是对同一事实的第四种表示，而它无法表达"这条预测同时有 30/60/90 三个地平线"。
+-- 地平线随快照走（`criteria_snapshot->'horizons'`），在 outcome_evaluations 那张
+-- 逐 (verdict, horizon) 成行的表里才会有一个单值的 horizon_days。
+--
+-- 老 Episode 这两列为 NULL：它们开的比本功能早，回填等于替它们声称一个从未记录过的
+-- 判据。评估器遇到 NULL 时回落到当前规格，并把 `criteriaSource:
+-- 'active-spec-fallback'` 写进 metrics，让"按原判据判的"和"按今天的判据补判的"
+-- 事后能被分开。
+ALTER TABLE prediction_episodes ADD COLUMN IF NOT EXISTS criteria_version TEXT;
+ALTER TABLE prediction_episodes ADD COLUMN IF NOT EXISTS criteria_snapshot JSONB;
+
+-- prediction_episodes **不是** append-only 表，但它的预测是。
+--
+-- 计划里这一项写的是"复用 prevent_ledger_modification()"。照抄会让这张表连
+-- UPDATE 都抛 0A000 —— 而 outcome 评估器正是靠原地 UPDATE 逐 horizon 回填的
+-- （prediction-episode.service.ts:205-227，T+30/60/90 各写一次）。一个"UPDATE 一律
+-- 禁止"的触发器会让结果回流链路在第一次评估时整条死掉，而结果回流恰是本轮要打通的
+-- 三个回程边之一。所以这里按**真正的不变式**逐条收，而不是整表封死：
+--
+--   1. 预测本身不可改写 —— 引用哪条裁决、哪个机会、预测日、当时发布的裁决类别，
+--      以及**当时的判据快照**。改写它等于把"当时预言了什么、按什么判"换成事后
+--      更好看的东西；判据尤其不能动，否则"预先固定"就只剩一句注释。
+--   2. 已判定的 horizon 不可重判（HIT/MISS 改成别的）。服务层的 WHERE 守卫
+--      （`outcome_Xd IS NULL OR = 'PENDING'`）只在它自己那条路径上成立；任何直接
+--      SQL、任何后台"订正"都能绕过它把 MISS 改成 HIT —— 而战绩页对外承诺的正是
+--      "命中与失误都公开"。
+--
+-- metrics 刻意不设限：它按 horizon 累加（h30/h60/h90 各一个键），逐次合并是设计。
+-- 也刻意不挡 DELETE：与 decisions 同理，ON DELETE CASCADE（verdicts/opportunities）
+-- 与测试夹具的清理路径都需要它。
+CREATE OR REPLACE FUNCTION prevent_episode_rewrite()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.verdict_id IS DISTINCT FROM NEW.verdict_id
+     OR OLD.opportunity_id IS DISTINCT FROM NEW.opportunity_id
+     OR OLD.predicted_at IS DISTINCT FROM NEW.predicted_at
+     OR OLD.published_verdict IS DISTINCT FROM NEW.published_verdict
+     OR OLD.criteria_version IS DISTINCT FROM NEW.criteria_version
+     OR OLD.criteria_snapshot IS DISTINCT FROM NEW.criteria_snapshot THEN
+    RAISE EXCEPTION 'prediction_episodes: the prediction itself is immutable (id=%).', OLD.id
+    USING ERRCODE = '0A000';
+  END IF;
+
+  IF (OLD.outcome_30d IN ('HIT','MISS') AND NEW.outcome_30d IS DISTINCT FROM OLD.outcome_30d)
+     OR (OLD.outcome_60d IN ('HIT','MISS') AND NEW.outcome_60d IS DISTINCT FROM OLD.outcome_60d)
+     OR (OLD.outcome_90d IN ('HIT','MISS') AND NEW.outcome_90d IS DISTINCT FROM OLD.outcome_90d) THEN
+    RAISE EXCEPTION 'prediction_episodes: a graded outcome cannot be re-graded (id=%).', OLD.id
+    USING ERRCODE = '0A000';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_prediction_episodes_no_rewrite ON prediction_episodes;
+CREATE TRIGGER trg_prediction_episodes_no_rewrite
+BEFORE UPDATE ON prediction_episodes
+FOR EACH ROW
+EXECUTE FUNCTION prevent_episode_rewrite();
 
 CREATE TABLE IF NOT EXISTS ledger_checkpoints (
   id TEXT PRIMARY KEY,                         -- ckp_
@@ -605,6 +687,20 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 规则**为什么**被停用：停用的原因必须单独成列，因为恢复时要按原因区分。
+--
+-- 降级（PRO → FREE）要按上限关掉超出部分的规则，一年后用户重新订阅时要能**只**
+-- 恢复那批规则。没有这一列就只能靠 `is_active = false` 反推，于是"系统因降级停用"
+-- 与"用户自己关掉"变成同一个状态，重新订阅会连带复活用户亲手关掉的规则 ——
+-- 这正是 schema.sql:620-621 那条无差别谓词教训的同类故障：一个看不见来源的布尔位
+-- 无法承载"该不该恢复"这个判断。
+--
+-- 刻意不加 status 枚举：投递路径与创建路径已经按 `is_active` 分支
+-- （alert.service.ts:90,113），再加一套平行的状态机必然与它漂移。
+ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_alert_rules_disabled
+  ON alert_rules(user_id) WHERE disabled_reason IS NOT NULL;
 
 -- 每日流水线只求值 VERDICT_CHANGE 与 WINDOW_CLOSING（见 services/src/alert-triggers.ts），
 -- 而创建入口从前放行了全部四种，于是可能已经存在一批永远不响的规则。把它们置为
@@ -761,15 +857,72 @@ CREATE TABLE IF NOT EXISTS plans (
 
 -- Keep the launch entitlement contract aligned for existing installations.
 -- Subscription snapshots remain unchanged; this only updates the current plan catalog.
+--
+-- The INSERT is not decoration. `plans` used to be populated only by `seed.ts`,
+-- and the production deploy chain (.github/workflows/deploy.yml) runs `migrate`
+-- but never `seed` — so a production database could hold plan rows missing
+-- `max_projects` / `max_alerts` / `view_cards_monthly` entirely. The entitlement
+-- reader resolves those as `ent.max_alerts ?? 0` and `ent.max_projects ?? 1`, so
+-- a missing key silently capped every non-admin account at zero alert rules and
+-- one project — paying Pro customers included. The catalog must therefore be
+-- complete after `migrate` alone, not after `migrate` plus a seed somebody
+-- remembered to run.
+INSERT INTO plans (code, name, price_usd_monthly, entitlements) VALUES
+  ('FREE', 'Free Starter', 0.00,
+   '{"view_cards_monthly":10,"generate_reports_monthly":1,"export_reports_monthly":0,"max_projects":1,"max_alerts":1,"live_scan_daily":3,"feed_delay_days":45,"api_access":false}'),
+  ('PRO', 'Builder Pro', 29.00,
+   '{"view_cards_monthly":-1,"generate_reports_monthly":30,"export_reports_monthly":30,"max_projects":50,"max_alerts":20,"live_scan_daily":30,"feed_delay_days":0,"api_access":false}'),
+  ('TEAM', 'Scale Team', 149.00,
+   '{"view_cards_monthly":-1,"generate_reports_monthly":100,"export_reports_monthly":100,"max_projects":100,"max_alerts":100,"live_scan_daily":100,"feed_delay_days":0,"api_access":false}')
+ON CONFLICT (code) DO NOTHING;
+
+-- `defaults || entitlements` on purpose: the left operand supplies only keys the
+-- row is missing, so an operator's manual edit to a plan is never overwritten by
+-- a later deploy. Reversing the operands would silently reset the catalog on
+-- every migration.
 UPDATE plans
 SET price_usd_monthly = CASE code WHEN 'PRO' THEN 29.00 WHEN 'TEAM' THEN 149.00 ELSE price_usd_monthly END,
-    entitlements = entitlements || CASE code
-      WHEN 'FREE' THEN '{"generate_reports_monthly":1,"export_reports_monthly":0,"feed_delay_days":45,"api_access":false}'::jsonb
-      WHEN 'PRO' THEN '{"generate_reports_monthly":30,"export_reports_monthly":30,"feed_delay_days":0,"api_access":false}'::jsonb
-      WHEN 'TEAM' THEN '{"generate_reports_monthly":100,"export_reports_monthly":100,"feed_delay_days":0,"api_access":false}'::jsonb
+    entitlements = CASE code
+      WHEN 'FREE' THEN '{"view_cards_monthly":10,"generate_reports_monthly":1,"export_reports_monthly":0,"max_projects":1,"max_alerts":1,"live_scan_daily":3,"feed_delay_days":45,"api_access":false}'::jsonb
+      WHEN 'PRO' THEN '{"view_cards_monthly":-1,"generate_reports_monthly":30,"export_reports_monthly":30,"max_projects":50,"max_alerts":20,"live_scan_daily":30,"feed_delay_days":0,"api_access":false}'::jsonb
+      WHEN 'TEAM' THEN '{"view_cards_monthly":-1,"generate_reports_monthly":100,"export_reports_monthly":100,"max_projects":100,"max_alerts":100,"live_scan_daily":100,"feed_delay_days":0,"api_access":false}'::jsonb
+      ELSE '{}'::jsonb
+    END || entitlements
+WHERE code IN ('FREE', 'PRO', 'TEAM');
+
+-- Repair three *present but wrong* legacy literals — the mirror image of the
+-- missing-key case above, and the reason the merge alone is not enough.
+--
+-- Measured on a database seeded by an older revision, `plans` held
+-- FREE `max_alerts: 0`, PRO `max_projects: 10`, TEAM `max_projects: 50`. None of
+-- those three values can be produced by any revision of this repository: they are
+-- absent from `seed.ts` at every commit, `schema.sql` did not contain
+-- `max_alerts` at all before this block existed, and the only other writer
+-- (decision-traceability.test.ts) runs against a disposable database. What every
+-- revision does agree on is the published contract — `seed.ts:53-56`, the pricing
+-- page (`en.ts:428,481`) and docs/13 §3.2 — which says 1 / 50 / 100. So these are
+-- residue from a pre-squash catalog, not an operator's decision, and the
+-- "existing keys win" rule above was dutifully preserving them: a PRO customer
+-- capped at 10 projects instead of the 50 the pricing page sells.
+--
+-- The predicate names the exact bad literals, so this statement extinguishes
+-- itself after one run and is a no-op on every installation that is already
+-- correct. Deliberately narrow: an unconditional `max_projects = 50` here would
+-- re-fight an operator on every deploy, which is the failure mode this file
+-- already learned once (see the alert_rules replay note below). Anyone who
+-- genuinely wants PRO at 10 projects must change this statement too, and that is
+-- the intended friction.
+UPDATE plans
+SET entitlements = entitlements || CASE
+      WHEN code = 'FREE' AND entitlements->>'max_alerts'   = '0'  THEN '{"max_alerts": 1}'::jsonb
+      WHEN code = 'PRO'  AND entitlements->>'max_projects' = '10' THEN '{"max_projects": 50}'::jsonb
+      WHEN code = 'TEAM' AND entitlements->>'max_projects' = '50' THEN '{"max_projects": 100}'::jsonb
       ELSE '{}'::jsonb
     END
-WHERE code IN ('FREE', 'PRO', 'TEAM');
+WHERE code IN ('FREE', 'PRO', 'TEAM')
+  AND (   (code = 'FREE' AND entitlements->>'max_alerts'   = '0')
+       OR (code = 'PRO'  AND entitlements->>'max_projects' = '10')
+       OR (code = 'TEAM' AND entitlements->>'max_projects' = '50'));
 
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
@@ -793,7 +946,48 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_stripe_subscription
   ON subscriptions(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
 
+-- 宽限期计时，与"已付至哪天"分开成列。
+--
+-- `current_period_end` 回答的是"已付到哪一天"，是 fail-closed 的续期依据
+-- （读侧 JOIN 直接用 `current_period_end > NOW()` 判定是否还有权益）。拿催缴起始
+-- 时刻去覆写它，会让一个第 3 天补缴成功的订阅看起来"已付至今天"，同时给续费页
+-- 报出错误的 renewsAt。宽限计时需要自己的列。
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS past_due_since TIMESTAMPTZ;
+
+-- 终身版（一次性 payment 模式）的支付归因锚点。
+--
+-- checkout 走 `mode=payment` 时 Stripe 不会创建 Subscription 对象，于是争议
+-- （charge.dispute.created）与退款（charge.refunded）事件上只有 payment_intent 与
+-- charge，没有 subscription 可以顺着查回来。而终身版是 $399 的一次性付款：归因不到
+-- 人，就等于争议期白送权益。唯一索引让它可双向使用——既能在激活时落库，也能从
+-- payment_intent 反查用户。
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_stripe_payment_intent
+  ON subscriptions(stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
+
 -- Webhook idempotency: each Stripe event id is applied at most once.
+CREATE TABLE IF NOT EXISTS stripe_event_retries (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','DONE','FAILED')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS stripe_checkout_intents (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_code TEXT NOT NULL REFERENCES plans(code),
+  billing_cycle TEXT NOT NULL CHECK (billing_cycle IN ('monthly','yearly','lifetime')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  currency TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('payment','subscription')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS webhook_events (
   id TEXT PRIMARY KEY,
   event_type TEXT NOT NULL DEFAULT '',
@@ -810,6 +1004,13 @@ CREATE TABLE IF NOT EXISTS usage_events (
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, feature, request_id)
 );
+
+-- `SYSTEM` 是给"系统自己发起的动作"用的，目前只有宽限期催缴（浏览器和 API 都不是
+-- 它的来源，硬填其中之一就是在数据里写假话）。放宽取值不可能让存量行失效 —— 新集合
+-- 是旧集合的超集 —— 所以这条 ALTER 对任何库都是安全的。
+ALTER TABLE usage_events DROP CONSTRAINT IF EXISTS usage_events_channel_check;
+ALTER TABLE usage_events ADD CONSTRAINT usage_events_channel_check
+  CHECK (channel IN ('WEB','API','SYSTEM'));
 
 CREATE TABLE IF NOT EXISTS usage_counters (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -882,6 +1083,60 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip INET,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 存量账号的 tier 归一化，实现"不迁移，直接降为 FREE"。
+--
+-- 从这一轮起 `users.tier` 降级为**只写不读的展示镜像**，权益判定由 subscriptions
+-- 独家承担（读侧见 entitlement.service.ts 的 JOIN）。但存量库里有一批
+-- `tier='PRO'/'TEAM'` 而**没有任何订阅行**的账号——早期手工授权，或 seed 造的测试
+-- 数据。产品决策是不为它们补订阅行，直接按"无有效订阅"处理，即 FREE。
+-- （因此管理员手工发的套餐会在本迁移后失效，需要重新授权；B2 之后授权会写订阅行，
+-- 不会再有这个问题。这是 B1→B2→B3 必须同批发布的直接原因。）
+--
+-- 判定口径与读侧逐字对齐。两边分叉正是这一轮要消灭的缺陷：展示说 PRO、强制按 FREE
+-- 执行，或者反过来无限授权。口径是：
+--   ACTIVE / TRIALING 且 current_period_end 在未来        → 该 plan_code
+--   PAST_DUE 且 past_due_since 仍在 7 天宽限内            → 该 plan_code
+--   其余（已过期、CANCELED、无订阅行）                     → FREE
+-- `past_due_since` 是这一轮才加的列，存量 PAST_DUE 行为 NULL，比较得 NULL → 不满足
+-- → 降为 FREE：fail-closed，与读侧一致。
+--
+-- 由订阅状态派生，所以重复执行天然幂等：第二次跑时已经正确的行不再匹配，既不产生
+-- UPDATE 也不产生审计行。审计只记**真的被改了 tier 的**账号，供运营核对并决定
+-- 是否需要重新授权——这正是 tier 镜像归一化不能悄悄进行的原因。
+WITH corrected AS (
+  SELECT u.id,
+         u.tier AS previous_tier,
+         COALESCE(s.plan_code, 'FREE') AS effective_tier
+  FROM users u
+  LEFT JOIN LATERAL (
+    SELECT sub.plan_code
+    FROM subscriptions sub
+    WHERE sub.user_id = u.id
+      AND (
+        (sub.status IN ('ACTIVE','TRIALING') AND sub.current_period_end > NOW())
+        OR (sub.status = 'PAST_DUE' AND sub.past_due_since > NOW() - INTERVAL '7 days')
+      )
+    LIMIT 1
+  ) s ON true
+  WHERE u.tier IS DISTINCT FROM COALESCE(s.plan_code, 'FREE')
+),
+updated AS (
+  UPDATE users u
+  SET tier = c.effective_tier, updated_at = NOW()
+  FROM corrected c
+  WHERE u.id = c.id
+  RETURNING u.id, c.previous_tier, c.effective_tier
+)
+INSERT INTO audit_log (id, actor_id, actor_type, action, target_type, target_id, payload)
+SELECT 'aud_' || gen_random_uuid(), NULL, 'SYSTEM',
+       'TIER_MIRROR_NORMALIZED', 'USER', updated.id,
+       jsonb_build_object(
+         'previousTier', updated.previous_tier,
+         'effectiveTier', updated.effective_tier,
+         'reason', 'users.tier is a display mirror of subscriptions; no effective subscription row'
+       )
+FROM updated;
 
 -- 15. 管线执行审计与可观测性
 CREATE TABLE IF NOT EXISTS pipeline_runs (

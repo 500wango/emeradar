@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { Client } from 'pg';
+import { Client, Pool } from 'pg';
+import { runMigration } from '../../../db/src/migrate';
 
 /**
  * 一次性数据库夹具。
@@ -32,8 +31,6 @@ export interface DisposableDb {
   /** 连到维护库执行建库/删库一类的语句。 */
   withMaintenance(sql: string): Promise<{ ok: boolean; code?: string }>;
 }
-
-const SCHEMA_PATH = path.resolve(__dirname, '../../../db/src/schema.sql');
 
 export function makeDisposableDb(namePrefix: string): DisposableDb {
   // 带上 pid：并行跑多个用例文件时名字不会撞。
@@ -77,12 +74,11 @@ export function makeDisposableDb(namePrefix: string): DisposableDb {
       return;
     }
 
-    const client = new Client({ connectionString: verifyUrl });
-    await client.connect();
+    const migrationPool = new Pool({ connectionString: verifyUrl });
     try {
-      await client.query(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      await runMigration({ pool: migrationPool });
     } finally {
-      await client.end();
+      await migrationPool.end();
     }
 
     db.pool.options.connectionString = verifyUrl;

@@ -4,25 +4,31 @@
   "private": true,
   "scripts": {
     "build": "tsc",
+    "test": "tsx test/run.ts",
+    "start": "tsx src/cli.ts start",
+    "health": "tsx src/cli.ts health",
     "run-daily": "tsx src/cli.ts run-daily",
     "discover": "tsx src/cli.ts discover",
     "generate-intents": "tsx src/cli.ts generate-intents",
     "validate-intents": "tsx src/cli.ts validate-intents",
     "generate-experiments": "tsx src/cli.ts generate-experiments",
     "sync-gsc": "tsx src/cli.ts sync-gsc",
+    "evaluate-episodes": "tsx src/cli.ts evaluate-episodes",
+    "sweep-subscriptions": "tsx src/cli.ts sweep-subscriptions",
     "verify-ledger": "tsx src/cli.ts verify-ledger",
     "assess-commercial": "tsx src/cli.ts assess-commercial"
   },
   "dependencies": {
+    "@emeradar/collectors": "workspace:*",
     "@emeradar/core": "workspace:*",
     "@emeradar/db": "workspace:*",
-    "@emeradar/scoring": "workspace:*",
     "@emeradar/ledger": "workspace:*",
-    "@emeradar/report": "workspace:*",
-    "@emeradar/services": "workspace:*",
-    "@emeradar/collectors": "workspace:*",
     "@emeradar/llm": "workspace:*",
-    "dotenv": "^16.4.7"
+    "@emeradar/report": "workspace:*",
+    "@emeradar/scoring": "workspace:*",
+    "@emeradar/services": "workspace:*",
+    "dotenv": "^16.4.7",
+    "pg-boss": "^12.37.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",

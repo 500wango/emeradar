@@ -4,8 +4,10 @@ import {
   GENESIS_PREV_HASH,
   calculateFeaturesHash,
   isV2Row,
+  isV3Row,
   DailyLedgerRecord,
-  VerdictRowDataV2,
+  PredictionSpec,
+  VerdictRowDataV3,
 } from '@emeradar/ledger';
 import {
   AutocompleteCollector,
@@ -16,14 +18,25 @@ import {
 } from '@emeradar/collectors';
 import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
-import { PredictionEpisodeService } from '../prediction-episode.service';
+import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
+import { sendTransactionalEmail } from '../email.service';
 import { evaluateAlertTrigger } from '../alert-triggers';
 import { discoverAutocompleteCandidates } from './discover-candidates';
 
 const PIPELINE_LOCK_ID = 481516;
 
-export async function runDailyPipeline(obsDate = new Date().toISOString().slice(0, 10)): Promise<{
+export async function runDailyPipeline(
+  obsDate = new Date().toISOString().slice(0, 10),
+  /**
+   * 谁发起了这次运行：`'queue' | 'admin' | 'cli'`。
+   *
+   * 这个值此前是写死的 `'cli/cron'`，于是 `pipeline_runs` 说不了"这一次是运维在
+   * 后台点的、还是排期跑的"——出问题时最想知道的恰好是这个。定时任务、管理员
+   * 触发、手工执行三条路径都真实存在，记录就必须区分它们。
+   */
+  trigger: string = 'cli'
+): Promise<{
   processedOpportunities: number;
   merkleRoot: string;
   alertsTriggered: number;
@@ -66,7 +79,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     `INSERT INTO pipeline_runs (id, obs_date, status, started_at, metadata)
      VALUES ($1, $2, 'RUNNING', NOW(), $3)
      ON CONFLICT (id) DO NOTHING`,
-    [runId, obsDate, JSON.stringify({ trigger: 'cli/cron' })]
+    [runId, obsDate, JSON.stringify({ trigger })]
   ).catch((e) => console.warn('[pipeline] Failed to record run start in pipeline_runs:', e));
 
   try {
@@ -155,10 +168,19 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   const prevRowHash = prevCkpRes.rows[0]?.final_row_hash || GENESIS_PREV_HASH;
   const prevCheckpointHash = prevCkpRes.rows[0]?.checkpoint_hash || prevRowHash;
 
+  // v3：在 v2 的依据字段之外，把"这一行声明的判据"一并封存（见 row-hash.ts 的
+  // PredictionSpec）。只有真的发布了预测的行才带规格；其余行显式写 null，表示
+  // "这一行没有预测"，与"这一行是旧格式、不知道有没有预测"区分开。
+  const predictionSpec: PredictionSpec | null = {
+    criteriaVersion: ACTIVE_EVAL_CRITERIA.criteriaVersion,
+    horizons: [...ACTIVE_EVAL_CRITERIA.horizons],
+    target: ACTIVE_EVAL_CRITERIA.target,
+  };
+
   const ledgerRows: DailyLedgerRecord[] = publishable.map((item) => {
     // v2：除三轴与裁决外，把去抖前的原始裁决、标志与规则轨迹一并封存。
     // 没有它，下一期的去抖拿不到 prev.rawVerdict，升档条件恒假（见 observe-opportunity）。
-    const rowData: VerdictRowDataV2 = {
+    const rowData: VerdictRowDataV3 = {
       opportunityId: item.opportunityId,
       obsDate,
       scoringConfigVersion: SCORING_CONFIG_VERSION,
@@ -178,8 +200,11 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
       dBand: item.output.dBand,
       mBand: item.output.mBand,
       wBand: item.output.wBand,
+      predictionSpec: PredictionEpisodeService.isPredictionVerdict(item.output.verdict)
+        ? predictionSpec
+        : null,
     };
-    return { opportunityId: item.opportunityId, data: rowData, hashVersion: 2 as const };
+    return { opportunityId: item.opportunityId, data: rowData, hashVersion: 3 as const };
   });
 
   const dailyLedger =
@@ -189,7 +214,7 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
 
   let alertsTriggered = 0;
   let episodesOpened = 0;
-  const pendingEmails: Array<{ to: string; subject: string; body: string }> = [];
+  const pendingEmails: Array<{ to: string; subject: string; body: string; idempotencyKey: string }> = [];
 
   await transaction(async (client) => {
     for (const item of observed) {
@@ -243,6 +268,9 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
     if (dailyLedger) {
       for (const row of dailyLedger.hashedRows) {
         const v2 = isV2Row(row.data) ? row.data : null;
+        // v3 行的规格：`null` 是"这一行没有预测"，与"旧格式行"不同，所以用
+        // isV3Row（判键存在）而不是真值判断。
+        const spec = isV3Row(row.data) ? row.data.predictionSpec : null;
         await client.query(
           `INSERT INTO verdicts (
             id, opportunity_id, obs_date, scoring_config_version,
@@ -250,9 +278,10 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             confidence, input_snapshot_ids, cited_evidence_ids,
             flags, explanation, features_hash, hash_version,
             d_band, m_band, w_band,
+            prediction_spec,
             prev_hash, row_hash
           ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
           )`,
           [
             `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
@@ -276,6 +305,9 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
             v2 ? v2.dBand : null,
             v2 ? v2.mBand : null,
             v2 ? v2.wBand : null,
+            // JSON.stringify(null) 会写进 SQL NULL —— 与 hash 输入里的 null 一致，
+            // 因为 hashing 也把"没有预测"编码成 null（而不是省略该键）。
+            spec === null ? null : JSON.stringify(spec),
             row.prevHash,
             row.rowHash,
           ]
@@ -350,12 +382,12 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
         [`ntf_${obsDate}_${rule.id}`, rule.user_id, title, body, rule.opportunity_id]
       );
       alertsTriggered++;
-      pendingEmails.push({ to: rule.email, subject: title, body });
+      pendingEmails.push({ to: rule.email, subject: title, body, idempotencyKey: `alert/${rule.id}/${obsDate}` });
     }
   });
 
   for (const email of pendingEmails) {
-    await deliverAlertEmail(email.to, email.subject, email.body);
+    await deliverAlertEmail(email.to, email.subject, email.body, email.idempotencyKey);
   }
 
   for (const item of observed) {
@@ -410,16 +442,12 @@ export async function runDailyPipeline(obsDate = new Date().toISOString().slice(
   }
 }
 
-async function deliverAlertEmail(to: string, subject: string, text: string): Promise<void> {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.ALERT_FROM_EMAIL;
-  if (!key || !from || !to) return;
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from, to: [to], subject, text }),
-  }).catch(() => undefined);
+/**
+ * Thin alias for the shared sender. Kept as a named function so the call sites in
+ * this file read the same as before, but the implementation no longer exists here:
+ * it used to be a second copy of the Resend call that swallowed every failure,
+ * including a 4xx from Resend.
+ */
+async function deliverAlertEmail(to: string, subject: string, text: string, idempotencyKey: string): Promise<void> {
+  await sendTransactionalEmail({ to, subject, text, idempotencyKey });
 }

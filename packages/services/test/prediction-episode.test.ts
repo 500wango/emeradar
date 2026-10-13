@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { query, transaction, closePool } from '@emeradar/db';
-import { PredictionEpisodeService } from '../src';
+import { EvaluationCriteria, PredictionEpisodeService } from '../src';
 
 /**
  * Prediction episodes are the public Track Record's only data source, and the
@@ -183,14 +183,35 @@ describe('PredictionEpisodeService', () => {
     const replay = await transaction((client) => PredictionEpisodeService.recordEpisode(client, params));
     assert.strictEqual(replay, false);
 
-    const rows = await query<{ n: string; published_verdict: string; predicted_at: string }>(
-      `SELECT COUNT(*) OVER ()::text AS n, published_verdict, predicted_at::text
+    const rows = await query<{
+      n: string;
+      published_verdict: string;
+      predicted_at: string;
+      criteria_version: string | null;
+      criteria_snapshot: EvaluationCriteria | null;
+    }>(
+      `SELECT COUNT(*) OVER ()::text AS n, published_verdict, predicted_at::text,
+              criteria_version, criteria_snapshot
        FROM prediction_episodes WHERE opportunity_id = $1`,
       [opportunityId]
     );
     assert.strictEqual(Number(rows.rows[0].n), 1);
     assert.strictEqual(rows.rows[0].published_verdict, 'BUILD_NOW');
     assert.strictEqual(rows.rows[0].predicted_at, start);
+
+    // 判据必须随预测一起封存（06 §7「在观测结果前写定」）。少了它，此后任何一次
+    // 改常量都会回头改写这条预测的成败口径，而记录里看不出发生过什么。
+    assert.strictEqual(
+      rows.rows[0].criteria_version,
+      PredictionEpisodeService.EVAL_SPEC_VERSION
+    );
+    const snapshot = rows.rows[0].criteria_snapshot;
+    assert.ok(snapshot, 'the criteria snapshot must be persisted with the prediction');
+    assert.strictEqual(snapshot!.criteriaVersion, PredictionEpisodeService.EVAL_SPEC_VERSION);
+    assert.strictEqual(snapshot!.target, 'market_formed');
+    assert.deepStrictEqual([...snapshot!.horizons], [...PredictionEpisodeService.HORIZONS]);
+    // 阈值必须在内：只存版本号等于"事后还得去翻当年的代码常量"。
+    assert.strictEqual(typeof snapshot!.thresholds.newQueries, 'number');
 
     // A verdict that is not a prediction never opens one.
     const notAPrediction = await transaction((client) =>
@@ -226,6 +247,9 @@ describe('PredictionEpisodeService', () => {
     assert.strictEqual(row.rows[0].outcome_30d, 'HIT');
     assert.strictEqual(row.rows[0].evaluated_30d_at, today);
     assert.strictEqual(row.rows[0].metrics.evalSpecVersion, PredictionEpisodeService.EVAL_SPEC_VERSION);
+    // 这条 Episode 没有快照（本功能上线前开的），所以它明说了自己是按当前规格补判的
+    // —— 事后能把"按原判据判的"和"按今天的判据判的"分开。
+    assert.strictEqual(row.rows[0].metrics.criteriaSource, 'active-spec-fallback');
     assert.strictEqual(row.rows[0].metrics.h30.marketFormed, true);
     assert.strictEqual(row.rows[0].metrics.h30.windowClosed, false);
     assert.strictEqual(row.rows[0].metrics.h30.observed.newQueries, 12);
@@ -233,6 +257,66 @@ describe('PredictionEpisodeService', () => {
     // A second pass has nothing left to grade at T+30.
     const second = await PredictionEpisodeService.evaluateDueEpisodes(today);
     assert.strictEqual(second.evaluated, 0);
+  });
+
+  it('grades by the episode snapshot, not by whatever the constants say today', async (t) => {
+    const verdictId = await borrowVerdictId();
+    if (!verdictId) {
+      t.skip('no verdict row available to satisfy the prediction_episodes foreign key');
+      return;
+    }
+
+    // 同一个机会、同一批观测，在上一个用例里按 ACTIVE 判据是 HIT（4 → 16 个建议、
+    // 12 个新增）。这里给它存一份**只属于这条预测**的判据：簇扩张倍数 100 不可能达到。
+    // 若评估器还去读代码常量，这条会变回 HIT —— 那正是"改一个数字就静默改写了所有
+    // 尚未评估的历史预测"，账本一个字节都不用动。
+    const snapshot: EvaluationCriteria = {
+      criteriaVersion: 'ev-test-frozen',
+      horizons: [30],
+      target: 'market_formed',
+      thresholds: {
+        newQueries: 10,
+        clusterExpansionMultiplier: 100,
+        wLowBasisPoints: 4500,
+        windowCloseEvidence: 3,
+      },
+    };
+
+    await query(
+      `INSERT INTO prediction_episodes (
+         id, verdict_id, opportunity_id, published_verdict, predicted_at,
+         outcome_30d, outcome_60d, outcome_90d, metrics, criteria_version, criteria_snapshot
+       ) VALUES ($1, $2, $3, 'BUILD_NOW', $4::date, 'PENDING', 'PENDING', 'PENDING', '{}', $5, $6)`,
+      [
+        idFor('eps_frozen'),
+        verdictId,
+        opportunityId,
+        start,
+        snapshot.criteriaVersion,
+        JSON.stringify(snapshot),
+      ]
+    );
+
+    const result = await PredictionEpisodeService.evaluateDueEpisodes(today);
+    assert.ok(result.evaluated >= 1);
+
+    const row = await query<{ outcome_30d: string; outcome_60d: string; metrics: any }>(
+      `SELECT outcome_30d, outcome_60d, metrics FROM prediction_episodes WHERE id = $1`,
+      [idFor('eps_frozen')]
+    );
+    assert.strictEqual(
+      row.rows[0].outcome_30d,
+      'MISS',
+      'the frozen snapshot governs, not the live ACTIVE_EVAL_CRITERIA thresholds'
+    );
+    assert.strictEqual(row.rows[0].metrics.evalSpecVersion, 'ev-test-frozen');
+    assert.strictEqual(row.rows[0].metrics.criteriaSource, 'snapshot');
+    // 观测值照旧记下：结论不同不是因为数据不同，而是因为判据不同。
+    assert.strictEqual(row.rows[0].metrics.h30.observed.newQueries, 12);
+    // 快照只声明了一个地平线，不该顺手把 60/90 也判了。
+    assert.strictEqual(row.rows[0].outcome_60d, 'PENDING');
+
+    await query(`DELETE FROM prediction_episodes WHERE id = $1`, [idFor('eps_frozen')]);
   });
 
   it('leaves horizons that have not matured alone', async (t) => {

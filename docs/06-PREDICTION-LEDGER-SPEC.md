@@ -66,6 +66,44 @@ row_hash = SHA-256( prev_hash ‖ JCS(row_without_row_hash) )
 > 与后台"账本完整性"面板都走这条路径，也就是说第一天会一直被报成不一致。已改为
 > 在遍历前就固定 `prevRowHash` / `prevCheckpointHash`，与 `pipeline.ts` 逐字对应。
 
+> **行哈希的三个版本（2026-10-13 实现）**：`hash_version` 逐行记录写入时用的字段集，
+> 复算时**以列为准**，不从数据形状推断。
+>
+> | 版本 | 字段集 | 写入起点 |
+> |------|--------|----------|
+> | 1 | 上表 11 个字段 | 存档行 / seed 伪造行 |
+> | 2 | v1 + `raw_verdict`、`flags`、`explanation`（含 `rules_triggered`）、`features_hash`、`d_band`、`m_band`、`w_band` | 2026-10-12 之后的管线 |
+> | 3 | v2 + `prediction_spec`（判据版本、地平线、目标事件） | 2026-10-13 之后的管线 |
+>
+> v1/v2 的字段集**从未改动**，所以此前发布过的每一个默克尔根与 `checkpoint_hash`
+> 仍然有效；v3 只前向生效。
+>
+> **已修复的版本塌缩**：`row-data.ts` 曾用
+> `Number(hash_version ?? 1) >= 2 ? 2 : 1` 把列映射到字段集 —— 3 会被读成 2。后果
+> 不是边界情况而是**新版本上线当天的必然结果**：那一天所有 v3 行按 v2 复算，公开验证
+> 端点会对整天报"账本不一致"。现已逐版本枚举，并对 ≥3 的未知版本归到 3（旧验证器
+> 无法验证新格式的行，于是如实报"验不过"，而不是静默按另一个字段集复算）。
+> `checkpoint.ts` 的形状推断同理：先判 v3 再判 v2。
+>
+> **`prediction_spec` 为什么必须入哈希**：判据（阈值、地平线、目标事件）原本只活在
+> `prediction-episode.service.ts` 的静态常量里。改一个数字，此后所有**尚未评估**的
+> 历史 Episode 都会按新判据判定，而它们的记录里仍写着原来的 `eval_spec` 版本 ——
+> 账本一个字节都不用改，历史就被重写了。规格入哈希后，这种改动会在复算时暴露
+> （用例见 `services/test/ledger-v3-roundtrip.test.ts`）。
+
+> **存量伪造行（2026-10-13 处置）**：早期演示种子
+> `packages/db/src/seed-radar-opportunities.ts` 曾用
+> `sha256(opp.id|obsDate|verdict|三轴)` 现造 `row_hash`、用 `sha256('genesis_' + opp.id)`
+> 充当 `prev_hash`，把演示数据写进 `verdicts`。那不是"近似真实"：`prev_hash` 不指向
+> 当日上一行，`row_hash` 也不是 `calculateRowHash` 的结果，因此这些行**不可复算**，
+> 一旦与某天的真实产出同处一个 `obs_date`，那一天的账本会整体验不过。
+>
+> 现在的口径：**可复验纪元自第一条由管线写入的 `hash_version >= 2` 行起**。本地库里
+> 那 38 行 `hash_version = 1` 的演示行（`prev_hash` 无一指向同机会的其它行）不属于
+> 任何已发布的账本 —— `ledger_checkpoints` 为空，故没有任何默克尔根需要它们。种子
+> 已不再写 `verdicts`，并加了 `EMERADAR_SEED_DEMO=1` 的显式开关（它写入的观测会被
+> 管线当作真实输入，所以不能"能跑就跑"）。
+
 ### 4.3 每日 Checkpoint
 ```text
 merkle_root     = MerkleRoot( [row_hash…]，按 opportunity_id 排序，叶/节点哈希按 RFC 6962 前缀规则 )
@@ -102,6 +140,27 @@ Episode = (opportunity_id, verdict_class, start_date)
 ## 7. 评估规格（`eval_spec = ev-1.0`）
 
 评估规格版本化并**预先固定**（在观测结果前写定），变更即新版本，历史评估保留。
+
+> **已实现（2026-10-13）**：这条此前只是一句承诺 —— 规格的阈值活在
+> `prediction-episode.service.ts` 的类静态常量里（`NEW_QUERY_THRESHOLD = 10`、
+> `CLUSTER_EXPANSION_MULTIPLIER = 1.5`、`W_LOW_BASIS_POINTS = 4500`、
+> `WINDOW_CLOSE_EVIDENCE_THRESHOLD = 3`），评估时才现读。把 `10` 改成 `5`，此后所有
+> **尚未评估**的历史 Episode 都按新阈值判定，而它们记录里的 `eval_spec` 版本号一字未改
+> —— 没有异常、没有日志、账本无需 UPDATE，历史就被重写了。
+>
+> 现在两处并存：
+> - `prediction_episodes.criteria_version` + `criteria_snapshot`：开 Episode 时把**当下
+>   生效的整份规格**（含阈值）写死。它受 `prevent_episode_rewrite()` 保护，与
+>   `predicted_at` 同级不可改写。
+> - `verdicts.prediction_spec`（`hash_version = 3`）：同一份规格的精简三元组
+>   （判据版本、地平线、目标事件）随裁决行入哈希，因此改规格这件事本身会在账本复算时
+>   暴露（§4.2）。
+>
+> 评估器 (`evaluateDueEpisodes`) **只读 Episode 自己的快照**，并把判据来源写进
+> `metrics.criteriaSource`：`snapshot` = 按它被预测时的判据判的，
+> `active-spec-fallback` = 该 Episode 早于本功能、按当前规格补判的。回填 `NULL` 快照
+> 等于替它声称一个从未记录过的判据，所以不做 —— 让"补判"这件事留下痕迹。
+> 判据中的 `horizons` 决定评估哪几档（与固定的 `outcome_30d/60d/90d` 取交集）。
 
 ### 7.1 事件定义
 | 事件 | 定义（初始值） |

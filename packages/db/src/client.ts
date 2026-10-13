@@ -8,6 +8,24 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 const connectionString =
   process.env.DATABASE_URL || 'postgres://michael:postgres@localhost:5432/emeradar';
 
+/**
+ * The connection the job queue and session-level locks must use.
+ *
+ * `pg-boss` holds a `LISTEN/NOTIFY` listener and takes session-scoped advisory
+ * locks, both of which a transaction-mode pooler severs: the listener's
+ * connection is handed to another client between statements, so notifications
+ * never arrive and locks are released by a connection the caller does not own
+ * (ADR-003, ADR-012). Where a pooler is in front of PostgreSQL, the queue has to
+ * bypass it with `DATABASE_DIRECT_URL`.
+ *
+ * It falls back to `DATABASE_URL`, so an installation with one URL — every
+ * developer machine, CI and the current single-VPS deployment — needs no second
+ * variable to be correct. That fallback is also why the variable is introduced
+ * now rather than when PgBouncer arrives: a queue that starts life on the direct
+ * URL cannot later be discovered to have been relying on a pooler by accident.
+ */
+export const directConnectionString = process.env.DATABASE_DIRECT_URL || connectionString;
+
 export const pool = new Pool({
   connectionString,
   max: 20,

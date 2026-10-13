@@ -104,6 +104,10 @@ function renderDecisionBasisMarkdown(
     );
   }
 
+  if (basis.hashVersion === 3 && basis.predictionSpec !== undefined) {
+    lines.push(`- **${isZh ? '封存预测规格' : 'Sealed prediction specification'}**: ${escapeMarkdown(JSON.stringify(basis.predictionSpec))}`);
+  }
+
   if (basis.hashVersion !== undefined) {
     lines.push(
       '',

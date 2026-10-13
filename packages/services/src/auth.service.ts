@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
+import { EntitlementService } from './entitlement.service';
 
 export interface UserProfile {
   id: string;
@@ -8,6 +9,14 @@ export interface UserProfile {
   displayName: string | null;
   avatarUrl: string | null;
   role: 'USER' | 'ANALYST' | 'ADMIN' | 'SUPPORT';
+  /**
+   * The plan resolved the authoritative way (the subscription join), for display.
+   *
+   * `tier` below is the raw column — a mirror of this. Surfaces should render
+   * `planCode`; `tier` is kept because the mirror is what admin screens and the
+   * tier-normalization migration speak in.
+   */
+  planCode: string;
   tier: 'FREE' | 'PRO' | 'TEAM';
   status: string;
   emailVerifiedAt: Date | null;
@@ -156,8 +165,12 @@ export class AuthService {
     const email = input.email.trim().toLowerCase();
 
     const userRes = await query<any>(
-      `SELECT id, email, display_name, avatar_url, role, tier, status, email_verified_at, created_at
-       FROM users WHERE email = $1 AND status = 'ACTIVE'`,
+      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status,
+              u.email_verified_at, u.created_at,
+              COALESCE(s.plan_code, 'FREE') AS plan_code
+       FROM users u
+       ${EntitlementService.entitlementPlanJoin()}
+       WHERE u.email = $1 AND u.status = 'ACTIVE'`,
       [email]
     );
 
@@ -224,6 +237,7 @@ export class AuthService {
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       role: row.role,
+      planCode: row.plan_code ?? 'FREE',
       tier: row.tier,
       status: row.status,
       emailVerifiedAt: row.email_verified_at,
@@ -359,10 +373,12 @@ export class AuthService {
       `SELECT 
         u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.email_verified_at, u.created_at,
         p.ui_locale, p.preferred_build_types, p.preferred_markets, p.preferred_time_budget,
-        p.topics, p.onboarding_completed
+        p.topics, p.onboarding_completed,
+        COALESCE(sub.plan_code, 'FREE') AS plan_code
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN user_preferences p ON p.user_id = u.id
+       ${EntitlementService.entitlementPlanJoin('sub', 'pl')}
        WHERE s.session_token = $1 AND s.expires > NOW() AND u.status = 'ACTIVE'`,
       [this.hashSessionToken(sessionToken)]
     );
@@ -377,6 +393,7 @@ export class AuthService {
         displayName: r.display_name,
         avatarUrl: r.avatar_url,
         role: r.role,
+        planCode: r.plan_code ?? 'FREE',
         tier: r.tier,
         status: r.status,
         emailVerifiedAt: r.email_verified_at,
@@ -407,8 +424,12 @@ export class AuthService {
    */
   static async getUserById(userId: string): Promise<UserProfile | null> {
     const res = await query<any>(
-      `SELECT id, email, display_name, avatar_url, role, tier, status, email_verified_at, created_at
-       FROM users WHERE id = $1`,
+      `SELECT u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status,
+              u.email_verified_at, u.created_at,
+              COALESCE(s.plan_code, 'FREE') AS plan_code
+       FROM users u
+       ${EntitlementService.entitlementPlanJoin()}
+       WHERE u.id = $1`,
       [userId]
     );
     if (res.rows.length === 0) return null;
@@ -419,6 +440,7 @@ export class AuthService {
       displayName: r.display_name,
       avatarUrl: r.avatar_url,
       role: r.role,
+      planCode: r.plan_code ?? 'FREE',
       tier: r.tier,
       status: r.status,
       emailVerifiedAt: r.email_verified_at,
@@ -574,10 +596,12 @@ export class AuthService {
         k.id AS key_id, k.scopes,
         u.id, u.email, u.display_name, u.avatar_url, u.role, u.tier, u.status, u.email_verified_at, u.created_at,
         p.ui_locale, p.preferred_build_types, p.preferred_markets, p.preferred_time_budget,
-        p.topics, p.onboarding_completed
+        p.topics, p.onboarding_completed,
+        COALESCE(sub.plan_code, 'FREE') AS plan_code
        FROM api_keys k
        JOIN users u ON u.id = k.user_id
        LEFT JOIN user_preferences p ON p.user_id = u.id
+       ${EntitlementService.entitlementPlanJoin('sub', 'pl')}
        WHERE k.key_hash = $1
          AND k.revoked_at IS NULL
          AND (k.expires_at IS NULL OR k.expires_at > NOW())
@@ -598,6 +622,7 @@ export class AuthService {
         displayName: r.display_name,
         avatarUrl: r.avatar_url,
         role: r.role,
+        planCode: r.plan_code ?? 'FREE',
         tier: r.tier,
         status: r.status,
         emailVerifiedAt: r.email_verified_at,

@@ -25,10 +25,11 @@ export interface UserEntitlementsInfo {
   /**
    * When the paid period next renews, or `null` when nothing is billed.
    *
-   * Null covers both the free plan and a legacy account whose entitlement is
-   * retained on `users.tier` with no subscription row (13 §3.1 / 24 §6). The
-   * settings page needs the distinction: it must not tell such an account that
-   * a billing cycle renews automatically.
+   * Null covers the free plan, an expired subscription, and one that is PAST_DUE:
+   * in the last case the period end is in the past and nothing is scheduled until
+   * payment lands, so reporting the old date would have the settings page promise
+   * a renewal that no payment backs. The page needs the distinction between "no
+   * billing" and "billing, here is the date".
    */
   renewsAt: string | null;
 }
@@ -37,21 +38,111 @@ export class EntitlementService {
   /**
    * The one way to resolve a user's plan, shared by every quota read here.
    *
-   * Two details are load-bearing and were previously inconsistent between the
-   * display path and the enforcement paths, which let a user be shown one quota
-   * and blocked by another:
+   * `subscriptions` is the **only** source of truth for entitlements. `users.tier`
+   * is a display mirror and is deliberately not consulted: while it was a fallback
+   * here, the mirror was written by one path (`activateSubscription`) and the
+   * subscription row by another (`updateSubscriptionState`), so the two could
+   * disagree indefinitely — a cancelled subscription kept PRO entitlements
+   * because `tier` still said PRO. A mirror that can grant entitlements is not a
+   * mirror; it is a second source of truth, and the two will always diverge.
    *
-   *   - `TRIALING` counts. A subscription in its trial period grants its plan's
-   *     entitlements, and the reserve* methods always treated it that way; the
-   *     read side did not, so the UI reported FREE while the API allowed PRO.
-   *   - `u.tier` is the fallback when there is no subscription row. It is the
-   *     legacy path kept for pre-existing paid accounts (13 §3.1 / 24 §6), and
-   *     it must apply on the read side too, or such an account is told it has
-   *     PRO/TEAM limits that enforcement does not honour.
+   * Expiry is enforced **here, in the join**, rather than by a sweeper job:
+   *
+   *   - fail-closed means an expired row grants nothing even if no webhook ever
+   *     arrives and no cron ever runs. Put the check in application code instead
+   *     and every call site has to remember it; the one that forgets leaks
+   *     unlimited entitlements.
+   *   - `PAST_DUE` keeps its plan for a 7-day grace window measured from
+   *     `past_due_since`, then falls to FREE on its own. The window's end is a
+   *     property of the data, so no job has to run for it to take effect.
+   *   - `current_period_end` is "paid through", never a dunning timer; see the
+   *     column notes in packages/db/src/schema.sql.
+   *
+   * Keep this predicate in step with the tier-normalization statement in
+   * schema.sql, which derives `users.tier` from the same conditions.
+   *
+   * Exported (not private) so the profile projections in `auth.service` resolve the
+   * plan with **this** join rather than writing a fifth copy of the predicate. The
+   * whole point of collapsing them was that a second copy is a second answer.
+   * It expects the users table aliased as `u`, and the subscription alias is a
+   * parameter because two call sites already bind `s` to `sessions`. The alias is a
+   * parameter rather than something call sites rewrite with a string replace: a
+   * query that has been rewritten at the call site cannot be read.
    */
-  private static entitlementPlanJoin(): string {
-    return `LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('ACTIVE','TRIALING')
-       LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, u.tier, 'FREE')`;
+  static entitlementPlanJoin(subscriptionAlias = 's', planAlias = 'p'): string {
+    const a = subscriptionAlias;
+    const p = planAlias;
+    return `LEFT JOIN LATERAL (
+         SELECT ${a}.plan_code, ${a}.status, ${a}.current_period_start, ${a}.current_period_end, ${a}.entitlements_snapshot
+         FROM subscriptions ${a}
+         WHERE ${a}.user_id = u.id
+           AND (
+             (${a}.status IN ('ACTIVE','TRIALING') AND ${a}.current_period_end > NOW())
+             OR (${a}.status = 'PAST_DUE' AND ${a}.past_due_since > NOW() - INTERVAL '7 days')
+           )
+         LIMIT 1
+       ) ${a} ON true
+       LEFT JOIN plans ${p} ON ${p}.code = COALESCE(${a}.plan_code, 'FREE')`;
+  }
+
+  /**
+   * The effective entitlement bag: the plan catalog, with this subscription's
+   * snapshot layered on top.
+   *
+   * Snapshot-over-catalog rather than `COALESCE(snapshot, catalog)` because a
+   * snapshot is not always whole. The rows written before this rework carry a
+   * single key (`export_reports_monthly`), and `COALESCE` treats any non-empty
+   * object as authoritative — so those subscriptions resolved `max_projects` to
+   * `NULL` and fell through to `?? 1`: a paying customer capped at one project.
+   * Layering keeps docs/13 §3.3 intact (a key the snapshot defines is frozen for
+   * the period) without letting an incomplete snapshot shadow the catalog.
+   */
+  private static effectiveEntitlements(subscriptionAlias = 's', planAlias = 'p'): string {
+    return `(COALESCE(${planAlias}.entitlements, '{}'::jsonb)
+             || COALESCE(NULLIF(${subscriptionAlias}.entitlements_snapshot, '{}'::jsonb), '{}'::jsonb))`;
+  }
+
+  /**
+   * The current quota window start for a monthly quota, anchored on the billing
+   * period so a quota resets when the customer is billed — not on the 1st of the
+   * month, which hands someone billed on the 20th a fresh allowance eleven days
+   * early and takes one away from someone billed on the 25th.
+   *
+   * Anchoring must **roll forward**: using the subscription's period start
+   * verbatim would freeze the counter key forever, and `usage_counters.used`
+   * would only ever grow.
+   *
+   * Month ends are clamped (Jan 31 → Feb 28) so a subscription started on the
+   * 31st keeps a valid period in February.
+   */
+  static quotaPeriodStart(anchor: Date, today: Date): string {
+    const anchorDay = anchor.getUTCDate();
+    let months =
+      (today.getUTCFullYear() - anchor.getUTCFullYear()) * 12 + (today.getUTCMonth() - anchor.getUTCMonth());
+    if (today.getUTCDate() < anchorDay) months -= 1;
+    if (months < 0) months = 0;
+
+    const rolled = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + months, 1));
+    const daysInMonth = new Date(Date.UTC(rolled.getUTCFullYear(), rolled.getUTCMonth() + 1, 0)).getUTCDate();
+    rolled.setUTCDate(Math.min(anchorDay, daysInMonth));
+    return rolled.toISOString().slice(0, 10);
+  }
+
+  /**
+   * The quota window for a resolved row. Both the display path and the reserve*
+   * paths must call this: they write and read the same `usage_counters` key, so a
+   * disagreement is not a rounding difference — it is "you have 30 exports left"
+   * followed immediately by a 429.
+   */
+  private static periodFor(row: {
+    subscription_period_start?: Date | string | null;
+    created_at?: Date | string | null;
+  }): string {
+    const anchor = row.subscription_period_start ?? row.created_at ?? null;
+    if (anchor) return EntitlementService.quotaPeriodStart(new Date(anchor), new Date());
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    return startOfMonth.toISOString().slice(0, 10);
   }
 
   /**
@@ -64,13 +155,19 @@ export class EntitlementService {
       status: string;
       tier: string;
       plan_code: string;
+      subscription_status: string | null;
       current_period_end: Date | null;
+      subscription_period_start: Date | null;
+      created_at: Date | null;
       entitlements: any;
     }>(
       // Every quota read in this service resolves the plan the same way; see
       // `entitlementPlanJoin` for why the join and the COALESCE must not drift.
-      `SELECT u.id, u.role, u.status, u.tier,
-              COALESCE(s.plan_code, u.tier, 'FREE') as plan_code, s.current_period_end, p.entitlements
+      `SELECT u.id, u.role, u.status, u.tier, u.created_at,
+              COALESCE(s.plan_code, 'FREE') as plan_code,
+              s.status AS subscription_status,
+              s.current_period_end, s.current_period_start AS subscription_period_start,
+              ${EntitlementService.effectiveEntitlements()} AS entitlements
        FROM users u
        ${EntitlementService.entitlementPlanJoin()}
        WHERE u.id = $1`,
@@ -105,10 +202,11 @@ export class EntitlementService {
       ? ent.feed_delay_days
       : 0;
 
-    // Check usage in current month
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    const dateStr = startOfMonth.toISOString().slice(0, 10);
+    // Quota window = the billing period (docs/13 §4.2), not the calendar month.
+    // A subscription anchors it on its own period start; everyone else (the free
+    // plan) anchors on account creation, so "1 report / month" means a month
+    // since you signed up rather than a shared 1st-of-the-month reset.
+    const dateStr = EntitlementService.periodFor(row);
 
     const counterRes = await query<{ used: number }>(
       `SELECT used FROM usage_counters 
@@ -124,9 +222,12 @@ export class EntitlementService {
     );
     const generationUsed = generationCounterRes.rows[0]?.used ?? 0;
 
-    // Daily live scan usage (Free: 3/day, Pro: 30/day, Team: 100/day)
+    // Daily live scan quota, read from the catalog. It used to be hardcoded here
+    // and again in reserveLiveScanQuota as a planCode ladder, so a plan whose
+    // catalog said 50 scans reported 30 and enforced 30 — three places to keep in
+    // step, and the catalog's own `live_scan_daily` key was never read at all.
     const today = new Date().toISOString().slice(0, 10);
-    const scanLimit = isAdmin ? 9999 : planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
+    const scanLimit = isAdmin ? 9999 : (ent.live_scan_daily ?? 3);
     const scanCounterRes = await query<{ used: number }>(
       `SELECT used FROM usage_counters
        WHERE user_id = $1 AND feature = 'LIVE_SCAN' AND period_start = $2`,
@@ -142,9 +243,14 @@ export class EntitlementService {
     );
     const projCount = parseInt(projRes.rows[0]?.count ?? '0', 10);
 
-    // Count alert rules
+    // Count alert rules. Only *active* ones consume the allowance — the create
+    // path (alert.service.ts) and the delivery path both count `is_active = true`,
+    // and this read used to count every row including disabled ones. So a user who
+    // hit their limit, disabled a rule and tried to add another was told they were
+    // at 20/20 with 19 active, and the UI and the API disagreed about the same
+    // number.
     const alertRes = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM alert_rules WHERE user_id = $1`,
+      `SELECT COUNT(*) as count FROM alert_rules WHERE user_id = $1 AND is_active = true`,
       [userId]
     );
     const alertCount = parseInt(alertRes.rows[0]?.count ?? '0', 10);
@@ -173,10 +279,12 @@ export class EntitlementService {
       liveScanDailyLimit: scanLimit,
       liveScansUsedToday: scansUsedToday,
       remainingLiveScansToday: remainingScansToday,
-      // Only a live subscription bills; a legacy tier entitlement must report
-      // no renewal date rather than borrow the absence of one as "never".
+      // Only a subscription that is actively paid bills. A PAST_DUE one in its
+      // grace window is entitled but has nothing scheduled: its period end is
+      // already behind us, so echoing it would advertise a renewal date in the
+      // past.
       renewsAt:
-        accountActive && row.current_period_end
+        accountActive && row.subscription_status && row.subscription_status !== 'PAST_DUE' && row.current_period_end
           ? row.current_period_end.toISOString()
           : null,
     };
@@ -188,8 +296,16 @@ export class EntitlementService {
     opportunityId: string
   ): Promise<{ reservationToken: string; isUnlimited: boolean }> {
     return transaction(async (client) => {
-      const entRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
-        `SELECT u.role, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
+      const entRes = await client.query<{
+        role: string;
+        plan_code: string;
+        entitlements: any;
+        subscription_period_start: Date | null;
+        created_at: Date | null;
+      }>(
+        `SELECT u.role, u.created_at, COALESCE(s.plan_code, 'FREE') AS plan_code,
+                s.current_period_start AS subscription_period_start,
+                ${EntitlementService.effectiveEntitlements()} AS entitlements
          FROM users u
          ${EntitlementService.entitlementPlanJoin()}
          WHERE u.id = $1 AND u.status = 'ACTIVE'`,
@@ -200,9 +316,7 @@ export class EntitlementService {
       const limit = ent.role === 'ADMIN' ? -1 : (ent.entitlements?.generate_reports_monthly ?? ent.entitlements?.export_reports_monthly ?? 1);
       if (limit === -1) return { reservationToken: `unlimited_generate_${Date.now()}`, isUnlimited: true };
 
-      const periodStart = new Date();
-      periodStart.setDate(1);
-      const period = periodStart.toISOString().slice(0, 10);
+      const period = EntitlementService.periodFor(ent);
       const counter = await client.query<{ used: number }>(
         `INSERT INTO usage_counters (user_id, feature, period_start, used)
          VALUES ($1, 'GENERATE_REPORT', $2, 1)
@@ -257,8 +371,16 @@ export class EntitlementService {
     opportunityId: string
   ): Promise<{ reservationToken: string; isUnlimited: boolean }> {
     return transaction(async (client) => {
-      const entRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
-        `SELECT u.role, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
+      const entRes = await client.query<{
+        role: string;
+        plan_code: string;
+        entitlements: any;
+        subscription_period_start: Date | null;
+        created_at: Date | null;
+      }>(
+        `SELECT u.role, u.created_at, COALESCE(s.plan_code, 'FREE') AS plan_code,
+                s.current_period_start AS subscription_period_start,
+                ${EntitlementService.effectiveEntitlements()} AS entitlements
          FROM users u
          ${EntitlementService.entitlementPlanJoin()}
          WHERE u.id = $1 AND u.status = 'ACTIVE'`, [userId]);
@@ -274,9 +396,7 @@ export class EntitlementService {
         };
       }
 
-      const periodStart = new Date();
-      periodStart.setDate(1);
-      const period = periodStart.toISOString().slice(0, 10);
+      const period = EntitlementService.periodFor(ent);
       const counter = await client.query<{ used: number }>(
         `INSERT INTO usage_counters (user_id, feature, period_start, used)
          VALUES ($1, 'EXPORT_REPORT', $2, 1)
@@ -350,8 +470,9 @@ export class EntitlementService {
    */
   static async reserveLiveScanQuota(userId: string): Promise<{ remaining: number; limit: number; used: number }> {
     return transaction(async (client) => {
-      const userRes = await client.query<{ role: string; tier: string; plan_code: string; entitlements: any }>(
-        `SELECT u.role, u.tier, COALESCE(s.plan_code, u.tier, 'FREE') AS plan_code, p.entitlements
+      const userRes = await client.query<{ role: string; plan_code: string; entitlements: any }>(
+        `SELECT u.role, COALESCE(s.plan_code, 'FREE') AS plan_code,
+                ${EntitlementService.effectiveEntitlements()} AS entitlements
          FROM users u
          ${EntitlementService.entitlementPlanJoin()}
          WHERE u.id = $1 AND u.status = 'ACTIVE'`,
@@ -364,7 +485,10 @@ export class EntitlementService {
 
       const isAdmin = userRes.rows[0].role === 'ADMIN';
       const planCode = userRes.rows[0].plan_code;
-      const limit = isAdmin ? 9999 : planCode === 'TEAM' ? 100 : planCode === 'PRO' ? 30 : 3;
+      // Same source as the display path (getUserEntitlements). The planCode ladder
+      // that used to live here is exactly how the UI and the enforcement could name
+      // different numbers for the same account.
+      const limit = isAdmin ? 9999 : (userRes.rows[0].entitlements?.live_scan_daily ?? 3);
       const today = new Date().toISOString().slice(0, 10);
 
       const counter = await client.query<{ used: number }>(
@@ -381,7 +505,7 @@ export class EntitlementService {
         throw new EmeradarError(
           ErrorCode.QUOTA_EXCEEDED,
           planCode === 'FREE'
-            ? `Daily live scan quota reached (3 scans/day). Upgrade to Builder Pro for 30 scans/day.`
+            ? `Daily live scan quota reached (${limit} scans/day). Upgrade to Builder Pro for more.`
             : `Daily live scan quota reached (${limit} scans/day).`,
           429,
           {

@@ -91,6 +91,7 @@ export interface ReportGenerationInput {
   basisState?: BasisState;
   hashVersion?: number;
   featuresHash?: string | null;
+  predictionSpec?: VerdictBasis['predictionSpec'];
 }
 
 export function generateOpportunityReport(
@@ -263,6 +264,9 @@ export function generateOpportunityReport(
         }
       : undefined,
     hashVersion: input.hashVersion,
+    ...(input.hashVersion === 3 && input.predictionSpec !== undefined
+      ? { predictionSpec: input.predictionSpec }
+      : {}),
   };
 
   // 三轴一律以档位叙述：01-PRD.md F4 禁止把基点渲染成百分制，也禁止出现综合分。
