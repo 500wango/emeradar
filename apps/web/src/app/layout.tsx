@@ -8,6 +8,9 @@ import { I18nProvider } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
 import { fontVariables } from '@/lib/fonts';
 
+// CSP nonces are per request; HTML must never be prerendered with a stale nonce.
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Emeradar | Search Opportunity Intelligence & Commercial Radar for Builders',
   description:

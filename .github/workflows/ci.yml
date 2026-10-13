@@ -61,6 +61,9 @@ jobs:
       - name: Unit tests (@emeradar/core)
         run: pnpm --filter @emeradar/core test
 
+      - name: Security header regressions (@emeradar/web)
+        run: pnpm --filter @emeradar/web test
+
       - name: Unit tests (@emeradar/scoring)
         run: pnpm --filter @emeradar/scoring test
 
