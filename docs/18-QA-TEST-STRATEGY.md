@@ -89,6 +89,11 @@ flowchart TD
 | **两阶段初筛与半遮罩可见性（F3）** | Free 用户提交自定义词；Pro 用户提交同词 | 第 1 阶段 5 秒内返回静态初筛卡；Free 的具体弱结果 URL、收钱竞品域名与 15 长尾词在**API 响应与渲染层双重不可得**（高斯模糊），Pro 全量可见 |
 | **`STALE_DATA` 72h 宽限（ADR-021、05 §5.3）** | 某源 72 小时内偶发失败 | 沿用最近成功快照档位并打 `STALE_DATA`；**不发布降档 Verdict、不投递降级告警**；连续失败 73 小时后该轴才置 `INSUFFICIENT` 并恢复降档与告警 |
 | **`WINDOW_CLOSING` 的 14 天约束（05 §5.1）** | ① 降档发生在 `obs_date` 前 14 天内且 `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`；② 降档发生在 30 天前或无前置已发布裁决 | ① 触发 `WINDOW_CLOSING`；② **不得**触发，低 W 只能落入 `WATCH` 或 `PASS` |
+| **公开资格-空槽一律不得公开（15 §3 第 1 条、§8，0 容忍）** | 一条 `BUILD_NOW`、槽位仍有空余的机会进 S8 发布循环；另一条**根本没有槽位行**的机会同样进入 | 两条均 `public_pages.status = 'DRAFT'`、`eligibility.admission.basis = null`、`blockedBy` 含 `OPEN_SLOTS`。**「没有槽位行」不得被读成「已满额」**（`0 >= 0` 的反面），必须单列一条断言。反向断言同样必须：`content` 里该机会的真实 slug 与正文**仍在**——本判据不负责打码，打码只归买断 |
+| **公开资格-满额即当日可公开（15 §3 第 1 条、D12）** | 一条首见仅 3 天、多形态 `Σclaimed == Σcapacity`、`w_band = HIGH` 的机会 | **允许公开**：`status = 'PUBLISHED'`、`admission.basis = 'CROWDED_LOCKED'`。旧判据（`ageDays >= 45` 加 `w_band` 白名单）在这里**两处都会挡**，故本条同时是对已废除口径的回归 |
+| **公开资格-14 天进窗的边界与粘滞（15 §3 第 1 条）** | ① 连续段起点恰在 14 天前；② 15 天前；③ `verdict` 仍为 `WINDOW_CLOSING` 但该连续段的起点在 25 天前（30 天迟滞之内） | ① 公开（**含端点**）；② 不公开；③ **不公开**——只看 `verdict == 'WINDOW_CLOSING'` 会把它误判成"刚关窗"。另须断言**满额旁路**：靠 `Σclaimed == Σcapacity` 进入 `WINDOW_CLOSING` 的机会一次 W 降档都没有，用"14 天内降过档"作代理会整个漏掉它 |
+| **公开资格-非单调撤回（15 §3「已知后果」）** | 取一条靠 `WINDOW_CLOSING` 入选、已是 `PUBLISHED` 的页，把账本推到第 15 天再跑一次发布 | 该页被翻成 `DRAFT`，`/public/opportunities/{slug}` 变 **404**。这是**当前有意**的行为——§8 的 0 容忍泄露率靠自动重评（含撤回）兜底；但它同时是 §5 内容生成落地前的阻塞项，见 `docs/15 §3`「已知后果」 |
+| **蚕食防护（15 §3 第 3 条）** | 候选与各已收录页的 SERP Top10（归一后）算 Jaccard：① 重叠 8/10；② 重叠 9/10；③ 库里一条已收录页都没有；④ 有已收录页但候选拿不到 SERP 快照；⑤ 已收录页是 `indexable = false` 的打码页 | ① `PASSED`（≈0.667 < 0.7）且放行；② `BLOCKED`（≈0.818 ≥ 0.7）且 `blockedBy` 含 `CANNIBALIZATION`；③ `VACUOUS`（**不得**报成"数据缺失"）；④ `NOT_EVALUATED`、fail-closed 阻断并登记 `notEvaluated`；⑤ 不计入参照集 → 退回 ③。**必须断言候选自己不与自己重叠**（否则一条已发布页在复审时被自己挡成 `DRAFT`，永远翻不回来） |
 
 ---
 

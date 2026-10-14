@@ -104,12 +104,12 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
 
 ## 6. 一并修正的存量缺陷
 
-本次盘点在代码里抓到三处与新 PRD 冲突的既有缺陷。按"只补设计文档"的范围，**代码未改**，但这些缺陷的统一判据已经写进规格，实现时以规格为准。
+本次盘点在代码里抓到四处与新 PRD 冲突的既有缺陷。按"只补设计文档"的范围，**代码未改**，但这些缺陷的统一判据已经写进规格，实现时以规格为准。
 
 | # | 缺陷 | 现状（代码） | 规格给出的唯一判据 |
 |---|------|--------------|--------------------|
 | 1 | **槽位计数谓词不一致** | `project.service.ts:570` 用 `status != 'ARCHIVED'`；而 `observe-opportunity.ts:465` 与 `opportunity.service.ts:286/400/474` 用 `status != 'ABANDONED'`——`ABANDONED` 不在 `projects.status` 的 CHECK 约束内（合法值为 `IN_DEVELOPMENT` / `LAUNCHED` / `ARCHIVED`），因此该条件恒为真，等于把归档项目也算作占用 | **D2**：`未归档 且 质押未逾期释放`，落点 03 §17、05 §5.1 |
-| 2 | **`WINDOW_CLOSING` 缺「14 天内」约束** | `prev.wBandHistory` 是无日期的档位数组，降档可能来自任意久远的历史；此外还有 CROWDED_LOCKED 与自持两条旁路 | 05 §5.1 的 `wDroppedWithin(prev.datedWBandHistory, 14)` 与三条件；05 §10 补 Golden 测试 |
+| 2 | **`WINDOW_CLOSING` 缺「14 天内」约束** | `prev.wBandHistory` 是无日期的档位数组，降档可能来自任意久远的历史；此外还有 CROWDED_LOCKED 与自持两条旁路 | 05 §5.1 的 `wDroppedWithin(prev.datedWBandHistory, 14)` 与三条件；05 §10 补 Golden 测试。**注（2026-10-14 补记）：这条只欠评分侧**——发布层（`15 §3 第 1 条`）已改为读 `verdicts` 的连续段起始日，正是为了绕开这个无日期数组，故公开准入**不**被本条阻塞 |
 | 3 | **`NEW_ENTRANT` 是显式的空实现** | `alert-triggers.ts` 明确标注未实现；12 的触发器表里它连求值路径都没有 | 12 §2 拆分为 `NEW_AUTHORITATIVE_ENTRANT`（旧名 `NEW_ENTRANT`）与新的 `PROVEN_NEW_ENTRANT`，并逐条标注实现状态 |
 | 4 | **`POST /projects` 可绕过 GO** | `createProject` 在 `decisionId` 缺失时会**替用户插一条 GO**（理由写死 `Direct project initiation`），使 `decisions` 表里躺着用户从未表达的意图 | **D3**：10 §4.5 明确不再提供独立建项目端点；`decisions.verdict_id` 必填且钉住用户实际读到的那一行（该修复已由 16 §5.5 记录并落地） |
 
@@ -123,6 +123,17 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
 2. **`build_type` 枚举与实现值不一致（未改，属代码侧）**。`00-INDEX` §4.3 的 `build_type` 与 `05 §11.2` 的排序表用 `TOOL` / `CONTENT_SITE` / `PSEO_SITE` / `DIRECTORY` / `MICRO_SAAS`（+ Phase 2 两项），而代码在 `packages/scoring/src/recommendation.ts` 等处产出并落库 **`LIGHTWEIGHT_TOOL`**——一个不在枚举里的值。本次把 `09` 的示例与 R5 改为规范取值，但**代码侧的迁移未做**。这条必须在实现轮次处理：槽位与点火包模板都要按 `archetype` 取键，若同一个形态在文档里叫 `TOOL`、在库里叫 `LIGHTWEIGHT_TOOL`，槽位容量会被**静默地分裂成两套**，`Σcapacity ≤ 6` 的约束也就形同虚设。
 3. **PRD 正文的队列技术举例与仓库实现不符**。PRD F1.2 举例写 BullMQ，仓库实际是 **pg-boss v12**。已在 02 §5.2 明确以 pg-boss 为准（ADR-003 未变），不需要推翻任何决策。
 4. **买断保护期的公开投影对"已存在页面"的处理依赖 S8 的同一次运行**。15 §3.1 要求"买断生效的同一次 S8 运行中把该页切换为打码投影"，因此下单事务与 S8 之间存在一个最长约一天的窗口。这不是缺陷（页面此刻仍是旧数据、没有泄露新事实），但实现时必须确保**打码切换与 CDN 缓存刷新是同一步**，否则会出现"库里已打码、CDN 仍可查"的假安全。18 §4.1 已有对应用例。
+
+**以下第 5–12 条由 D12 的实现轮（公开站准入判据换成"还剩多少抢跑价值"）发现并登记；第 5–7 条与本轮的判据直接相邻，故先登记。都未改。**
+
+5. **`PUBLIC_DELAY_DAYS = 45` 仍在公开战绩上生效，且注释引的是已废除的规则（未改，属代码侧）**。`packages/services/src/track-record.service.ts:75` 的这个常量把 `prediction_episodes` 的公开披露压后 45 天，而 `:80` 的注释自述是"与 `public_pages` 用的是同一个 45 天禁售期"——那个禁售期已由 PRD §7.1 废除，本轮把公开页的准入整条换掉了，**但战绩页仍是旧口径**。两者用的是同一条已死规则的两半，于是会出现"机会页当天可公开、它的战绩却要等 45 天"。**不能顺手一起改**：战绩披露延迟防的是"提前暴露预测结果"，与公开页防的"泄露抢跑窗口"不是同一件事，是一条**独立的产品决策**（披露延迟多长、是否与 `evaluate-episodes` 的 30 天结算窗口对齐），须单独裁定。
+6. **`isCrowdedLocked` 的喂入与 05 §5.1 / ADR-018 不一致（未改，本轮已绕过）**。规格定义 `Σclaimed == Σcapacity` 时置位，而代码今天的喂入是 `COUNT(*) FROM projects` 对比常量 `MAX_CLAIMS_PER_OPPORTUNITY = 5`（`observe-opportunity.ts`、`opportunity.service.ts`、`claim-policy.ts`）。这正是 §6 第 1 条那条计数谓词的同一处，而 `0003` 的迁移注释已**明令禁止**再按 `projects.status` 推导"谁占着槽"。修它会同时动评分与账本，属独立一轮；本轮 §3 条件①**直读 `opportunity_slots`** 绕过了它，因此准入口径是对的、而 `CROWDED_LOCKED` 这个标志本身仍是错的。
+7. **`crowding_daily` 是死表**。03 建了它（按槽位），`packages/` 下**零引用**：从不写入、从不读取。它是"按形态切分槽位"那轮的遗留物，实际的槽位真源是 `opportunity_slots`。
+8. **`public_pages.page_type` 的文档取值多于实际约束**。03 的 `public_pages` DDL 列 8 个取值（`OPPORTUNITY` / `MARKET` / `TREND_ENTITY` / `REPLAY` / `REPORT` / `COMPARE` / `TRACK_RECORD` / `CASE_STUDY`），而 `schema.sql` 的 CHECK 只有 4 个（`OPPORTUNITY` / `TRACK_RECORD` / `METHODOLOGY` / `MARKET`）；15 §2/§3.1 还引用 `CASE_STUDY`（§3.1 第 4 条要求买断期满以它重建案例页）与 `COMPARE`。同时 `/markets/[slug]`、`/case-studies/[slug]`、`/compare/[slug]` 三个公开路由**不存在**（实际只有 `/public/opportunities/[slug]` 与 `/track-record`）。改 CHECK 要动枚举，须先走 `00-INDEX` §4.3。
+9. **S8 的排期时刻文档与代码不一致**。02 §5 的调度表把 S8 排在 **06:00**、SLA 写"S1–S8 于 06:30 UTC 前完成"，而代码里含 S8 发布循环的 `run-daily` 排期是 `30 3 * * *`（`apps/worker/src/tasks.ts:96`）。不影响正确性（发布在账本写入之后，见 `pipeline.ts`），但调度表对不上就会让"为什么凌晨三点 CPU 高"这类问题查错方向。
+10. **10 §4.8 的 `GET /public/opportunities/{slug}` 端点不存在**。`apps/web/src/app/api/v1/public/` 下只有 `track-record` 与 `verify-ledger`；公开页是服务端渲染的 HTML 路由，`eligibility` 取出后**未渲染任何字段**。因此"公开接口只承诺 `reason` 与 `decided_at`"这句今天没有载体——它约束的是一个还没写的接口。
+11. **15 §8 的监控指标一个都没实现**。§8 那三项 0 容忍指标（"空槽窗口泄露率""买断打码泄露率""Cohort 统计口径完整率"）**没有采集点**，本轮为 §3 新增判据准备的护栏是**测试**而非监控。上线后至少应给 `CANNIBALIZATION_DATA_MISSING` 加一个计数：它把"SERP 快照覆盖不足"从沉默的阻断变成可见指标。
+12. **公开投影没有"按需生成 / 全量重建"入口**。唯一入口是 S8 每日循环与买断侧 `refreshProjection`（`stealth-lock.service.ts` 经 `expire-stealth-locks` 调用）。因此判据变更**不会回填重评**历史 `public_pages` 行——只有下次 S8 覆盖到的机会才会按新判据改写。上线的第一天，库里存量的 `eligibility` 仍是旧口径写下的。
 
 ---
 
@@ -157,6 +168,7 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
 ## 10. 本次不做的事
 
 - **不改任何 `apps/`、`packages/` 代码**，不新增数据库迁移。第 6、7 节的代码侧偏差留给实现轮次。
+  - **例外（2026-10-14 补记）**：D12 的**实现**已单独落地一轮——`docs/15 §3` 的公开站准入判据已由 `T+45 天延迟` 换成"还剩多少抢跑价值"，含 `publication-policy.ts`、`0008_public_pages_indexes.sql` 与 `18 §4.1` 的新用例。该轮**只动 D12**：第 6 节与第 7 节其余各条（`build_type` 枚举、槽位计数谓词、`PUBLIC_DELAY_DAYS`、`isCrowdedLocked` 喂入……）**一条都没碰**，仍在等待各自的轮次。
 - **不引入 Redis**（ADR-003 保持有效，实现方式按 D13 写明）。
 - **不恢复 AI 编码执行引擎**：点火包是确定性模板装配 + 受约束文本生成，与 ADR-008 当年移除的执行引擎不是同一样东西（ADR-019）。
 - **不锁定供应商与具体定价**：留待 Phase 0（见 §8）。
