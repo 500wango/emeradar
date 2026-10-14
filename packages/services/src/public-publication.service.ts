@@ -1,11 +1,44 @@
 import { query } from '@emeradar/db';
 import { getActiveMask, type ActiveMask } from './stealth-lock-policy';
+import {
+  buildCannibalizationIndex,
+  evaluateCannibalization,
+  loadPrimaryTopNUrls,
+  loadSlotTotals,
+  loadVerdictRun,
+  slotFullness,
+  windowClosingState,
+  type CannibalizationIndex,
+  type CannibalizationResult,
+} from './publication-policy';
 
 export interface PublicationDecision {
   eligible: boolean;
   indexable: boolean;
   eligibility: Record<string, unknown>;
   qualityReport: Record<string, unknown>;
+}
+
+/**
+ * `docs/10:236` 把公开接口的 `eligibility.reason` 定死成这两个值（外加买断与早退两种），
+ * 所以它是一个**对外契约**而不是内部枚举。
+ */
+export type PublicationEligibilityReason = 'CROWDED_LOCKED' | 'WINDOW_CLOSING' | 'STEALTH_LOCKED';
+
+/** `docs/15 §3` 的三条硬条件 + 蚕食防护无法评估时的登记码。 */
+export type PublicationBlockReason =
+  | 'OPEN_SLOTS'
+  | 'M_INSUFFICIENT'
+  | 'CANNIBALIZATION'
+  | 'CANNIBALIZATION_DATA_MISSING';
+
+/**
+ * 蚕食防护要拿"当前已收录的公开页"作参照。索引按**一轮 S8 运行**构建一次并透传，
+ * 省掉每条机会各拉一遍全量已收录集合的开销（详见 `publication-policy.ts`）。
+ * 单条调用（买断侧的投影刷新）不传，由 `evaluateOpportunity` 自行加载。
+ */
+export interface PublicationOptions {
+  cannibalizationIndex?: CannibalizationIndex;
 }
 
 /**
@@ -45,15 +78,28 @@ export class PublicPublicationService {
     return trimmed.split(/\s+/).filter(Boolean).length;
   }
 
+  /**
+   * `docs/15 §3` 的准实时精选准入（C1 准入 → C2 证据 → C3 蚕食），随后接 §5 的质量门。
+   *
+   * **判据已整条更换。** 旧判据是「T+45 天延迟公开」（`ageDays >= 45` 加一个 `w_band`
+   * 白名单），PRD §7.1 已废除，15 §3 换成「这条机会对付费用户还剩多少抢跑价值」。两者
+   * 不是同一个判据换参数，而是方向相反：旧规则等的是"时间够久"，于是一条放了半年仍有
+   * 空槽的 `BUILD_NOW` 会被公开——正好把付费用户的抢跑窗口送给免费层，而它保护的那个
+   * "窗口"可能根本不存在（28 §6）。新规则看的是"还剩多少价值"：那条机会**永远不公开**，
+   * 而一条刚发布三天就满额的当天即可公开（15 §3 自己的例子）。
+   *
+   * 顺序照规格的流程图短路：准入不过就不跑 C3——它要拉 SERP 快照，是这里最贵的一步，
+   * 而绝大多数机会每天都在第一步就被挡下。
+   */
   static async evaluateOpportunity(
     opportunityId: string,
     now = new Date(),
-    locale = 'en-US'
+    locale = 'en-US',
+    opts: PublicationOptions = {}
   ): Promise<PublicationDecision> {
     const res = await query<any>(
-      `SELECT o.id, o.slug, o.title, o.first_observed_date, c.verdict, c.lifecycle, c.w_band, c.m_band,
+      `SELECT o.id, o.slug, o.title, c.verdict, c.lifecycle, c.w_band, c.m_band,
               c.why_now_summary, c.top_idea,
-              (SELECT MIN(v.obs_date) FROM verdicts v WHERE v.opportunity_id = o.id) AS first_verdict_date,
               (SELECT COUNT(*)::int FROM evidence e WHERE e.opportunity_id = o.id) AS evidence_count,
               (SELECT COUNT(*)::int FROM serp_results sr JOIN serp_snapshots ss ON ss.id = sr.serp_snapshot_id
                JOIN opportunity_queries oq ON oq.query_id = ss.query_id
@@ -63,9 +109,90 @@ export class PublicPublicationService {
     );
     if (!res.rows[0]) return { eligible: false, indexable: false, eligibility: { reason: 'NOT_FOUND' }, qualityReport: {} };
     const row = res.rows[0];
-    const firstVerdictDate = row.first_verdict_date || row.first_observed_date;
-    const ageDays = Math.floor((now.getTime() - new Date(firstVerdictDate).getTime()) / 86400000);
-    const eligible = Boolean(row.verdict) && ageDays >= 45 && ['MEDIUM', 'LOW', 'INSUFFICIENT'].includes(row.w_band) && row.m_band !== 'INSUFFICIENT';
+
+    // ---- §3 条件①：抢跑价值已耗尽（准入，D12）----
+    // 两个分支都从**权威源**读，而不是读被判出来的标志：
+    //   · 槽位满额 —— 直读 `opportunity_slots`，不用 `CROWDED_LOCKED` 标志。那个标志的
+    //     喂入数的是 `projects` 计数对比常量 5（旧口径），而 0003:83-85 明令禁止这条推导，
+    //     claim-policy.ts 自己也写着槽位表才是它的最终形态。
+    //   · 刚进关窗期 —— 读账本连续段，不用 `wDroppedWithin`：它是代理，且会被"满额旁路"
+    //     与"粘滞"同时骗过。三条理由完整写在 publication-policy.ts。
+    const fullness = slotFullness(await loadSlotTotals(opportunityId));
+    const windowClosing = windowClosingState(await loadVerdictRun(opportunityId));
+    const basis: PublicationEligibilityReason | null = fullness.full
+      ? 'CROWDED_LOCKED'
+      : windowClosing.fresh
+      ? 'WINDOW_CLOSING'
+      : null;
+
+    const blockedBy: PublicationBlockReason[] = [];
+    const admissionNotEvaluated: string[] = [];
+    let cannibalization: CannibalizationResult | null = null;
+
+    // 仍有空余槽位的 BUILD_NOW / EARLY_BET **一律不得公开**——15 §3.1 的硬阻断，
+    // 也是 15 §8 那条 0 容忍指标的正面要求。
+    if (!basis) blockedBy.push('OPEN_SLOTS');
+
+    // ---- §3 条件②：证据充足性 ----
+    // `opportunity_cards.m_band` 今天带 NOT NULL，但这里仍显式要求非空：约束将来放宽
+    // （或改读视图）时，`undefined !== 'INSUFFICIENT'` 会静默放行。
+    const mSufficient = row.m_band != null && row.m_band !== 'INSUFFICIENT';
+    if (basis && !mSufficient) blockedBy.push('M_INSUFFICIENT');
+
+    // ---- §3 条件③：蚕食防护 ----
+    if (basis && mSufficient) {
+      const index = opts.cannibalizationIndex ?? (await buildCannibalizationIndex(locale));
+      cannibalization = evaluateCannibalization(
+        await loadPrimaryTopNUrls(opportunityId),
+        index,
+        opportunityId // 必须排除自己：候选若已发布就在索引里，与自身重叠恒为 1.0
+      );
+      if (cannibalization.status === 'BLOCKED') blockedBy.push('CANNIBALIZATION');
+      if (cannibalization.status === 'NOT_EVALUATED') {
+        blockedBy.push('CANNIBALIZATION_DATA_MISSING');
+        admissionNotEvaluated.push('cannibalization');
+      }
+    }
+
+    const eligible = blockedBy.length === 0;
+
+    /**
+     * 资格凭据（03 §15 的 `public_pages.eligibility`、15 §3.1、06 §5）。
+     *
+     * 这张快照存在的**唯一**目的是事后回答「为什么这条能被免费用户看到」。15 §8 把
+     * 「空槽窗口泄露率」列为 0 容忍，而 0 容忍必须配一份可复核的凭据，否则复核只能靠
+     * 重算——所以：`admission.basis` 写出**凭哪一条**入选（两分支不可由 verdict 区分，
+     * 因为满额的机会也被判成 `WINDOW_CLOSING`，见 verdict.ts:170-174）、`crowdedLocked`
+     * 带上当时的槽位状态（06 §5 明确要求）、`windowClosing.enteredOn` 写出哪天进窗、
+     * `cannibalization.maxJaccard` 写出为什么不算蚕食。
+     *
+     * 已废除的 `delayDays: 45` 与 `ageDays` 一并消失——留着它们等于在凭据里写下一个
+     * 已经不存在的判据。
+     *
+     * `notEvaluated` 只登记**准入层**的未评估项。§5 质检层有它自己的 `notEvaluated`，
+     * 两份不能混：层级不同，混了会把"没查过质检"读成"没查过蚕食"。
+     */
+    const eligibility: Record<string, unknown> = {
+      version: 1,
+      evaluatedAt: now.toISOString(),
+      eligible,
+      admission: {
+        basis,
+        crowdedLocked: {
+          slotRows: fullness.slotRows,
+          capacity: fullness.capacity,
+          claimed: fullness.claimed,
+          full: fullness.full,
+        },
+        windowClosing,
+      },
+      evidence: { mBand: row.m_band, wBand: row.w_band, sufficient: mSufficient },
+      cannibalization,
+      notEvaluated: admissionNotEvaluated,
+      blockedBy,
+    };
+
+    // ---- §5 公开页质量门（本轮不动）----
 
     // 这三段文字就是公开页真正渲染的全部正文（见
     // apps/web/src/app/public/opportunities/[slug]/page.tsx），不是它的代理指标 ——
@@ -112,15 +239,14 @@ export class PublicPublicationService {
       hasDistinctiveContent: Boolean(row.top_idea && row.why_now_summary),
     };
     const indexable = eligible && failedChecks.length === 0;
-    return {
-      eligible,
-      indexable,
-      eligibility: { ageDays, delayDays: 45, windowBand: row.w_band, commercialBand: row.m_band },
-      qualityReport,
-    };
+    return { eligible, indexable, eligibility, qualityReport };
   }
 
-  static async publishOpportunity(opportunityId: string, locale = 'en-US'): Promise<PublicationDecision> {
+  static async publishOpportunity(
+    opportunityId: string,
+    locale = 'en-US',
+    opts: PublicationOptions = {}
+  ): Promise<PublicationDecision> {
     const cardRes = await query<any>(
       `SELECT c.slug, o.title, c.primary_query, c.why_now_summary, c.top_idea
        FROM opportunity_cards c
@@ -150,7 +276,7 @@ export class PublicPublicationService {
     // 不在保护期：撤掉可能仍留着的打码页（画布上只有一条记录该活得下来）。
     await this.clearMaskedProjection(opportunityId);
 
-    const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale);
+    const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale, opts);
     const status = decision.eligible ? 'PUBLISHED' : 'DRAFT';
     await query(
       `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, eligibility, quality_report, published_at)
@@ -174,6 +300,18 @@ export class PublicPublicationService {
         JSON.stringify(decision.qualityReport),
       ]
     );
+
+    /**
+     * 同一轮运行内把自己追加进蚕食索引，让后面的机会能看见刚发布的这一页。
+     *
+     * 只在 `eligible && indexable` 时追加：蚕食比对的口径是"会被 Google 收录的页"
+     * （15 §3.3），而 `indexable = false` 的页不进 sitemap、不会被收录，把它算进去
+     * 等于凭空多出一个参照物。代价是这里多拉一次 Top10——但它只在这一页真的可收录
+     * 时发生，今天几乎是零次。
+     */
+    if (decision.eligible && decision.indexable && opts.cannibalizationIndex) {
+      opts.cannibalizationIndex.addPublished(opportunityId, card.slug, await loadPrimaryTopNUrls(opportunityId));
+    }
     return decision;
   }
 

@@ -64,7 +64,16 @@ flowchart TD
 3. **蚕食防护（Cannibalization Check）**：该机会的核心 Query 与现有已收录公开页的相似度不得过高（Jaccard Top10 重叠度 `< 0.7`），避免自身网站在 Google 中产生关键词冲突。
 4. **买断封印优先**：`stealth_locks` 保护期（60 天）内的机会**不适用上述 1–3 条**，走 §3.1 打码投影路径。
 
-> **配置项**：`publication.crowded_ok`（默认 `true`）、`publication.window_closing_freshness_days`（默认 `14`，与 05 §5.1 的 `wDroppedWithin` 同源）、`publication.cannibalization_max_jaccard`（默认 `0.7`）。
+> **配置项**：本节写的三个键（`publication.crowded_ok`、`publication.window_closing_freshness_days`、`publication.cannibalization_max_jaccard`）**没有运行时可调机制**——仓库里不存在 config 表、Zod 校验或环境变量，"配置"一律是编译期常量紧挨消费者并引规格章节。今天的落点：14 天取 `WINDOW_CLOSING_FRESHNESS_DAYS`（`packages/scoring/src/verdict.ts:10`，与 05 §5.1 同源，**只有这一个常量**）；`0.7` 与 Top10 取 `CANNIBALIZATION_MAX_JACCARD` / `SERP_TOP_N`（`packages/services/src/publication-policy.ts`）。`crowded_ok` 无对应物——满额**总是**允许公开，没有开关。
+
+> **实现口径四则（`packages/services/src/publication-policy.ts`，2026-10-14 落地）**：
+>
+> 1. **「槽位已满额」只能直读 `opportunity_slots`，不能读 `CROWDED_LOCKED` 标志。** 该标志今天的喂入是 `projects` 计数对比常量 5（旧口径），而 `0003` 的迁移注释**明令禁止**再按 `projects.status` 推导"谁占着槽"；它与本节要的 `Σclaimed == Σcapacity` 会在真实数据上分叉。另外「一个槽位行都没有」**不得**算作满额——`0 >= 0` 会把"还没开始抢"读成"已满额"，而那正是 §8 的 0 容忍项。
+> 2. **「14 天内新进入 `WINDOW_CLOSING`」按 `verdicts` 的连续段起始日判定，含端点，且当日进窗当日即可公开。** 不能只看 `verdict == 'WINDOW_CLOSING'`：`verdict.ts` 的迟滞让它能带 30 天上限地延续，只看裁决会把一个 25 天前就关窗的机会当成"刚关窗"；也不能只用 `wDroppedWithin`——靠**满额旁路**进入 `WINDOW_CLOSING` 的机会一次 W 降档都没有，用降档做代理会整个漏掉它。参考日取账本最新一行，不取挂钟。
+> 3. **蚕食防护的「已收录」= `status='PUBLISHED' AND indexable = true`**，与 `sitemap.ts` 同一口径（打码页与未过质检的页不会被收录，不构成关键词冲突）；比对对象是两侧 PRIMARY query 最新 SERP 快照的 **Top10 结果 URL 集合**（归一后），`>= 0.7` 阻断。四种状态彼此不同，**不可合并**：没有已收录页是 `VACUOUS`（通过），有页但一侧拿不到快照是 `NOT_EVALUATED`（**阻断**并登记进 `notEvaluated`）。后者取 fail-closed 是刻意的——一旦有页可被索引，蚕食就是真问题，静默放过等于让这条检查形同虚设；阻断码可计数，能把 SERP 覆盖缺口变成可见指标。
+> 4. **准入判据非单调**，见下条「已知后果」。
+
+> **已知后果（准入判据非单调 → 已发布页会在第 15 天变 404）**：旧判据 `T+45 天` 单调，一旦入选几乎不回退；新判据的「14 天内进窗」会在第 15 天自然失效，而发布流水线每次都按最新判决重写 `public_pages.status`——于是**一条靠关窗入选的页会在第 15 天被翻成 `DRAFT`、URL 变 404**，而那时窗口仍然是关着的，抢跑价值并没有回来。**本轮不改这个行为**：§3 的字面是"S8 才允许为其生成公开投影"，而 §8 把「空槽窗口泄露」列为 **0 容忍的 P0**，自动重评（含撤回）是那条 P0 的唯一防线，为少几次 404 而关掉它等于拿 P0 换非 P0。**但它是 §5 内容生成落地前的阻塞项**：今天 §5 的 600 词门过不了、`indexable` 恒为 `false`，这些页既不进 sitemap 也不被索引，抖动代价接近零；**一旦有页可索引，必须先裁定保留策略**（粘滞 / 撤回 / 归档转 `CASE_STUDY`——§3.1 第 4 条只在买断期满那一处提到后者），**再**让页可索引。
 
 ### 3.1 买断保护期的打码投影（Sealed Ledger Projection，D7）
 

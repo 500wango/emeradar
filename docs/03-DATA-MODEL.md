@@ -925,6 +925,13 @@ create table public_pages (
   -- 资格判据快照。**不再含 45 天延迟**（PRD §7.1 已废除）：改为记录该页凭哪一条
   -- 准实时口径入选（`CROWDED_LOCKED` 或 `WINDOW_CLOSING`）以及当时的槽位状态，
   -- 使"为什么这条机会可以被免费用户看到"事后可复核（15 §3、20 §6）。
+  -- 落地形状（15 §3「实现口径四则」）：`{ version, evaluatedAt, eligible,
+  --   admission: { basis, crowdedLocked: {slotRows,capacity,claimed,full},
+  --   windowClosing: {current,enteredOn,ageDays,freshnessDays,fresh} },
+  --   evidence: {mBand,wBand,sufficient}, cannibalization, notEvaluated, blockedBy }`。
+  -- 买断保护期内为 `{ reason: 'STEALTH_LOCKED', lockId, unmaskedAt }`；未通过时
+  -- `blockedBy` 写明 `OPEN_SLOTS` / `M_INSUFFICIENT` / `CANNIBALIZATION` /
+  -- `CANNIBALIZATION_DATA_MISSING` 之一。公开接口只承诺 `reason` 与 `decided_at`（10 §4.8）。
   eligibility jsonb not null,
   quality_report jsonb not null,
   canonical_url text,

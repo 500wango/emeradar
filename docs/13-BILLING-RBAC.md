@@ -69,7 +69,7 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
   - `quota`：周期性配额（按 `period` 重置，消耗记录于 `usage_events` / `usage_counters`）
   - `quota` 加 `"rollover": true`：**跨月累计**（PRD §8.1），期末剩余额度写入 `usage_carryovers`，下期叠加
 - **`period: "LIFETIME"` 是终身额度**，实现上用固定哨兵日期 `1970-01-01` 作为 `usage_counters.period_start`（03 §3），因此与周期额度共用同一套原子预占逻辑，不需要为它写第二份并发控制。
-- **`feed_delay_days` 已被删除**。旧版用它表达"Free 延迟 45 天"，PRD §7.1 已彻底废除该方案；免费层的实时体验改由 `feed_selected_weekly`（每周 1 条**刚满额锁定或刚进入 `WINDOW_CLOSING`** 的准实时案例）承担，资格口径见 15 §3。
+- **`feed_delay_days` 仍然存在，仍是 Free 层实时性的开关；`feed_selected_weekly` 尚未落地。** PRD §7.1 废除的是"Free 延迟 45 天"这个**方案**，不是这一列：`0004_atomic_go_and_slot_backfill.sql` 刻意保留了它，并在注释里写明排序理由——**在 `feed_selected_weekly` 落地之前撤掉它，免费用户会直接拿到实时 Feed，而那是 15 §8 定为 P0 事故的"空槽窗口泄露"**。所以撤列的前置条件是"每周 1 条准实时精选先落地"（资格口径见 15 §3），而不是 PRD 升版本身。今天的实际承担者仍是 `feed_delay_days`（`entitlement.service.ts` → Feed 列表 / 比较 / 机会详情与研报等读路径）。
 
 - `FREE` 与 `PRO` 的默认值（初始假设，定价与具体额度以 Phase 0 预售访谈结果为准，见 01 §12 决策 5）：
 

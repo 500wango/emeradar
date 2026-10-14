@@ -20,6 +20,7 @@ import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
+import { buildCannibalizationIndex } from '../publication-policy';
 import { sendTransactionalEmail } from '../email.service';
 import {
   detectNewAuthoritativeEntrant,
@@ -517,8 +518,11 @@ export async function runDailyPipeline(
     await deliverAlertEmail(email.to, email.subject, email.body, email.idempotencyKey);
   }
 
+  // 蚕食索引（15 §3.3）按**本轮**构建一次，透传给整批机会。按次自加载的话，N 条机会
+  // 每条都要拉一遍全量已收录集合，行数是 N × 10M 量级——透传不是优化而是必需。
+  const cannibalizationIndex = await buildCannibalizationIndex('en-US');
   for (const item of observed) {
-    await PublicPublicationService.publishOpportunity(item.opportunityId).catch((error) => {
+    await PublicPublicationService.publishOpportunity(item.opportunityId, 'en-US', { cannibalizationIndex }).catch((error) => {
       console.warn(`[pipeline] public projection skipped for ${item.opportunityId}:`, error instanceof Error ? error.message : error);
     });
   }
