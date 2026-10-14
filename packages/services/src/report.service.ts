@@ -17,7 +17,17 @@ export class ReportService {
   static async getOrGenerateReport(
     opportunityId: string,
     userId: string,
-    locale: Locale = 'en-US'
+    locale: Locale = 'en-US',
+    /**
+     * `consumeQuota: false` 用于**已经由原子 GO 付过账**的调用方
+     * （点火包导出，10 §4.4）。
+     *
+     * 13 §4.3 写得很明确：Pro 的报告与点火包由 `atomic_go_export_monthly` 在 GO 时
+     * 一并解锁，"不设第二份额度——否则'锁槽一次'与'导出一次'会分叉成两个可分别绕过的
+     * 闸门"。所以这条路不能再扣一次 `generate_reports_monthly`：那会让同一次交付被
+     * 计两次费。默认值保持 `true`，报告页与 API 的既有行为一字不改。
+     */
+    options: { consumeQuota?: boolean } = {}
   ): Promise<{
     reportId: string;
     data: OpportunityReportData;
@@ -160,8 +170,11 @@ export class ReportService {
     const recordedFlags = ledgerRow.flags ?? null;
     const basisState: BasisState = deriveBasisState(ledgerRow);
 
-    // 3. Reserve quota via Hold & Release
-    const reservation = await EntitlementService.reserveReportGenerationQuota(userId, opp.id);
+    // 3. Reserve quota via Hold & Release（除非调用方已经在 GO 时付过账）
+    const reservation =
+      options.consumeQuota === false
+        ? null
+        : await EntitlementService.reserveReportGenerationQuota(userId, opp.id);
 
     try {
       const reportId = `rpt_${opp.id}_${Date.now()}`;
@@ -249,6 +262,16 @@ export class ReportService {
           },
           recommendedArchetype: opp.recommended_archetype || 'TOOL',
           executionClass: opp.execution_class || 'S',
+          // 报告不承载槽位，推荐层的前三名在这里没有读者；只把首选形态填成一个
+          // 单元素列表，使形状成立而不制造第二份推荐结论。
+          topArchetypes: [
+            {
+              archetype: opp.recommended_archetype || 'TOOL',
+              score: 0,
+              executionClass: opp.execution_class || 'S',
+              rationale: 'Report projection: only the recommended archetype is on file.',
+            },
+          ],
         },
         basisState,
         hashVersion: ledgerRow.hash_version,
@@ -281,7 +304,11 @@ export class ReportService {
       const markdown = renderReportToMarkdown(reportData);
 
       // 6. Save in DB
-      await query(
+      // `RETURNING id` 是必须的：ON CONFLICT 走的是 DO UPDATE，主键不会变，所以上面
+      // 新铸的 `reportId` 在冲突时是一个**库里不存在**的 id。把它交出去会让调用方拿着
+      // 一个悬空引用继续走（点火包的 `report_id` 外键会直接 23503；配额确认也会记到
+      // 一条不存在的报告上）。
+      const savedRes = await query<{ id: string }>(
         `INSERT INTO opportunity_reports (
           id, opportunity_id, user_id, verdict_id, snapshot_id,
           locale, status, verdict, recommended_archetype,
@@ -295,7 +322,8 @@ export class ReportService {
         DO UPDATE SET
           content = EXCLUDED.content,
           content_markdown = EXCLUDED.content_markdown,
-          updated_at = NOW();`,
+          updated_at = NOW()
+        RETURNING id`,
         [
           reportId,
           opp.id,
@@ -311,25 +339,31 @@ export class ReportService {
         ]
       );
 
+      const savedReportId = savedRes.rows[0]?.id ?? reportId;
+
       // 7. Confirm quota
-      await EntitlementService.confirmReportGenerationQuota(
-        userId,
-        reservation.reservationToken,
-        reportId
-      );
+      if (reservation) {
+        await EntitlementService.confirmReportGenerationQuota(
+          userId,
+          reservation.reservationToken,
+          savedReportId
+        );
+      }
 
       return {
-        reportId,
+        reportId: savedReportId,
         data: reportData,
         markdown,
         cached: false,
       };
     } catch (err) {
-      // 8. Release quota on error
-      await EntitlementService.releaseReportGenerationQuota(
-        userId,
-        reservation.reservationToken
-      );
+      // 8. Release quota on error（没占用配额时自然也没什么可释放的）
+      if (reservation) {
+        await EntitlementService.releaseReportGenerationQuota(
+          userId,
+          reservation.reservationToken
+        );
+      }
       throw err;
     }
   }

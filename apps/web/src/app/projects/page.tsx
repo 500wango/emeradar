@@ -11,6 +11,13 @@ import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 import { Stat } from '@/components/ui/Stat';
 
+/** 距离质押截止还有几天；已过期或没有期限时返回 0。 */
+function stakeDaysLeft(deadline: string | Date | null): number {
+  if (!deadline) return 0;
+  const ms = new Date(deadline).getTime() - Date.now();
+  return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000);
+}
+
 export default async function ProjectsPage() {
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
@@ -57,6 +64,20 @@ export default async function ProjectsPage() {
                       {p.status}
                     </Badge>
                     <Badge tone="neutral">{p.build_type}</Badge>
+                    {/* 质押窗口是**有期限**的：7 天没交凭证，后台作业会把槽位收回去
+                        且不退配额。列表页是用户回到站点的第一个落脚点，倒计时必须
+                        在这里可见，而不是藏进详情页。 */}
+                    {p.project_kind !== 'EXPERIMENT' && p.stake_status === 'PENDING' && (
+                      <Badge tone="warn" dot>
+                        {`STAKE DUE · ${stakeDaysLeft(p.stake_deadline_at)}d`}
+                      </Badge>
+                    )}
+                    {p.project_kind !== 'EXPERIMENT' && p.stake_status === 'VERIFIED' && (
+                      <Badge tone="signal">STAKE VERIFIED</Badge>
+                    )}
+                    {p.project_kind !== 'EXPERIMENT' && p.stake_status === 'EXPIRED_RELEASED' && (
+                      <Badge tone="danger">SLOT RELEASED</Badge>
+                    )}
                     <span className="text-xs text-fg-muted">
                       {p.launch_date
                         ? t('projects.launchedDate', { date: formatDate(p.launch_date) })

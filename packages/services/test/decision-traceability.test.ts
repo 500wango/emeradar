@@ -25,6 +25,9 @@ const USER_OTHER = 'usr_decision_test_other';
 const VERDICT_V1 = 'vdt_decision_test_v1';
 const VERDICT_V2 = 'vdt_decision_test_v2';
 const VERDICT_OTHER = 'vdt_decision_test_other';
+/** 一条**没有槽位行**的机会：用来验证占槽失败时整个 GO 事务（含配额）回滚。 */
+const OPP_SHARED = 'opp_decision_test_noslots';
+const VERDICT_SHARED = 'vdt_decision_test_shared';
 
 async function seedFixture() {
   const { query } = harness.db;
@@ -54,12 +57,22 @@ async function seedFixture() {
   for (const [opportunityId, slug] of [
     [OPP, 'decision-test'],
     [OPP_OTHER, 'decision-test-other'],
+    [OPP_SHARED, 'decision-test-noslots'],
   ] as const) {
     await query(
       `INSERT INTO opportunities (id, slug, title, status, first_observed_date)
        VALUES ($1, $2, $3, 'TRACKED', '2026-01-01')`,
       [opportunityId, slug, slug]
     );
+    // 槽位行由 observe 路径在发布时物化；这个夹具直接 INSERT 机会，所以要自己补。
+    // 不补的话任何 GO 都会得到 400「这个形态没开放」——那是夹具的缺口，不是被测行为。
+    if (opportunityId !== OPP_SHARED) {
+      await query(
+        `INSERT INTO opportunity_slots (opportunity_id, archetype, capacity)
+         VALUES ($1, 'TOOL', 2), ($1, 'PSEO_SITE', 2)`,
+        [opportunityId]
+      );
+    }
     await query(
       `INSERT INTO opportunity_cards (
          opportunity_id, slug, primary_query, verdict, lifecycle,
@@ -78,6 +91,7 @@ async function seedFixture() {
     [VERDICT_V1, OPP, '2026-10-05'],
     [VERDICT_V2, OPP, '2026-10-06'],
     [VERDICT_OTHER, OPP_OTHER, '2026-10-06'],
+    [VERDICT_SHARED, OPP_SHARED, '2026-10-06'],
   ] as const) {
     await query(
       `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
@@ -218,99 +232,125 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     );
   });
 
-  it('项目引用 GO 决策落库，并带上报告', async (t) => {
+  it('原子 GO 落地的项目引用它自己的 GO 决策', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const { DecisionService, ProjectService } = harness.services;
+    const { DecisionService } = harness.services;
 
-    const decision = await DecisionService.record(USER, {
+    const result = await DecisionService.goAndExport(USER, {
       opportunityId: OPP,
+      archetype: 'TOOL',
       verdictId: VERDICT_V1,
-      decision: 'GO',
     });
-    const project = await ProjectService.createProject(USER, {
-      opportunityId: OPP,
-      decisionId: decision.id,
-      title: 'Decision Traceability Project',
-    });
-    assert.strictEqual(project.decision_id, decision.id, '项目没有引用那条 GO');
+
+    const project = (
+      await harness.db.query<any>(`SELECT * FROM projects WHERE id = $1`, [result.projectId])
+    ).rows[0];
     assert.strictEqual(project.opportunity_id, OPP);
+
+    // 项目引用的决策必须是这个用户、这条机会上的一条 GO —— 而不是"某条看起来像
+    // 授权的记录"。决策由 GO 事务自己写入，所以这里能同时钉住"存在"与"归属"。
+    const decision = (
+      await harness.db.query<any>(`SELECT * FROM decisions WHERE id = $1`, [project.decision_id])
+    ).rows[0];
+    assert.ok(decision, '项目引用了一条不存在的决策');
+    assert.strictEqual(decision.decision, 'GO');
+    assert.strictEqual(decision.user_id, USER);
+    assert.strictEqual(decision.opportunity_id, OPP);
+    assert.strictEqual(decision.verdict_id, VERDICT_V1, '决策没有锚定用户当时看到的那条裁决');
   });
 
-  it('同一条 GO 不能立出第二个项目（不变量 I6）', async (t) => {
+  it('重复 GO 不会立出第二个项目（不变量 I6）', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const { DecisionService, ProjectService } = harness.services;
+    const { DecisionService } = harness.services;
 
-    const decision = await DecisionService.record(USER, {
-      opportunityId: OPP,
-      verdictId: VERDICT_V1,
-      decision: 'GO',
-    });
-
-    // 这条决策在上一个用例里已经立过项了。
+    // 该用户在上一个用例里已经在这条机会上 GO 过并持有槽位。
     await expectError(
-      () => ProjectService.createProject(USER, { opportunityId: OPP, decisionId: decision.id, title: 'Second' }),
+      () => DecisionService.goAndExport(USER, { opportunityId: OPP, archetype: 'TOOL', verdictId: VERDICT_V1 }),
       409,
-      '同一条决策二次立项'
+      '同一用户在同一机会上二次 GO'
     );
 
     const projects = await harness.db.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM projects WHERE decision_id = $1`,
-      [decision.id]
+      `SELECT COUNT(*)::int AS count FROM projects WHERE user_id = $1 AND opportunity_id = $2`,
+      [USER, OPP]
     );
-    assert.strictEqual(projects.rows[0].count, 1, '一条决策下的项目数不为 1');
+    assert.strictEqual(projects.rows[0].count, 1, '重复 GO 造出了第二个项目');
+
+    // I6 在存储层的兜底：一个 decision_id 至多一条项目，即使有人绕过服务层。
+    const project = (
+      await harness.db.query<any>(`SELECT id, decision_id FROM projects WHERE user_id = $1 AND opportunity_id = $2`, [USER, OPP])
+    ).rows[0];
+    await assert.rejects(
+      () => harness.db.query(
+        `INSERT INTO projects (id, user_id, opportunity_id, decision_id, title, build_type, stake_deadline_at)
+         VALUES ('prj_i6_dup', $1, $2, $3, 'dup', 'TOOL', NOW() + INTERVAL '7 days')`,
+        [USER, OPP, project.decision_id]
+      ),
+      (error: any) => error?.code === '23505' && String(error?.constraint ?? '') === 'idx_projects_decision',
+      '同一个 decision_id 被允许挂两个项目'
+    );
   });
 
-  it('缺少 decisionId 时拒绝立项，而不是替用户伪造一条 GO', async (t) => {
+  it('被拒绝的 GO 连配额一起回滚，不留下凭空出现的授权', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const { ProjectService } = harness.services;
+    const { DecisionService } = harness.services;
 
     const before = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM decisions WHERE opportunity_id = $1`,
-      [OPP]
+      [OPP_SHARED]
     );
 
+    // 这条机会没有槽位行（夹具故意不建），所以占槽那一步必然失败。
     await expectError(
-      () => ProjectService.createProject(USER, { opportunityId: OPP, decisionId: '', title: 'X' }),
-      409,
-      '无 decisionId 立项'
+      () => DecisionService.goAndExport(USER_OTHER, {
+        opportunityId: OPP_SHARED,
+        archetype: 'TOOL',
+        verdictId: VERDICT_SHARED,
+      }),
+      400,
+      '对没有该形态的机会 GO'
     );
 
     const after = await harness.db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM decisions WHERE opportunity_id = $1`,
-      [OPP]
+      [OPP_SHARED]
     );
     assert.strictEqual(
       after.rows[0].count,
       before.rows[0].count,
-      '被拒绝的立项仍然留下了决策行 —— 伪造 GO 的路径又回来了'
+      '被拒绝的 GO 仍然留下了决策行 —— 伪造授权的路径又回来了'
     );
+
+    // 配额也必须回滚：扣了额度却没占到槽，等于白吃一次月度额度。
+    const counter = await harness.db.query<{ used: number }>(
+      `SELECT used FROM usage_counters
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly'`,
+      [USER_OTHER]
+    );
+    assert.strictEqual(counter.rows.length, 0, '被回滚的 GO 仍然消耗了配额');
   });
 
-  it('不能借他人的决策立项，也不能用 PASS 立项', async (t) => {
+  it('裁决不属于这条机会时无法 GO', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const { DecisionService, ProjectService } = harness.services;
-
-    const go = await DecisionService.record(USER, {
-      opportunityId: OPP,
-      verdictId: VERDICT_V1,
-      decision: 'GO',
-    });
-    const pass = await DecisionService.record(USER, {
-      opportunityId: OPP,
-      verdictId: VERDICT_V2,
-      decision: 'PASS',
-      reasons: ['OTHER'],
-    });
+    const { DecisionService } = harness.services;
 
     await expectError(
-      () => ProjectService.createProject(USER_OTHER, { opportunityId: OPP, decisionId: go.id, title: 'X' }),
-      403,
-      '引用他人决策立项'
+      () => DecisionService.goAndExport(USER_OTHER, {
+        opportunityId: OPP_SHARED,
+        archetype: 'TOOL',
+        verdictId: VERDICT_V1,
+      }),
+      409,
+      '跨机会引用裁决 GO'
     );
     await expectError(
-      () => ProjectService.createProject(USER, { opportunityId: OPP, decisionId: pass.id, title: 'X' }),
-      403,
-      '用 PASS 决策立项'
+      () => DecisionService.goAndExport(USER_OTHER, {
+        opportunityId: OPP,
+        archetype: 'TOOL',
+        verdictId: 'vdt_does_not_exist',
+      }),
+      409,
+      '引用不存在的裁决 GO'
     );
   });
 
@@ -318,9 +358,14 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { DecisionService } = harness.services;
 
-    const decision = await DecisionService.record(USER, {
+    // 用一条**没有项目**的 GO 决策。2026-10 起，落过项的决策删不得：删它级联到
+    // `projects`，而那条项目被 `slot_claims.project_id` 的外键指着——槽位认领是
+    // "这一次额度花在哪、占了哪个坑"的凭据，跟着项目一起消失会让
+    // `opportunity_slots.claimed` 静默漂移（I11）。本条测的是追加写触发器对
+    // DELETE 的放行，不需要经过那条路径。
+    const decision = await DecisionService.record(USER_OTHER, {
       opportunityId: OPP,
-      verdictId: VERDICT_V1,
+      verdictId: VERDICT_V2,
       decision: 'GO',
     });
 
@@ -340,5 +385,20 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
       [decision.id]
     );
     assert.strictEqual(remaining.rows[0].count, 0, '决策行删不掉');
+
+    // 与之相对：落过项的决策不能删。这不是限制，而是**记录完整性**——删它会级联
+    // 掉项目，而那条项目正被槽位认领指着。静默级联会让 claimed 与真值分家。
+    const claimed = (
+      await harness.db.query<{ decision_id: string }>(
+        `SELECT decision_id FROM projects WHERE user_id = $1 AND opportunity_id = $2`,
+        [USER, OPP]
+      )
+    ).rows[0];
+    assert.ok(claimed, '夹具里应当有一条已立项的项目');
+    await assert.rejects(
+      () => harness.db.query(`DELETE FROM decisions WHERE id = $1`, [claimed.decision_id]),
+      (error: any) => error?.code === '23503' && String(error?.constraint ?? '') === 'slot_claims_project_id_fkey',
+      '落过项的决策被允许删除 —— 槽位认领会跟着静默消失'
+    );
   });
 });

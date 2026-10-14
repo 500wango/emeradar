@@ -9,6 +9,7 @@ import {
   TrackRecordService,
   PredictionEpisodeService,
   SubscriptionLifecycleService,
+  StakeService,
   ProjectService,
   retryStripeAttributions,
 } from '@emeradar/services';
@@ -271,6 +272,31 @@ export const TASKS: TaskSpec[] = [
         );
       }
       console.log(`[task] ${date} 的检查点与全部底层裁决一致`);
+    },
+  },
+  {
+    command: 'release-expired-stakes',
+    // 与 02 §管线、21 §任务表登记的时刻一致。这两张表是排期的唯一权威，改了这里
+    // 就必须同时改那两处，否则线上跑的时间与运维查到的表格说的不是一回事。
+    cron: '30 7 * * *',
+    description: '终结逾期未质押的项目并释放其槽位（配额不退）',
+    // 排在 `sweep-subscriptions` 之后：两者都会改 `projects`，而订阅宽限期决定了
+    // "这个用户还该不该占着位置"。先让计费状态收敛，再决定谁的位置该收回来。
+    retryLimit: 2,
+    retryDelaySeconds: 300,
+    expireInSeconds: 900,
+    alertAfterFailures: 2,
+    async run(_args, context) {
+      // 不接日期参数：逾期的判据是 `stake_deadline_at < NOW()`，那是**墙上时间**，
+      // 与 `obs_date` 无关。让运维能传一个日期会给出"补跑某一天"的错觉，而这条
+      // 作业本身没有"哪一天"的概念——它只是把已经过期的东西收走。
+      const released = await StakeService.releaseExpiredStakes();
+      console.log(`[task] released ${released.length} expired stake(s) (trigger=${context.trigger})`);
+      if (released.length > 0) {
+        // 逐个打出来是为了可追责：释放槽位同时意味着该用户扣掉的立项额度成了沉没
+        // 成本，事后对账需要知道是**哪一次**作业、收了**谁**的。
+        console.log('[task] released:', released);
+      }
     },
   },
   {

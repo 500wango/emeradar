@@ -1,9 +1,9 @@
 import { query, transaction } from '@emeradar/db';
-import { EmeradarError, ErrorCode, BuildArchetype, isPrivateAddress, readBodyWithLimit } from '@emeradar/core';
+import { EmeradarError, ErrorCode, BuildArchetype, readBodyWithLimit } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
-import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from './claim-policy';
+import { assertPublicHttpUrl } from './public-url';
+import { SlotService } from './slot.service';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 
 /**
  * 承诺质押窗口（03 §12、01 §1.7 第 5 条）。认领一个槽位后必须在这么多天内提交
@@ -13,21 +13,6 @@ import { lookup } from 'node:dns/promises';
  * "作业认为已逾期、但项目自己不认为"的分裂。将来接配置中心时从这里改成注入。
  */
 export const STAKE_WINDOW_DAYS = 7;
-
-export interface CreateProjectInput {
-  opportunityId: string;
-  /**
-   * The GO decision that authorises this project. Required: a project is the
-   * downstream half of a decision, and the citation is what makes the ledger
-   * able to explain why the project exists.
-   */
-  decisionId: string;
-  reportId?: string;
-  title: string;
-  domain?: string;
-  buildType?: BuildArchetype;
-  targetKeywords?: string[];
-}
 
 export interface CreateExperimentProjectInput {
   experimentCardId: string;
@@ -157,12 +142,12 @@ export class ProjectService {
     return result.rows.length > 0;
   }
 
-  private static async publicUrl(raw: string): Promise<URL> {
-    const url = new URL(raw);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Target URL must be a public HTTP(S) URL.', 400);
-    const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-    if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) throw new EmeradarError(ErrorCode.VALIDATION_ERROR, 'Target URL must resolve to a public address.', 400);
-    return url;
+  /**
+   * 每次重定向后都要重新过一遍 `assertPublicHttpUrl`：只校验入口 URL 是不够的，
+   * 一个公网域名可以把 `Location` 指向 169.254.169.254。
+   */
+  private static publicUrl(raw: string): Promise<URL> {
+    return assertPublicHttpUrl(raw);
   }
 
   static async inspectProjectSite(projectId: string, userId: string): Promise<SiteCheckResult> {
@@ -471,148 +456,6 @@ export class ProjectService {
   }
 
   /**
-   * Create a new tracking project linked to an opportunity decision
-   */
-  static async createProject(
-    userId: string,
-    input: CreateProjectInput
-  ): Promise<any> {
-    const cardRes = await query<{ verdict: string; confidence: string; status: string }>(
-      `SELECT c.verdict, c.confidence, o.status
-       FROM opportunity_cards c
-       JOIN opportunities o ON o.id = c.opportunity_id
-       WHERE c.opportunity_id = $1`,
-      [input.opportunityId]
-    );
-    const card = cardRes.rows[0];
-    const publishable =
-      card &&
-      card.status === 'TRACKED' &&
-      (card.verdict === 'BUILD_NOW' || card.verdict === 'EARLY_BET') &&
-      card.confidence !== 'LOW';
-    if (!publishable) {
-      throw new EmeradarError(
-        ErrorCode.PRECONDITION_FAILED,
-        'A project can only be created from a published BUILD NOW or EARLY BET. This opportunity is still under observation.',
-        409
-      );
-    }
-
-    const ent = await EntitlementService.getUserEntitlements(userId);
-    if (ent.currentProjectsCount >= ent.maxProjects) {
-      throw new EmeradarError(
-        ErrorCode.QUOTA_EXCEEDED,
-        `You have reached the maximum allowed projects (${ent.maxProjects}) for your plan. Please upgrade to create more projects.`,
-        403,
-        { currentProjects: ent.currentProjectsCount, maxProjects: ent.maxProjects }
-      );
-    }
-
-    /**
-     * A project must cite the GO decision that authorised it.
-     *
-     * This block used to fabricate one: when the caller omitted `decisionId` the
-     * server looked up "the latest verdict for this opportunity" and inserted a
-     * GO on the user's behalf, with the reason "Direct project initiation".
-     * Every project created that way claimed an intent its owner had never
-     * expressed, and because the citation was invented server-side it could not
-     * be audited against anything the user actually saw. The decision path now
-     * has to run first and hand over a real id.
-     */
-    if (!input.decisionId) {
-      throw new EmeradarError(
-        ErrorCode.PRECONDITION_FAILED,
-        'A project must cite the GO decision it was created from. Record the decision first, then create the project with its decisionId.',
-        409
-      );
-    }
-
-    const decisionRes = await query<{ id: string }>(
-      `SELECT id FROM decisions WHERE id = $1 AND user_id = $2 AND opportunity_id = $3 AND decision = 'GO'`,
-      [input.decisionId, userId, input.opportunityId]
-    );
-    if (decisionRes.rows.length === 0) {
-      throw new EmeradarError(
-        ErrorCode.FORBIDDEN,
-        'Decision does not belong to this user and opportunity.',
-        403
-      );
-    }
-    const decisionId = input.decisionId;
-
-    /**
-     * 不变量 I6（03 §9）：一次 GO 决定至多对应一个项目。
-     *
-     * 在插入前先查一遍，是为了把并发之外的常见路径 —— 用户重复点 GO —— 变成一句
-     * 能读懂的话，而不是把唯一索引的冲突泄漏成 500。索引本身仍然保留，负责并发。
-     */
-    const existingProject = await query<{ id: string }>(
-      `SELECT id FROM projects WHERE decision_id = $1`,
-      [decisionId]
-    );
-    if (existingProject.rows.length > 0) {
-      throw new EmeradarError(
-        ErrorCode.CONFLICT,
-        'You have already started a project from this decision.',
-        409
-      );
-    }
-
-    if (input.reportId) {
-      const reportRes = await query<{ id: string }>(
-        `SELECT id
-         FROM opportunity_reports
-         WHERE id = $1 AND user_id = $2 AND opportunity_id = $3`,
-        [input.reportId, userId, input.opportunityId]
-      );
-      if (reportRes.rows.length === 0) {
-        throw new EmeradarError(ErrorCode.FORBIDDEN, 'Report does not belong to this user and opportunity.', 403);
-      }
-    }
-
-    const projectId = `prj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const domain = normalizeProjectDomain(input.domain);
-    try {
-      return await transaction(async (client) => {
-        // Serialize the count and insert so concurrent GO clicks cannot bypass the limit.
-        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.opportunityId]);
-        const claimsRes = await client.query<{ count: number }>(
-          `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND ${activeClaimPredicate()}`,
-          [input.opportunityId]
-        );
-        const claimsCount = claimsRes.rows[0]?.count ?? 0;
-        if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
-          throw new EmeradarError(
-            ErrorCode.PRECONDITION_FAILED,
-            `This opportunity has reached its maximum builder claim capacity (${claimsCount}/${MAX_CLAIMS_PER_OPPORTUNITY}). The window is closed to new projects to protect builders from alpha decay and market over-saturation.`,
-            409
-          );
-        }
-        const res = await client.query<any>(
-          `INSERT INTO projects (
-            id, user_id, opportunity_id, decision_id, report_id,
-            title, domain, build_type, status, launch_date, target_keywords, stake_deadline_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9, NOW() + make_interval(days => $10))
-          RETURNING *`,
-          [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'TOOL', input.targetKeywords || [], STAKE_WINDOW_DAYS]
-        );
-        return res.rows[0];
-      });
-    } catch (error: any) {
-      // 上面的查重与这里的事务之间有窗口，并发下由 idx_projects_decision 兜底。
-      // 把唯一索引的冲突翻译成同一句 409，否则用户双击会看到 500。
-      if (error?.code === '23505' && String(error?.constraint ?? '') === 'idx_projects_decision') {
-        throw new EmeradarError(
-          ErrorCode.CONFLICT,
-          'You have already started a project from this decision.',
-          409
-        );
-      }
-      throw error;
-    }
-  }
-
-  /**
    * List all projects for a user with aggregated GSC metrics
    */
   static async listUserProjects(userId: string): Promise<any[]> {
@@ -715,25 +558,46 @@ export class ProjectService {
     domain?: string
   ): Promise<any> {
     const normalizedDomain = normalizeProjectDomain(domain);
-    const res = await query<any>(
-      `UPDATE projects
-       SET status = $1,
-           domain = COALESCE($2, domain),
-           launch_date = CASE WHEN $1 = 'LAUNCHED' AND launch_date IS NULL THEN CURRENT_DATE ELSE launch_date END,
-           updated_at = NOW()
-       WHERE id = $3 AND user_id = $4
-       RETURNING *`,
-      [status, normalizedDomain, projectId, userId]
-    );
-
-    if (res.rows.length === 0) {
-      throw new EmeradarError(
-        ErrorCode.NOT_FOUND,
-        `Project not found: ${projectId}`,
-        404
+    // 归档即释放槽位（10 §4.5）。必须在同一个事务里：状态已改成 ARCHIVED 而槽位
+    // 还占着，会表现为"机会满了但看不出来是谁占的"——认领记录指向一个已经归档的
+    // 项目，而任何按项目状态推导占用的读路径都会得出相反的结论。
+    return transaction(async (client) => {
+      const res = await client.query<any>(
+        `UPDATE projects
+         SET status = $1,
+             domain = COALESCE($2, domain),
+             launch_date = CASE WHEN $1 = 'LAUNCHED' AND launch_date IS NULL THEN CURRENT_DATE ELSE launch_date END,
+             updated_at = NOW()
+         WHERE id = $3 AND user_id = $4
+         RETURNING *`,
+        [status, normalizedDomain, projectId, userId]
       );
-    }
 
-    return res.rows[0];
+      if (res.rows.length === 0) {
+        throw new EmeradarError(
+          ErrorCode.NOT_FOUND,
+          `Project not found: ${projectId}`,
+          404
+        );
+      }
+
+      if (status === 'ARCHIVED') {
+        const claims = await client.query<{ id: string }>(
+          `SELECT id FROM slot_claims WHERE project_id = $1 AND state = 'CLAIMED'`,
+          [projectId]
+        );
+        for (const claim of claims.rows) {
+          // 归档释放槽位但**不退还已扣配额**：额度是在 GO 的那一刻花掉的，
+          // 事后退还等于把"每月 5 次"变成"随便占、随时退"。
+          await SlotService.release(client, {
+            slotClaimId: claim.id,
+            state: 'RELEASED',
+            reason: 'USER_ARCHIVED',
+          });
+        }
+      }
+
+      return res.rows[0];
+    });
   }
 }

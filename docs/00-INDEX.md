@@ -115,6 +115,8 @@ flowchart TD
 | `billing_interval` | `MONTH` `QUARTER` `YEAR` `ONE_TIME` |
 | `purchase_kind` | `SUBSCRIPTION` `STEALTH_BUYOUT` `FOUNDING_LIFETIME` |
 | `slot_state` | `OPEN` `CLAIMED` `RELEASED` `EXPIRED` |
+| `release_reason` | `STAKE_EXPIRED` `STAKE_INVALID` `USER_ARCHIVED` `OPPORTUNITY_ARCHIVED`（`slot_claims` 的释放理由；只有它能把「谁把位置腾出来的」与「位置为什么空了」分开，见 03 §8） |
+| `credential_verification_state` | `PENDING` `VERIFIED` `REJECTED`（质押凭证的探针结论；每项目至多一条 `VERIFIED`，由 03 §8 的部分唯一索引兜底） |
 | `project_status` | `IN_DEVELOPMENT` `LAUNCHED` `ARCHIVED`（**取代** 03 早期的 `PLANNED`/`BUILDING`/`ABANDONED` 与代码中的同义漂移；认领是否占用见 05 §5.1 的判定） |
 | `credential_type` | `DOMAIN_URL` `STORE_LISTING_URL` `PUBLIC_PAGE_URL` |
 | `stake_status` | `PENDING` `VERIFIED` `EXPIRED_RELEASED` |

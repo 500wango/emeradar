@@ -32,46 +32,38 @@ export async function POST(request: NextRequest) {
     const userId = auth.user.id;
     const body = parseInput(projectCreateSchema, await request.json().catch(() => ({})));
 
-    let project: unknown;
-    if (body.experimentCardId) {
-      project = await ProjectService.createExperimentProject(userId, {
-        experimentCardId: body.experimentCardId,
-        title: body.title,
-        domain: body.domain,
-        buildType: body.buildType,
-        targetKeywords: body.targetKeywords,
-      });
-    } else if (body.opportunityId) {
-      // The decision is recorded by POST /decisions first; this route only
-      // consumes it. Without the id there is nothing to cite, and the project
-      // would be born with an unexplained provenance.
-      if (!body.decisionId) {
-        return NextResponse.json(
-          {
-            type: 'about:blank',
-            title: 'Validation Error',
-            status: 400,
-            detail:
-              'decisionId is required: record the GO decision via POST /api/v1/decisions before creating the project.',
-          },
-          { status: 400 }
-        );
-      }
-      project = await ProjectService.createProject(userId, {
-        opportunityId: body.opportunityId,
-        decisionId: body.decisionId,
-        reportId: body.reportId,
-        title: body.title,
-        domain: body.domain,
-        buildType: body.buildType,
-        targetKeywords: body.targetKeywords,
-      });
-    } else {
+    // An opportunity project cannot be created here any more. It is a side effect
+    // of claiming a slot, and that has to happen in the same transaction as
+    // spending the quota — otherwise "create the project now, file the GO later"
+    // is a reachable state, and so is "download the launch kit, decide later"
+    // (ADR-018, 13 §4.3). The sentence below is the whole point of keeping
+    // `opportunityId` in the schema: the caller is told where to go.
+    if (body.opportunityId) {
       return NextResponse.json(
-        { type: 'about:blank', title: 'Validation Error', status: 400, detail: 'opportunityId or experimentCardId is required' },
+        {
+          type: 'about:blank',
+          title: 'Validation Error',
+          status: 400,
+          detail:
+            'Opportunity projects are created by POST /api/v1/opportunities/{id}/go, which claims the build slot and spends the quota in one transaction. This endpoint only creates experiment projects.',
+        },
         { status: 400 }
       );
     }
+    if (!body.experimentCardId) {
+      return NextResponse.json(
+        { type: 'about:blank', title: 'Validation Error', status: 400, detail: 'experimentCardId is required' },
+        { status: 400 }
+      );
+    }
+
+    const project = await ProjectService.createExperimentProject(userId, {
+      experimentCardId: body.experimentCardId,
+      title: body.title,
+      domain: body.domain,
+      buildType: body.buildType,
+      targetKeywords: body.targetKeywords,
+    });
 
     return NextResponse.json(project, { status: 201 });
   } catch (error: any) {

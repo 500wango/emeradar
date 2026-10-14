@@ -123,5 +123,6 @@ export function calculateOpportunityScore(
     },
     recommendedArchetype: recoResult.recommendedArchetype,
     executionClass: recoResult.recommendedExecutionClass,
+    topArchetypes: recoResult.topArchetypes,
   };
 }

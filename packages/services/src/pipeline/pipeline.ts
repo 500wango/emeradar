@@ -28,6 +28,7 @@ import {
   SerpEntrantSnapshot,
 } from '../alert-triggers';
 import { discoverAutocompleteCandidates } from './discover-candidates';
+import { SlotService } from '../slot.service';
 
 const PIPELINE_LOCK_ID = 481516;
 
@@ -322,6 +323,18 @@ export async function runDailyPipeline(
         item.opportunityId,
         targetStatus,
       ]);
+
+      // 槽位在机会首次可被认领时物化一次，此后不再变。放在这里而不是"读的时候顺手
+      // 建"，是因为集合一旦落地就冻结（见 SlotService.materialize）：每日按新的
+      // top-3 增删会让 Σcapacity 越过上限，而删行会连同已认领的记录一起丢掉。
+      // ON CONFLICT DO NOTHING 保证了重复调用无副作用。
+      if (targetStatus === 'TRACKED') {
+        await SlotService.materialize(
+          client,
+          item.opportunityId,
+          item.output.topArchetypes.map((entry) => entry.archetype)
+        );
+      }
     }
 
     if (dailyLedger) {

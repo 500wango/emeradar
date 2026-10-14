@@ -1,4 +1,5 @@
 import { query, transaction } from '@emeradar/db';
+import type { PoolClient } from '@emeradar/db';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 
 export interface UserEntitlementsInfo {
@@ -288,6 +289,132 @@ export class EntitlementService {
           ? row.current_period_end.toISOString()
           : null,
     };
+  }
+
+  /**
+   * 预占一次原子立项导出（`atomic_go_export_monthly`，13 §3.2、13 §4.3）。
+   *
+   * **必须在调用方的事务里执行**，与占槽、建 Project 同一事务：配额与槽位若各自
+   * 提交，"扣了额度但没占到槽"和"占到槽但没扣额度"就都成了可观测状态，而第二种
+   * 就是白拿点火包的入口（13 §4.3）。
+   *
+   * 与报告的 `reserveExportQuota` 是两个不同的额：复用同一个键会让"锁槽一次"和
+   * "导出一次"分叉成两个可分别绕过的闸门。
+   */
+  static async reserveAtomicGoQuota(
+    client: PoolClient,
+    userId: string
+  ): Promise<{ periodStart: string; limit: number; carryover: number }> {
+    const res = await client.query<{
+      role: string;
+      entitlements: any;
+      subscription_period_start: Date | null;
+      created_at: Date | null;
+    }>(
+      `SELECT u.role, u.created_at,
+              ${EntitlementService.effectiveEntitlements()} AS entitlements,
+              s.current_period_start AS subscription_period_start
+         FROM users u
+         ${EntitlementService.entitlementPlanJoin()}
+        WHERE u.id = $1 AND u.status = 'ACTIVE'`,
+      [userId]
+    );
+    const row = res.rows[0];
+    if (!row) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
+
+    if (row.role === 'ADMIN') {
+      return { periodStart: EntitlementService.periodFor(row), limit: -1, carryover: 0 };
+    }
+
+    const ent = row.entitlements || {};
+    // 缺键按 0 处理（失败关闭）：读不到额度就不给额度。免费层因此得到的是
+    // PLAN_REQUIRED 而不是一个靠 ?? 兜出来的数字。
+    const base = typeof ent.atomic_go_export_monthly === 'number' ? ent.atomic_go_export_monthly : 0;
+    if (base <= 0) {
+      throw new EmeradarError(
+        ErrorCode.PLAN_REQUIRED,
+        'Atomic GO (claiming a build slot and unlocking its launch kit) requires Builder Pro.',
+        403,
+        { upgradeUrl: '/pricing', currentPlan: 'FREE' }
+      );
+    }
+
+    const period = EntitlementService.periodFor(row);
+    const carryover = await EntitlementService.settleAndReadCarryover(client, userId, row, period, base);
+    const effective = base + carryover;
+
+    const counter = await client.query<{ used: number }>(
+      `INSERT INTO usage_counters (user_id, feature, period_start, used)
+       VALUES ($1, 'atomic_go_export_monthly', $2, 1)
+       ON CONFLICT (user_id, feature, period_start) DO UPDATE
+       SET used = usage_counters.used + 1
+       WHERE usage_counters.used < $3
+       RETURNING used`,
+      [userId, period, effective]
+    );
+    if (counter.rows.length === 0) {
+      throw new EmeradarError(
+        ErrorCode.QUOTA_EXCEEDED,
+        `Monthly atomic GO quota reached (${effective}). It resets with your next billing period.`,
+        403,
+        { upgradeUrl: '/pricing', currentPlan: 'PRO', details: { limit: effective } }
+      );
+    }
+    return { periodStart: period, limit: effective, carryover };
+  }
+
+  /**
+   * 跨月累计（13 §4.2，`"rollover": true`）。只结转**一期**：上一期的剩余额度
+   * 成为本期的额外可用量，再上一期的作废。
+   *
+   * 只结转一期的判据是"只读 `from_period_start` 恰好等于上一期的那几行"，而不是
+   * 在读取时把旧行标记为已消费——标记会在本期中途把额度抽走，而同一个月里前一次
+   * 预占和后一次预占必须看到同一个上限。
+   *
+   * 结算写在这里（而不是一个独立作业）的原因：结转只在"有人真的要用额度"时才有
+   * 意义，而那正是第一次预占的时刻。少一个必须按时跑到的作业，就少一处会静默
+   * 漏掉结转的地方。
+   */
+  private static async settleAndReadCarryover(
+    client: PoolClient,
+    userId: string,
+    row: { subscription_period_start?: Date | string | null; created_at?: Date | string | null },
+    period: string,
+    base: number
+  ): Promise<number> {
+    const anchor = row.subscription_period_start ?? row.created_at ?? null;
+    if (!anchor) return 0;
+    // 上一期的起点 = 从本期起点往前退一天，再按锚点日对齐。
+    const dayBefore = new Date(`${period}T00:00:00Z`);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    const previous = EntitlementService.quotaPeriodStart(new Date(anchor), dayBefore);
+    if (previous >= period) return 0;
+
+    const priorUsed = await client.query<{ used: number }>(
+      `SELECT used FROM usage_counters
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly' AND period_start = $2`,
+      [userId, previous]
+    );
+    const usedInPrevious = priorUsed.rows[0]?.used ?? 0;
+    const leftover = Math.max(0, base - usedInPrevious);
+    if (leftover > 0) {
+      // `units > 0` 是 CHECK 约束，所以零剩余不留行 —— 一行 "0 结转" 只会让
+      // "这个月为什么是 5 次"多出一条需要解释的记录。
+      await client.query(
+        `INSERT INTO usage_carryovers (user_id, feature, from_period_start, units)
+         VALUES ($1, 'atomic_go_export_monthly', $2, $3)
+         ON CONFLICT (user_id, feature, from_period_start) DO NOTHING`,
+        [userId, previous, leftover]
+      );
+    }
+
+    const carried = await client.query<{ total: string | null }>(
+      `SELECT SUM(units)::text AS total FROM usage_carryovers
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly'
+          AND from_period_start = $2 AND consumed_in_period IS NULL`,
+      [userId, previous]
+    );
+    return Number.parseInt(carried.rows[0]?.total ?? '0', 10) || 0;
   }
 
   /** Reserve a report generation slot. Generation and file export are separate entitlements. */

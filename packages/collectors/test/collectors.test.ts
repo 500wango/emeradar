@@ -7,6 +7,8 @@ import {
   CheckoutReferralsCollector,
   RunContext,
   BudgetGuard,
+  SERP_DEPTH,
+  SERP_SCORING_DEPTH,
 } from '../src';
 
 function createMockContext(dailyBudget = 10.0, currentSpent = 0.0): RunContext {
@@ -180,6 +182,87 @@ describe('SerpCollector', () => {
       globalThis.fetch = originalFetch;
       delete process.env.AISA_API_KEY;
       if (oldSerpKey) process.env.SERP_API_KEY = oldSerpKey;
+    }
+  });
+
+  /**
+   * 一鱼多吃（04 §9.2）的判据全在这一个用例里。
+   *
+   * 采集深度从 10 提到 100 之后，最容易出的错不是"少拿了"，而是**多拿了却不该用**：
+   *   - 前 10 名之外的条目混进 `items`，会写进 `serp_results` 撞上 `rank BETWEEN 1 AND 20`
+   *     的 CHECK，也会让商业域抓取从 10 个域名涨到 100 个（成本十倍）；
+   *   - 弱结果比率的分母若跟着变成取回条数，"前 10 名里几个是弱点"就变成了"前 100 名
+   *     里几个是弱点"——同一个词在两天的不同深度下给出两个不可比的数。
+   *
+   * 所以夹具刻意做成"前 10 名全是弱点、11 名之后全是干净站"：分母错了，比率就从 1
+   * 变成 0.4，这条断言会当场抓到。
+   */
+  it('should keep rank 11-100 out of the scoring slice but available for rank matching', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.AISA_API_KEY = 'test_aisa_depth_key';
+    const oldSerpKey = process.env.SERP_API_KEY;
+    const oldAisaUrl = process.env.AISA_SEARCH_URL;
+    delete process.env.SERP_API_KEY;
+    delete process.env.AISA_SEARCH_URL;
+
+    // 10 个论坛帖（弱点）+ 15 个独立站（非弱点），共 25 条。
+    const stubResults = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        title: `Cron thread ${i + 1}`,
+        url: `https://reddit.com/r/webdev/cron/${i + 1}`,
+        content: 'Community forum discussion',
+      })),
+      ...Array.from({ length: 15 }, (_, i) => ({
+        title: `Clean tool ${i + 1}`,
+        url: `https://clean-tool-${i + 1}.example/`,
+        content: 'A focused independent tool',
+      })),
+    ];
+
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ results: stubResults }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    try {
+      const outcome = await collector.collect(createMockContext(), {
+        queryId: 'q_depth',
+        queryText: 'cron online',
+        opportunityId: 'opp_depth',
+      });
+
+      assert.equal(outcome.status, 'OK');
+      if (outcome.status !== 'OK') return;
+      const serpData = outcome.snapshots[0].data;
+
+      // 评分集只有前 10 名，且深度与条数被如实记录下来。
+      assert.equal(serpData.items.length, SERP_SCORING_DEPTH);
+      assert.ok(serpData.items.every((item: any) => item.rank <= SERP_SCORING_DEPTH));
+      assert.equal(serpData.depth, SERP_DEPTH);
+      assert.equal(serpData.resultCount, 25);
+
+      // 分母是评分集大小，不是取回条数。
+      assert.equal(serpData.weakResultRatio, 1);
+
+      // 名次索引覆盖全部取回条目——排名追踪唯一的输入。
+      assert.equal(serpData.rankIndex.length, 25);
+      assert.deepEqual(
+        serpData.rankIndex.map((entry: any) => entry.rank),
+        Array.from({ length: 25 }, (_, i) => i + 1)
+      );
+      assert.equal(serpData.rankIndex[24].domain, 'clean-tool-15.example');
+      assert.equal(serpData.rankIndex[24].url, 'https://clean-tool-15.example/');
+
+      // 证据载荷里的 `top10Count` 曾经等于取回条数，现在必须仍是 10。
+      assert.equal(outcome.evidence[0].payload.top10Count, SERP_SCORING_DEPTH);
+      // 名次索引不进原始载荷：它是匹配用的中间量，不是我们"观察到"的证据。
+      assert.ok(!JSON.parse(outcome.raw!.content).rankIndex);
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AISA_API_KEY;
+      if (oldSerpKey) process.env.SERP_API_KEY = oldSerpKey;
+      if (oldAisaUrl) process.env.AISA_SEARCH_URL = oldAisaUrl;
     }
   });
 });

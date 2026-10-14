@@ -116,6 +116,7 @@ docker compose -f docker-compose.prod.yml ps worker             # healthcheck �
 | `sync-gsc` | `0 5 * * *` | 拉取 Search Console 指标 |
 | `evaluate-episodes` | `0 6 * * *` | 结算到期预测（`run-daily` 的兜底） |
 | `sweep-subscriptions` | `15 6 * * *` | 取消超宽限期的 PAST_DUE 订阅 |
+| `release-expired-stakes` | `30 7 * * *` | 终结逾期未质押的项目并释放其槽位（已扣的立项配额不退） |
 | `verify-ledger` | `0 7 * * *` | 验证最新账本检查点（失败即 P0，不重试） |
 
 需要手工跑一次某个任务时，显式给命令（默认 CMD 是 `start`，不是某个任务）：

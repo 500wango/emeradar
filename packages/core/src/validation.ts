@@ -74,19 +74,52 @@ export const alertRuleSchema = z.object({
 });
 
 /**
- * Shape-only validation: a project is anchored by either a tracked opportunity
- * or a proposed experiment card, and the route keeps that business rule (it
- * needs it to pick between the two creation paths anyway).
+ * Shape-only validation for **experiment** projects, the one remaining kind this
+ * endpoint may create.
+ *
+ * An opportunity project no longer has a creation endpoint of its own: it is a
+ * side effect of `POST /opportunities/{id}/go`, inside the same transaction that
+ * claims the slot and spends the quota (ADR-018, 10 §4.3). `opportunityId` stays
+ * in the schema purely so the route can answer a caller who still sends it with
+ * a sentence pointing at the right endpoint, instead of a generic validation
+ * error. `decisionId` is gone: nothing accepts a caller-chosen decision any
+ * more, because the decision is written by the GO transaction itself.
  */
 export const projectCreateSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200).optional(),
   experimentCardId: z.string().trim().min(1).max(200).optional(),
-  decisionId: z.string().trim().max(200).optional(),
-  reportId: z.string().trim().max(200).optional(),
   title: z.string().trim().min(1).max(200),
   domain: z.string().trim().max(253).optional(),
   buildType: z.nativeEnum(BuildArchetype).optional(),
   targetKeywords: z.array(z.string().trim().max(200)).max(200).optional(),
+});
+
+/** 凭证类型与 09 §8 的三类一一对应（03 §12 `project_credentials.credential_type`）。 */
+export const credentialTypeSchema = z.enum(['DOMAIN_URL', 'STORE_LISTING_URL', 'PUBLIC_PAGE_URL']);
+
+/**
+ * 原子 GO 的请求体（10 §4.3）。
+ *
+ * `archetype` 必填：占的是**哪个形态的队**是用户的选择，服务端不替他挑。
+ * `credential` 可选：当场提交凭证能让用户一次走完 GO 与质押；不提交就得在
+ * `stake_deadline_at` 之前补上。
+ */
+export const goSchema = z.object({
+  archetype: z.nativeEnum(BuildArchetype),
+  verdictId: z.string().trim().min(1).max(200),
+  reportId: z.string().trim().max(200).optional(),
+  credential: z
+    .object({
+      type: credentialTypeSchema,
+      url: z.string().trim().url().max(2000),
+    })
+    .optional(),
+});
+
+/** 承诺质押凭证（10 §4.5）。 */
+export const stakeCredentialSchema = z.object({
+  credentialType: credentialTypeSchema,
+  url: z.string().trim().url().max(2000),
 });
 
 export const preferencesSchema = z.object({

@@ -7,6 +7,9 @@ import {
   ExecutionClass,
   CommercialStage,
 } from '@emeradar/core';
+// 只引类型：`recommendation.ts` 反向引本文件的 `AxisBand` / `CommercialSummary`，
+// 用 `import type` 让两个方向都在编译后消失，不产生运行时环。
+import type { ArchetypeScore } from './recommendation';
 
 export type AxisBand = Band;
 
@@ -190,4 +193,15 @@ export interface ScoringOutput {
   };
   recommendedArchetype: BuildArchetype;
   executionClass: ExecutionClass;
+  /**
+   * 推荐层排出的前三名构建形态（05 §11、`evaluateRecommendations`）。
+   *
+   * 认领槽位按形态切分，而"这条机会提供哪几个形态的队"必须来自同一个推荐结论，
+   * 不能由别处再猜一遍：`recommended_archetype` 只够建一条队，多形态的用意
+   * （工具站满了但 Micro-SaaS 还空着）就落不了地。这里把它带出来，供发布时
+   * 一次性物化 `opportunity_slots`。
+   *
+   * 前三名 × 每形态 2 = 6，正好等于 `max_capacity_total`（05 §7.1）。
+   */
+  topArchetypes: ArchetypeScore[];
 }

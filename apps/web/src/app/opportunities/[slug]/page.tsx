@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, SlotService } from '@emeradar/services';
 import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
@@ -56,7 +56,17 @@ export default async function OpportunityWorkspacePage({
 
   const { t, locale } = await getServerI18n();
 
+
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
+
+  /**
+   * 槽位余量在服务端读，而不是让 DecisionBar 自己去取。
+   *
+   * 它同时是"能不能 GO"的判据（满员就不该给一个可点的按钮）和渲染数据，两处各取
+   * 一次就会在两次请求之间出现"按钮可点但点了必然 409"的窗口。读一次、判一次、
+   * 渲染一次。并发下仍可能有人抢先——那由 `409 SLOT_TAKEN` 兜底。
+   */
+  const slots = await SlotService.getSlots(opportunity.id, session.user.id);
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -177,9 +187,10 @@ export default async function OpportunityWorkspacePage({
           <DecisionBar
             opportunityId={opportunity.id}
             slug={opportunity.slug}
-            title={opportunity.title}
             verdictId={verdictId}
             reportId={reportId}
+            slots={slots.slots}
+            recommendedArchetype={opportunity.recommended_archetype ?? null}
             canGo={canGo}
             canExport={canExport}
             blockReason={blockReason}

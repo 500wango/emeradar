@@ -1,0 +1,322 @@
+import { query } from '@emeradar/db';
+import { EmeradarError, ErrorCode, isBuildArchetype, normalizeArchetype, type Locale } from '@emeradar/core';
+import {
+  assembleLaunchKit,
+  zipLaunchKit,
+  LAUNCH_KIT_TEMPLATE_VERSION,
+  type LaunchKitBundle,
+  type LaunchKitFile,
+} from '@emeradar/report/launch-kit';
+import { ReportService } from './report.service';
+
+/**
+ * 形态点火包（Launch Kit）的存取（10 §4.4、09 §5.3、ADR-018/019）。
+ *
+ * 这个服务只回答一个问题：**这个人能不能拿到这份产物**。而答案不是"他有没有权限"，
+ * 是"他有没有为它付过一次原子立项"——所以准入判据落在 `slot_claims` 上，不落在
+ * `projects` 上。一个 Project 可以由别的路径产生（实验项目），而那些 Project 从来
+ * 没有解锁过任何点火包。
+ *
+ * 两件事必须一起成立，缺一不可：
+ *   1. **只有在 GO 事务里建立的项目才有**。没有认领记录就是 404，没有"补一次 GO"
+ *      的路径（10 §4.4 明写不存在"先拿点火包再决定要不要 GO"）。
+ *   2. **产物一旦装配就冻结**。09 §5.3 硬约束 1 要求同一 `(opportunity, snapshot,
+ *      archetype, template_version)` 必得 bit-for-bit 相同的产物，而产物里有一段
+ *      LLM 叙述（ADR-019，≤ 500 字）——它不可能被确定性重算。所以首次装配写库，
+ *      此后一切读取都走库里那一份，**重算路径永不调用 LLM**（同 PRD P5/P7）。
+ */
+
+export interface LaunchKitView extends LaunchKitBundle {
+  launchKitId: string;
+  projectId: string;
+  reportId: string;
+  /** 首次装配时刻。产物冻结的起点。 */
+  generatedAt: string;
+  /** 本次是读到了已冻结的那一份，还是刚刚装配出来的。 */
+  cached: boolean;
+}
+
+interface LaunchKitRow {
+  id: string;
+  report_id: string;
+  project_id: string;
+  archetype: string;
+  schema_version: string;
+  template_version: string;
+  snapshot_id: string | null;
+  scoring_config_version: string;
+  research_language: string;
+  files: LaunchKitFile[];
+  narrative: { engineering: string; landing: string } | null;
+  content_hash: string;
+  generated_at: Date;
+}
+
+function rowToView(row: LaunchKitRow, cached: boolean): LaunchKitView {
+  return {
+    launchKitId: row.id,
+    projectId: row.project_id,
+    reportId: row.report_id,
+    schemaVersion: row.schema_version,
+    templateVersion: row.template_version,
+    snapshotId: row.snapshot_id ?? '',
+    scoringConfigVersion: row.scoring_config_version,
+    archetype: normalizeArchetype(row.archetype),
+    researchLanguage: row.research_language,
+    // obs_date 不单独落库：它由快照决定，而快照 id 已经存了。读回来时从文件头部
+    // 拿不到，就从 schema 里存的版本项重建一个可展示的值——这里取 `template_version`
+    // 之外的字段都从库里来，只有 obsDate 需要额外查询，见下面的 hydrate。
+    obsDate: '',
+    files: row.files,
+    // 叙述随产物一起返回：调用方（复核、导出）需要它，而它本来就存在于库里。
+    narrative: row.narrative ?? { engineering: '', landing: '' },
+    contentHash: row.content_hash,
+    generatedAt: row.generated_at.toISOString(),
+    cached,
+  };
+}
+
+export class LaunchKitService {
+  /**
+   * 取回（必要时首次装配）某个 Project 的形态点火包。
+   *
+   * 准入顺序刻意是"项目 → 认领 → 报告 → 装配"：先确认这个位置真的被认领过，再花
+   * 任何力气去装配。反过来（先装配再判准入）会把一次越权请求变成一次真实的计算与
+   * 一次 LLM 调用。
+   */
+  static async getOrCreate(
+    projectId: string,
+    userId: string,
+    options: { locale?: Locale } = {}
+  ): Promise<LaunchKitView> {
+    const claim = await LaunchKitService.claimFor(projectId, userId);
+
+    // 已经装配过就直接返回冻结的那一份：不再查报告、不再装配、不再调用 LLM。
+    // 这条路也是"重复导出不重复扣额"（10 §4.4）在实现上的落点——它什么都没扣，
+    // 因为它在第一次装配之后就没有再走过任何计费路径。
+    const stored = await query<LaunchKitRow>(
+      `SELECT * FROM launch_kits WHERE slot_claim_id = $1`,
+      [claim.slotClaimId]
+    );
+    if (stored.rows[0]) return LaunchKitService.hydrate(stored.rows[0], true);
+
+    const locale = options.locale ?? 'en-US';
+    // `consumeQuota: false`：报告与点火包由同一次原子立项一并解锁（13 §4.3）。
+    const report = await ReportService.getOrGenerateReport(claim.opportunityId, userId, locale, {
+      consumeQuota: false,
+    });
+
+    const snapshotId = await LaunchKitService.snapshotIdFor(claim.opportunityId);
+    const bundle = assembleLaunchKit({
+      report: report.data,
+      archetype: claim.archetype,
+      researchLanguage: claim.researchLanguage,
+      snapshotId,
+      scoringConfigVersion: claim.scoringConfigVersion,
+      templateVersion: LAUNCH_KIT_TEMPLATE_VERSION,
+    });
+
+    const launchKitId = `lkit_${claim.slotClaimId}`;
+    await query(
+      `INSERT INTO launch_kits (
+         id, report_id, project_id, slot_claim_id, archetype, schema_version,
+         template_version, snapshot_id, scoring_config_version, research_language,
+         files, narrative, content_hash
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)
+       ON CONFLICT (slot_claim_id) DO NOTHING`,
+      [
+        launchKitId,
+        report.reportId,
+        projectId,
+        claim.slotClaimId,
+        claim.archetype,
+        bundle.schemaVersion,
+        bundle.templateVersion,
+        snapshotId || null,
+        bundle.scoringConfigVersion,
+        bundle.researchLanguage,
+        JSON.stringify(bundle.files),
+        JSON.stringify(bundle.narrative ?? null),
+        bundle.contentHash,
+      ]
+    );
+
+    // 回读而不是直接把刚装配的对象返回：并发下（同一用户两个标签页同时导出）这里
+    // 可能撞上另一个请求先插入的那一行，而"谁先落库谁算数"正是冻结的含义。
+    const persisted = await query<LaunchKitRow>(
+      `SELECT * FROM launch_kits WHERE slot_claim_id = $1`,
+      [claim.slotClaimId]
+    );
+    const row = persisted.rows[0];
+    if (!row) {
+      // 走到这里说明刚插入的行使诈：唯一约束没挡住、回读又读不到。宁可报错，
+      // 也不要返回一份**没有落库**的产物——那样用户下到的文件将无法被复核。
+      throw new EmeradarError(
+        ErrorCode.INTERNAL,
+        `Launch kit for project ${projectId} could not be persisted.`,
+        500
+      );
+    }
+    return LaunchKitService.hydrate(row, false);
+  }
+
+  /**
+   * 复核一份已冻结的点火包：用同一份输入重新装配，比对指纹（09 §5.3 硬约束 1）。
+   *
+   * 用库里冻结的 `files` 里的**叙述段落**作为输入，正是这条复核能做到的全部——
+   * 叙述本身不可重算，所以"可复核"的范围是"除叙述外的一切"（模板、硬数据、路由
+   * 排序、指纹算法）。把这条边界说清楚，比假装整份产物都能重算要好。
+   */
+  static async verify(projectId: string, userId: string): Promise<{
+    verified: boolean;
+    storedHash: string;
+    recomputedHash: string;
+    templateVersion: string;
+    fileCount: number;
+  }> {
+    const current = await LaunchKitService.getOrCreate(projectId, userId);
+    const claim = await LaunchKitService.claimFor(projectId, userId);
+
+    // 叙述取自**库里冻结的那一份**，而不是从渲染好的文件里再抠出来：抠是字符串
+    // 手术，模板一改就失效，而失效的方式是"复核永远返回 false"——一个安静地说谎的
+    // 检查比没有检查更糟。
+    //
+    // 界面语言同样从库里读，取自这份产物所引用的那条报告：语言是装配的输入之一
+    // （说明文字跟随 `ui_locale`，见 14 §5.4），拿一个固定值去重算，等于给所有
+    // 非英语的产物判了死刑。
+    const stored = await query<{
+      narrative: { engineering: string; landing: string } | null;
+      locale: string | null;
+    }>(
+      `SELECT lk.narrative, r.locale
+         FROM launch_kits lk
+         JOIN opportunity_reports r ON r.id = lk.report_id
+        WHERE lk.project_id = $1`,
+      [projectId]
+    );
+    const narrative = stored.rows[0]?.narrative ?? null;
+    const locale: Locale = stored.rows[0]?.locale === 'zh-CN' ? 'zh-CN' : 'en-US';
+    const report = await ReportService.getOrGenerateReport(claim.opportunityId, userId, locale, {
+      consumeQuota: false,
+    });
+    const recomputed = assembleLaunchKit({
+      report: report.data,
+      archetype: current.archetype,
+      researchLanguage: current.researchLanguage,
+      snapshotId: current.snapshotId,
+      scoringConfigVersion: current.scoringConfigVersion,
+      templateVersion: current.templateVersion,
+      narrative,
+    });
+
+    return {
+      verified: recomputed.contentHash === current.contentHash,
+      storedHash: current.contentHash,
+      recomputedHash: recomputed.contentHash,
+      templateVersion: current.templateVersion,
+      fileCount: current.files.length,
+    };
+  }
+
+  /** `format=bundle` 的 zip 载荷。 */
+  static zip(view: LaunchKitView): Buffer {
+    return zipLaunchKit(view);
+  }
+
+  /**
+   * 准入：这个 Project 是不是由一个活跃的原子认领产生的。
+   *
+   * 判据取 `slot_claims.state = 'CLAIMED'`（D2 对"活跃认领"的唯一定义）。已释放
+   * 的认领返回 404——10 §4.4 把这三种情形并列为"没有资源"：未 GO、非本人、Project
+   * 已释放。释放意味着这个位置已经回到池子里给别人了，此时仍然发一份写着"你该铺
+   * 哪些路由"的产物，等于把刚让出的窗口又交代了一遍。
+   */
+  private static async claimFor(
+    projectId: string,
+    userId: string
+  ): Promise<{
+    slotClaimId: string;
+    opportunityId: string;
+    archetype: ReturnType<typeof normalizeArchetype>;
+    researchLanguage: string;
+    scoringConfigVersion: string;
+  }> {
+    const res = await query<{
+      user_id: string;
+      opportunity_id: string;
+      archetype: string | null;
+      research_language: string | null;
+      scoring_config_version: string | null;
+      slot_claim_id: string | null;
+      claim_state: string | null;
+    }>(
+      `SELECT p.user_id, p.opportunity_id, p.build_type AS archetype,
+              o.research_language,
+              (SELECT v.scoring_config_version FROM verdicts v
+                WHERE v.opportunity_id = p.opportunity_id
+                ORDER BY v.obs_date DESC, v.created_at DESC LIMIT 1) AS scoring_config_version,
+              sc.id AS slot_claim_id, sc.state AS claim_state
+         FROM projects p
+         JOIN opportunities o ON o.id = p.opportunity_id
+         LEFT JOIN slot_claims sc ON sc.project_id = p.id
+        WHERE p.id = $1`,
+      [projectId]
+    );
+    const row = res.rows[0];
+    if (!row) {
+      throw new EmeradarError(ErrorCode.NOT_FOUND, `Project not found: ${projectId}`, 404);
+    }
+    if (row.user_id !== userId) {
+      // 存在但不是你的 → 403，而不是 404。10 §4.4 把两者并列列出，区分它们不会泄露
+      // 什么：项目 id 本身不可枚举，而"这不是你的"与"这不存在"对用户是不同的信息。
+      throw new EmeradarError(ErrorCode.FORBIDDEN, 'This project belongs to another account.', 403);
+    }
+    if (!row.slot_claim_id || row.claim_state !== 'CLAIMED') {
+      throw new EmeradarError(
+        ErrorCode.NOT_FOUND,
+        'This project has no launch kit: only a project created by an atomic GO has one, and it must still hold its slot.',
+        404
+      );
+    }
+    if (!row.archetype || !isBuildArchetype(normalizeArchetype(row.archetype))) {
+      throw new EmeradarError(
+        ErrorCode.INTERNAL,
+        `Project ${projectId} has an unrecognized build archetype: ${row.archetype}`,
+        500
+      );
+    }
+    return {
+      slotClaimId: row.slot_claim_id,
+      opportunityId: row.opportunity_id,
+      archetype: normalizeArchetype(row.archetype),
+      researchLanguage: row.research_language ?? 'en-US',
+      // 评分配置版本取自这条机会**最新的一条裁决**（账本里的原始计量），而不是当前
+      // 部署里的常量：点火包说的是"这份产物由哪一版评分规则下的观测支撑"，重装上阵
+      // 之后的常量回答不了这个问题。
+      scoringConfigVersion: row.scoring_config_version ?? 'unknown',
+    };
+  }
+
+  private static async snapshotIdFor(opportunityId: string): Promise<string> {
+    const res = await query<{ id: string }>(
+      `SELECT id FROM opportunity_snapshots WHERE opportunity_id = $1 ORDER BY obs_date DESC LIMIT 1`,
+      [opportunityId]
+    );
+    // 没有快照就不假装有：报告自身在缺快照时会拒绝生成（ReportService 的前置检查），
+    // 所以走到这里通常已经有快照；真没有时留空串，由 schema 层落成 NULL。
+    return res.rows[0]?.id ?? '';
+  }
+
+  /** 补上 `obs_date`。它由快照决定，所以从快照读，不从产物里猜。 */
+  private static async hydrate(row: LaunchKitRow, cached: boolean): Promise<LaunchKitView> {
+    const view = rowToView(row, cached);
+    if (row.snapshot_id) {
+      const res = await query<{ obs_date: string }>(
+        `SELECT obs_date::text FROM opportunity_snapshots WHERE id = $1`,
+        [row.snapshot_id]
+      );
+      view.obsDate = res.rows[0]?.obs_date ?? '';
+    }
+    return view;
+  }
+}

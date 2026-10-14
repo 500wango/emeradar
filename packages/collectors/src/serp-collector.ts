@@ -30,6 +30,27 @@ export interface SerpCollectedItem {
   publishedAt?: Date;
 }
 
+/**
+ * 采集深度（04 §9.2、PRD F1.1「一鱼多吃」）。
+ *
+ * rank 1–10 参与 F6 弱点计算，11–100 只用于在内存中匹配已核验项目，**不为追踪中的
+ * 项目单独发起任何 SERP 请求**。所以这里的深度是一次请求换两种用途，把它提到 100
+ * 不增加任何调用次数。
+ */
+export const SERP_DEPTH = 100;
+/** 参与评分的名次上限（05 §3.3）。深于它的部分只进 `rankIndex`。 */
+export const SERP_SCORING_DEPTH = 10;
+
+/**
+ * 名次索引里的一行。只带匹配所需的三列——完整条目（摘要、分类、弱点判定）只对
+ * 评分用的前 10 名有意义，给 11–100 也编一套摘要，等于假装我们对它们做了分析。
+ */
+export interface SerpRankIndexEntry {
+  rank: number;
+  url: string;
+  domain: string;
+}
+
 export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   readonly sourceId = 'src_serp';
   readonly version = '1.0.0';
@@ -77,8 +98,12 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
         };
       }
 
-      // 3. Classify and evaluate weakness
-      const scoredInput: SerpItemInput[] = rawItems.map((raw) => ({
+      // 3. 评分只吃前 10 名（05 §3.3）。深于 10 的部分不参与弱点计算，也不进证据
+      //    载荷——它唯一的用途是让「已核验项目是否入榜」这件事有得可查。
+      const ranked = [...rawItems].sort((a, b) => a.rank - b.rank);
+      const top = ranked.filter((raw) => raw.rank <= SERP_SCORING_DEPTH);
+
+      const scoredInput: SerpItemInput[] = top.map((raw) => ({
         rank: raw.rank,
         url: raw.url,
         domain: raw.domain,
@@ -89,8 +114,13 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
 
       const weaknessResult = calculateSerpWeakness(scoredInput);
 
-      const items: SerpCollectedItem[] = rawItems.map((raw, idx) => {
-        const scored = weaknessResult.items[idx];
+      // 按 rank 取弱点结论，不按数组下标：`weaknessResult.items` 是评分集（rank 1–10）
+      // 的顺序，而 `ranked` 可能长得多。用下标对齐是这次改动最容易埋进去的错——它
+      // 只在某个名次缺失时才显形，而那时错误已经进了库。
+      const weaknessByRank = new Map(weaknessResult.items.map((scored) => [scored.rank, scored]));
+
+      const items: SerpCollectedItem[] = top.map((raw) => {
+        const scored = weaknessByRank.get(raw.rank);
         return {
           rank: raw.rank,
           url: raw.url,
@@ -105,10 +135,16 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
         };
       });
 
+      const rankIndex: SerpRankIndexEntry[] = ranked.map((raw) => ({
+        rank: raw.rank,
+        url: raw.url,
+        domain: raw.domain,
+      }));
+
+      // 分母是**评分集**的大小，不是取回的条数。用后者会把比率从"前 10 名里几个是
+      // 弱点"变成"前 100 名里几个是弱点"，同一个词在两天的深度下得出两个不可比的数。
       const weakRatio =
-        items.length > 0
-          ? Math.round((weaknessResult.weakCount / items.length) * 10000) / 10000
-          : 0;
+        top.length > 0 ? Math.round((weaknessResult.weakCount / top.length) * 10000) / 10000 : 0;
 
       // 4. Assemble Draft Snapshot
       const snapshotId = `srp_${item.queryId}_${ctx.obsDate.replace(/-/g, '')}`;
@@ -122,7 +158,13 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             obsDate: ctx.obsDate,
             weakResultRatio: weakRatio,
             weaknessScore: weaknessResult.score,
+            /** 请求的深度（`serp_snapshots.depth`）。 */
+            depth: SERP_DEPTH,
+            /** 实际取回条数（`serp_snapshots.result_count`）。各有各的上限：Brave 与
+             *  Tavily 只给到 20，SerpApi 给到 100。低于 depth 是常态，不是故障。 */
+            resultCount: ranked.length,
             items,
+            rankIndex,
           },
         },
       ];
@@ -281,13 +323,16 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
               keyword: query,
               location_code: marketCountry === 'US' ? 2840 : undefined,
               language_code: language || 'en',
-              depth: 10,
+              // 一鱼多吃（04 §9.2）：一次请求拿满深度，前 10 名进评分，其余进匹配索引。
+              depth: SERP_DEPTH,
             },
           ])
         : JSON.stringify({
             query,
             search_depth: 'basic',
-            max_results: 10,
+            // Tavily 的上限是 20，这就是它的最大深度；再往上要换 provider，而不是
+            // 编一个对方不接受的数字。
+            max_results: 20,
             include_answer: false,
           });
 
@@ -307,7 +352,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       // Format 1: Tavily / Web Search format ({ results: [{ title, url, content }] })
       if (Array.isArray(data?.results)) {
         return data.results
-          .slice(0, 10)
+          .slice(0, SERP_DEPTH)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || '');
             const title = String(r.title || '');
@@ -330,7 +375,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       if (Array.isArray(dfsItems)) {
         return dfsItems
           .filter((i: any) => (i.type === 'organic' || !i.type) && i.url)
-          .slice(0, 10)
+          .slice(0, SERP_DEPTH)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || '');
             const title = String(r.title || '');
@@ -350,7 +395,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       // Format 3: Generic items array format ({ items: [...] })
       if (Array.isArray(data?.items)) {
         return data.items
-          .slice(0, 10)
+          .slice(0, SERP_DEPTH)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || r.link || '');
             const title = String(r.title || '');
@@ -382,13 +427,13 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     try {
       const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
         query
-      )}&gl=${encodeURIComponent(marketCountry)}&hl=${encodeURIComponent(language)}&num=10&api_key=${encodeURIComponent(apiKey)}`;
+      )}&gl=${encodeURIComponent(marketCountry)}&hl=${encodeURIComponent(language)}&num=${SERP_DEPTH}&api_key=${encodeURIComponent(apiKey)}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) return null;
       const data = await res.json();
       if (!Array.isArray(data.organic_results)) return null;
       return data.organic_results
-        .slice(0, 10)
+        .slice(0, SERP_DEPTH)
         .map((r: any, idx: number) => {
           const urlStr = String(r.link || '');
           return {
@@ -410,7 +455,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     try {
       const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
         query
-      )}&count=10&country=${encodeURIComponent(marketCountry)}`;
+      )}&count=20&country=${encodeURIComponent(marketCountry)}`;
       const res = await fetch(url, {
         headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
         signal: AbortSignal.timeout(8000),
@@ -420,7 +465,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       const results = data.web?.results;
       if (!Array.isArray(results)) return null;
       return results
-        .slice(0, 10)
+        .slice(0, SERP_DEPTH)
         .map((r: any, idx: number) => {
           const urlStr = String(r.url || '');
           return {

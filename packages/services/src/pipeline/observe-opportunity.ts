@@ -9,12 +9,14 @@ import {
 } from '@emeradar/scoring';
 import { Lifecycle, Verdict } from '@emeradar/core';
 import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from '../claim-policy';
+import { RankingService } from '../ranking.service';
 import {
   AutocompleteCollector,
   CostLedgerService,
   CrawlCollector,
   RunContext,
   SerpCollector,
+  SerpRankIndexEntry,
 } from '@emeradar/collectors';
 import {
   FetchFailureFacts,
@@ -215,19 +217,41 @@ export async function observeOpportunity(
   }
 
   let serpWeakness = 0;
+  // `organicItems` 是**评分集**（rank 1–10）：它决定 `serp_results` 的内容与商业域抓取
+  // 的目标。`rankIndex` 是同一次请求拿回的全部名次（rank 1–100），只用于在内存里比对
+  // 已核验项目是否入榜（PRD F10）。
+  //
+  // 两者必须分开。合成一个的话，要么 `serp_results` 会塞进 rank 11–100 —— 撞上
+  // `rank BETWEEN 1 AND 20` 的 CHECK —— 要么商业域抓取会从 10 个域名涨到 100 个，
+  // 让单条机会的抓取成本变成十倍。
   let organicItems: Array<{ domain: string; url: string }> = [];
+  let rankIndex: SerpRankIndexEntry[] = [];
   if (serpOutcome.status === 'OK') {
     const serpSnap = serpOutcome.snapshots[0];
     if (serpSnap) {
       serpWeakness = serpSnap.data.weaknessScore;
       organicItems = serpSnap.data.items || [];
+      rankIndex = serpSnap.data.rankIndex;
       const snapRes = await query<{ id: string }>(
-        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (query_id, obs_date) DO UPDATE SET
-           weak_result_ratio = EXCLUDED.weak_result_ratio
+           weak_result_ratio = EXCLUDED.weak_result_ratio,
+           depth = EXCLUDED.depth,
+           result_count = EXCLUDED.result_count
          RETURNING id`,
-        [serpSnap.key, primary.id, obsDate, serpSnap.data.weakResultRatio]
+        [
+          serpSnap.key,
+          primary.id,
+          obsDate,
+          serpSnap.data.weakResultRatio,
+          // 深度与条数一并落库（02 §5）。`result_count` 是解释 `best_rank IS NULL` 的
+          // 那一半：没有它，"这个项目连续 60 天没进榜"与"我们那 60 天只采了 10 条"
+          // 在库里是同一句话。这里不做兜底取值——采集侧必给，缺了就该当场报错，
+          // 而不是把谎话写进一列专门用来防谎话的字段。
+          serpSnap.data.depth,
+          serpSnap.data.resultCount,
+        ]
       );
       const snapshotId = snapRes.rows[0]?.id || serpSnap.key;
       // DELETE + bulk INSERT must be atomic: a partial failure would otherwise
@@ -254,6 +278,17 @@ export async function observeOpportunity(
             ]
           );
         }
+      });
+
+      // 无感排名追踪（PRD F10、04 §9.2 一鱼多吃）：拿刚取回的名次索引比对已核验项目的
+      // 主机名。**不额外发请求**——这是这条管线唯一一次 SERP 调用，追踪搭它的车。
+      // 用主词（PRIMARY）那条查询记录排名：F10 的判据问的是"这个项目在主词上入榜了吗"，
+      // 而簇内词的名次各自的量级不同，混在一条曲线里没有意义。
+      await RankingService.recordFromSerp({
+        opportunityId: opp.id,
+        queryId: primary.id,
+        obsDate,
+        rankIndex,
       });
     }
   }

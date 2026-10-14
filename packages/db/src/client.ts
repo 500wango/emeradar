@@ -2,6 +2,13 @@ import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import dotenv from 'dotenv';
 import path from 'path';
 
+/**
+ * 事务里那个客户端的类型。转出它，是为了让上层包（`@emeradar/services`）能写出
+ * "这个函数必须在调用方的事务里执行"的签名，而不必自己依赖 `pg`——数据访问的
+ * 边界只应该有一个，多一个包直接引 `pg` 就多一处可以绕过连接池配置的地方。
+ */
+export type { PoolClient } from 'pg';
+
 // Load .env from project root if present
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 

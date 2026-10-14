@@ -180,7 +180,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | GET | `/projects`、`GET / PATCH /projects/{id}` | 列表 / 更新（状态 `IN_DEVELOPMENT` \| `LAUNCHED` \| `ARCHIVED`、域名、上线日期、页面） |
 | POST | `/projects/{id}/stake` | **提交承诺质押凭证**（ADR-018、09 §8）。体：`{ credential_type: DOMAIN_URL\|STORE_LISTING_URL\|PUBLIC_PAGE_URL, url }`。同步触发 HTTP 探针校验 `<title>`/`<h1>`/`<meta>` 与机会主词的相关性；通过 → `stake_status = 'VERIFIED'`，返回 `200`；失败 → `422 CREDENTIAL_UNVERIFIED`（附探针实际取回的关键字段，便于用户自查），`stake_status` 保持 `PENDING`，槽位不释放，可重试至 `stake_deadline_at` |
 | GET | `/projects/{id}/stake` | 当前质押状态、`stake_deadline_at`、剩余重试次数、历次校验结果 |
-| GET | `/projects/{id}/serp-rankings` | **自身项目在该机会 Top 100 快照中的入榜历史**（`date` / `rank` / `matched_url` / `matched_via`）。数据来自每日 S2 快照的内存匹配（02 §5、04 §9.5），**不消耗 GSC**。这是替代 GSC 的主追踪路径 |
+| GET | `/projects/{id}/serp-rankings` | **自身项目在该机会 Top 100 快照中的入榜历史**（`date` / `rank` / `matched_url` / `matched_via`）。数据来自每日 S2 快照的内存匹配（02 §5、04 §9.5），**不消耗 GSC**。这是替代 GSC 的主追踪路径。响应为 `{ series: [{ query_id, query_text, rows: [...] }], observed_days, first_ranked_on, days_to_first_rank, best_rank_ever }`：`rank: null` 是**正常取值**（当日未进入采集深度），这些行必须保留，否则"30 天内入榜率"的分母消失；`matched_via` 为命中该行的凭证类型（`credential_type`，00-INDEX §4.3），`STORE_LISTING_URL` 仅按主机名匹配，故其命中为线索而非证据 |
 | POST | `/projects/{id}/gsc/connect` | **可选增强项**：返回 Google OAuth `authorization_url`。仅在用户自愿连接时调用；不连接不损失任何核心战绩 |
 | GET | `/gsc/callback` | OAuth 回调（服务端处理并重定向） |
 | DELETE | `/projects/{id}/gsc` | 断开并删除令牌 |
