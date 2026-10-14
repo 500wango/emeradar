@@ -10,6 +10,7 @@ Status: Draft ｜ 依赖：01 §5、03 ｜ 被依赖：06、07、12、16
 3. 同一 `ScoringInput` 必得同一 `ScoringOutput`（bit-for-bit，含浮点：统一使用定点四舍五入到 2 位后比较）。
 4. 时间点正确性（point-in-time）：`features` 只能使用 `observed_at ≤ obs_date 23:59:59Z` 的数据；禁止前视。
 5. 每个结论附 `explanation`：命中的规则、输入值、阈值，UI 用它渲染评分分解（不需要 LLM）。
+6. **只读已冻结的快照标签（ADR-020）**：评分与历史重算一律读取快照中入库时冻结的分类字段，**重算路径不得调用 LLM**。若分类未在入库时冻结，则该快照视为无效输入——不得在评分时补跑分类，否则同一快照集合会因模型版本漂移得出不同分数，`100% 可重算`（PRD P7）失效。
 
 ## 2. 宇宙与预处理
 
@@ -41,7 +42,7 @@ Status: Draft ｜ 依赖：01 §5、03 ｜ 被依赖：06、07、12、16
 | `e_specialist_30d` | 当前 Top10 中的 SPECIALIST 域名里，在 `[t−60d, t−30d]` 的所有 Top10 快照中均未出现者的个数 |
 | `e_authoritative_30d` | 同上，域名类别为 `MAJOR_MEDIA` 或 `OFFICIAL` |
 | `volatility_30d` | `t` 与 `t−30d` 两份 Top10 中同时出现的 URL 的平均绝对排名位移，上限 10 |
-| `crowding_index` | `min(100, go_users_14d × crowding_per_user)`，`crowding_per_user` 默认 10 |
+| `crowding_index` | `min(100, Σclaimed_slots × crowding_per_slot)`，`crowding_per_slot` 默认 20。`Σclaimed_slots` 是该机会**全部形态槽位**中处于 `CLAIMED` 的总数（ADR-018、§5.1），上限 `Σcapacity`，故全部槽位占满时该项达 100 |
 | `serp_history_days` | 该机会 SERP 快照覆盖的天数 |
 
 ### 3.3 SERP 弱度
@@ -132,7 +133,7 @@ observed_share = OBSERVED 证据占本机会有效证据的比例
 - **常规 Evergreen 轨**：`history_days < 14`，或 D 轴覆盖不足（§4.1 的 `INSUFFICIENT`），或 `serp_history_days < 14`，或最近一份快照不是 §3.3 认可的自然搜索结果。
 - **Fast-Track 快车道豁免**：若机会标记为脉冲型（`history_days >= 7` 且 `new_queries_7d >= 3` 且增长加速度显著），允许以 7 天历史进入资格评估，打上 `FAST_TRACK` 标识。
 - M 轴唯一支撑是 `INFERRED`（例如查询词里的商业修饰词），且没有 observed 定价 / 结账或交易代理证据。
-- 任一关键采集源在本批失败，而调用方用空列表继续打分。
+- 任一关键采集源在本批失败且**已超出 72 小时宽限期**（该源 `source_health = FAILED`），而调用方用空列表继续打分。处于宽限期内（`source_health = STALE`）时，沿用最近一次成功快照的档位并打 `STALE_DATA`，**不触发本条件**（ADR-021）。
 
 即时追踪申请（01 F3）走这条路径：它可以保存第一次联想观测和辅助来源行，但不得调用 §5.1 的升档规则。每日批处理在资格满足后才第一次允许 `BUILD_NOW` / `EARLY_BET`。`WINDOW_CLOSING` 另外要求 `prev.verdict` 已是发布过的 `BUILD_NOW` 或 `EARLY_BET`。
 
@@ -143,8 +144,9 @@ observed_share = OBSERVED 证据占本机会有效证据的比例
 function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   const negativeM = a.m.hasStrongNegative;
 
-  // 1. 拥挤度与认领上限自激熔断（防止 Alpha Decay 公地悲剧）
-  if (a.w.isCrowdedLocked || (a.w.claimsCount >= a.w.maxClaims)) {
+  // 1. 槽位全满熔断（防止 Alpha Decay 公地悲剧）
+  // 只要有任一形态还有空槽就不算锁死；须 Σclaimed == Σcapacity 才熔断。
+  if (a.w.isCrowdedLocked || a.w.slotsClaimedTotal >= a.w.slotsCapacityTotal) {
     return WINDOW_CLOSING; // 或转入 CONTESTED，避免被更多订阅者踏平
   }
 
@@ -164,8 +166,8 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   if (isEarlyBet && a.m in {LOW, MEDIUM, INSUFFICIENT} && a.conf >= LOW && !negativeM)
     return EARLY_BET;
 
-  // 5. 窗口关闭
-  if ((prev.verdict in {BUILD_NOW, EARLY_BET} && wDroppedWithin(14)) ||
+  // 5. 窗口关闭（三个必要条件缺一不可，见下方说明）
+  if ((prev.verdict in {BUILD_NOW, EARLY_BET} && wDroppedWithin(prev.datedWBandHistory, 14)) ||
       (prev.verdict === WINDOW_CLOSING && a.w !== HIGH && a.d >= MEDIUM && daysInState(prev) <= cfg.windowClosingMaxDays))
     return WINDOW_CLOSING;
 
@@ -177,7 +179,14 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 ```
 说明：
 - **特征补偿（Compensated Build）**：当搜索需求呈现强烈脉冲拉升、且 SERP 极其虚弱无竞品占据时，即便商业变现证据仍处于中档验证期（如只有 1-2 个独立定价站或初现交易代理），系统允许补偿升档为 `BUILD_NOW`，避免好机会因教条的商业硬指标被完全漏掉。
-- **认领保护**：每条 `BUILD_NOW` 机会限制 3-5 人认领，槽位满即触发 `isCrowdedLocked`，自动转为 `WINDOW_CLOSING` 并降低后续可见性。
+- **认领保护**：槽位按 Build Archetype 切分（ADR-018）：默认每形态 `capacity = 2`，全机会 `Σcapacity ≤ 6`。`Σclaimed == Σcapacity` 时置 `isCrowdedLocked`，自动转为 `WINDOW_CLOSING` 并降低后续可见性；任一形态仍有空槽则不熔断。
+  - **活跃认领的唯一判定（D2）**：`projects.status != 'ARCHIVED'` **且** 该认领的质押不处于 `EXPIRED_RELEASED`。评分、展示、拦截三条读路径必须复用同一谓词。历史上三处曾分别写成 `!= 'ARCHIVED'` 与 `!= 'ABANDONED'`（后者不在 `projects.status` 的合法取值内，等于把归档项目也计入占用），这是必须消除的分歧。
+- **`WINDOW_CLOSING` 的三个必要条件**（缺一即不成立，见 PRD §1.7.2）：
+  1. `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`——它必须来自一条**已经发布过**的裁决；当天竞争看起来不强不是窗口关闭。
+  2. W 档在 `obs_date` **前 14 天内**下降 ≥ 1 档。这要求降档历史是**带日期**的 `(obs_date, w_band)` 序列；仅有档位数组无法判定"14 天内"，会让任意久远的降档在今天触发窗口关闭。
+  3. 该判定不得由处于 `STALE_DATA` 的轴触发（ADR-021）。
+  例外：全部槽位满额触发的 `CROWDED_LOCKED` 熔断可直接置 `WINDOW_CLOSING`（第 1 条已满足，因为能认领的机会必然是已发布裁决）。
+- **`STALE_DATA` 与降档抑制（ADR-021）**：某轴处于 72 小时宽限期内时，沿用最近成功快照的档位并打 `STALE_DATA`。此时**不得发布降档 Verdict、不得投递降级告警**——偶发采集故障不能被用户读成"竞争格局变了"。连续失败超 72 小时后该轴才置 `INSUFFICIENT`，届时恢复正常的降档与告警路径。
 - `EARLY_BET` 的界面必须带"商业未验证"标记（16）。
 - `windowClosingMaxDays` 默认 30，超时后回落到 `WATCH` 或 `PASS`。
 
@@ -197,7 +206,8 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 | `PARTIAL_DATA` | 任一轴 `INSUFFICIENT`，或宇宙过小 |
 | `BASELINE_PERIOD` | 机会仍在基线期内 |
 | `FAST_TRACK` | 经 7 天脉冲快车道评估晋级 |
-| `CROWDED_LOCKED` | 认领槽位已满（>= 5），窗口对公域关闭 |
+| `CROWDED_LOCKED` | 该机会**全部形态**槽位已满（`Σclaimed == Σcapacity`，默认上限 6），窗口对公域关闭 |
+| `STALE_DATA` | 本次评估的至少一个轴复用了 72 小时宽限期内的历史快照（该源 `source_health = STALE`）。带此 flag 时不得发布降档、不得触发降级告警（ADR-021） |
 
 ## 6. 生命周期
 
@@ -240,7 +250,7 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
     "relevance_adj": { "lt": 0.5, "add": 0.2 },
     "pressure": { "specialist": 30, "authoritative": 40, "volatility": 3 },
     "score_weights": { "serp": 0.60, "pressure": 0.25, "crowding": 0.15 },
-    "crowding_per_user": 10,
+    "crowding_per_slot": 20,
     "bands": { "high": 70, "medium": 45 },
     "min_serp_history_days": 14
   },
@@ -249,7 +259,10 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   "verdict": { "confirm_days": { "upgrade": 2, "downgrade": 2 }, "window_closing_max_days": 30,
                "build_now_target_share_max": 0.05 },
   "lifecycle": { "confirm_days": 3, "contested_entrants": 2, "mature_days": 60,
-                 "dead": { "ratio": 0.6, "days": 60 } }
+                 "dead": { "ratio": 0.6, "days": 60 } },
+  "slots": { "default_capacity_per_archetype": 2, "max_capacity_total": 6,
+             "max_active_go_per_user": 2, "stake_window_days": 7 },
+  "staleness": { "grace_hours": 72 }
 }
 ```
 
@@ -289,6 +302,9 @@ recompute(opportunityId, obsDate, configVersion): {
 - 特征缺失 / 覆盖率不足 / 宇宙过小；
 - 同输入重复运行结果一致；
 - 无前视：把 `obs_date` 之后的数据注入输入，输出不得变化。
+- **槽位（ADR-018）**：`Σclaimed == Σcapacity` 熔断；仅某个形态占满而其他形态仍有空槽时**不得**熔断；认领谓词一致性——已归档项目不得计入占用；
+- **`WINDOW_CLOSING` 前置裁决**：降档发生在 14 天窗口内才触发；降档发生在 30 天前时不得触发；无前置已发布裁决时低 W 只能落入 `WATCH` 或 `PASS`；
+- **`STALE_DATA`（ADR-021）**：源处于 72 小时宽限期内时沿用昨日档位、打 `STALE_DATA`、不发布降档且不产生告警；连续失败 73 小时后该轴才置 `INSUFFICIENT` 并恢复降档路径。
 
 ## 11. 推荐层：Build Type 与 Monetization 路线
 

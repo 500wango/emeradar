@@ -5,7 +5,7 @@ Status: Draft ｜ 依赖：00-INDEX、01 §10、02、17、18 ｜ 被依赖：全
 ## 1. 团队假设与资源约束
 
 * **团队规模**：2–3 名全栈工程师（熟悉 TypeScript、Next.js、PostgreSQL 与 LLM 编排）；
-* **运维策略**：最小化运维面，严禁为了局部优化过早引入 Redis、Kafka 或微服务拆分；
+* **运维策略**：最小化运维面，首发**不引入独立的缓存 / 消息中间件（Redis、Kafka）或微服务拆分**。Fast Lane 的全局令牌桶与 7 天去重不新建缓存层，而是复用 Postgres：令牌桶走 `rate_limit_buckets`（原子条件递增），7 天去重直接查询 7 天内的 `serp_snapshots` 并复用不可变快照（ADR-003 已修订，见 ADR-017）；队列与调度使用 `pg-boss`（ADR-003）；
 * **硬性工期约束**：阶段周期严格按当前人员带宽设定，**严禁靠堆砌范围或赶工削减测试与合规环节**。任一阶段未通过 Gate，先修假设与核心质量，不盲目进入下一阶段（01 §3.2）。
 
 ---
@@ -28,10 +28,17 @@ flowchart TD
     E11[Epic 1.1 Next.js 控制台与Feed] --> E12[Epic 1.2 详情页与全局证据抽屉]
     E12 --> E13[Epic 1.3 机会研究报告生成与导出工作台]
     E11 --> E14[Epic 1.4 Watchlist与Kill Criteria引擎]
-    E11 --> E15[Epic 1.5 Project与GSC只读同步]
+    E11 --> E15[Epic 1.5 Project多凭证质押核验与SERP追踪]
     E11 --> E16[Epic 1.6 MoR计费与Entitlement原子预占]
-    E12 --> E17[Epic 1.7 公开站S8发布流与Track Record]
-    E13 & E15 & E16 --> E18[Epic 1.8 Design Partner运营与出货跟进]
+    E12 --> E17[Epic 1.7 公开站S8发布流与Cohort战绩矩阵]
+    E12 --> E19[Epic 1.9 Launch Kit 导出]
+    E12 --> E20[Epic 1.10 形态锁槽与原子 GO]
+    E11 --> E21[Epic 1.11 两阶段自定义词初筛]
+    E11 --> E22[Epic 1.12 候选池只读]
+    E20 --> E23[Epic 1.13 承诺质押核验]
+    E20 --> E24[Epic 1.14 处女地买断与延迟解密]
+    E11 --> E25[Epic 1.15 反滥用引擎]
+    E13 & E15 & E16 & E19 --> E18[Epic 1.8 Design Partner运营与出货跟进]
   end
 
   E18 -->|通过 Gate 1| P2[Phase 2: 扩展与商业化]
@@ -71,14 +78,21 @@ flowchart TD
 | **Epic 1.2** | 机会工作台与证据抽屉 | Detail 页面 9 大决策板块按序展开；SERP 弱度具体展示；商业证据“证明/未证明”双栏面板；全局滑动证据抽屉（Zustand） | 前端 |
 | **Epic 1.3** | 机会研究报告生成与导出工作台 | 结构化 6 大板块展示；MD/JSON/PDF 多格式导出；基于此机会立项闭环；Entitlement 配额 Hold&Release 联动 | 前后端 |
 | **Epic 1.4** | 告警规则与 Kill Criteria | 闭环枚举 DSL 评估引擎；一键采纳系统 Kill criteria；Email 与通用 Webhook（含 Slack/Discord 包装）投递与频控 | 后端 |
-| **Epic 1.5** | 出货管理与 GSC 结果回流 | 域名轻量可用性探测快速点亮 `LAUNCHED`；Google OAuth 授权集成；周调度拉取曝光/点击并绘制趋势图 | 全栈 |
+| **Epic 1.5** | Project 多凭证质押核验与无感 SERP 排名追踪 | 3 类上线凭证（域名 / 商店详情页 / 公开落地页或 GitHub Release）的轻量 HTTP 探针核验（`<title>`/`<h1>`/`<meta>` 相关性）；7 天逾期释放槽位（配额不退）；每周复用 F1 Top 100 快照在内存匹配已核验项目域名 / 商店链接，绘制排名爬升曲线（`project_serp_rankings`）。GSC 只读 OAuth 为**可选增强项**，不作前置 | 全栈 |
 | **Epic 1.6** | MoR 计费与原子配额引擎 | 集成 MoR 托管结账与 Webhook；`EntitlementService` 实现入队原子预占（`reserve`）与彻底失败补偿（`refund`）；配额耗尽引导 UX | 全栈 |
-| **Epic 1.7** | 公开站发布流与 Track Record | S8 公开投影计算；延迟资格规则（T+45d & W降档）；`/track-record` 战绩大盘渲染与 Merkle 根校验入口；自动 Sitemap | 全栈 |
-| **Epic 1.8** | 伙伴验证与立项闭环跟踪 | 引入 10–30 个出海 Design Partner；端到端跟踪 GO → 导出报告 → 实际立项出货；每周收集产品反馈与 Rubric 抽检 | 全员 |
+| **Epic 1.7** | 公开站发布流与 Cohort 战绩矩阵 | S8 公开投影计算；**准实时精选资格（`CROWDED_LOCKED` / `WINDOW_CLOSING`，PRD §7.1 已废除 45 天延迟）**；`/track-record` 的 Cohorts Hit Rate & Accuracy Matrix 渲染与底栏 Merkle 根校验入口；自动 Sitemap | 全栈 |
+| **Epic 1.8** | 伙伴验证与立项闭环跟踪 | 引入 10–30 个出海 Design Partner；端到端跟踪 GO → 导出报告与点火包 → 实际立项出货；每周收集产品反馈与 Rubric 抽检 | 全员 |
+| **Epic 1.9** | Launch Kit 导出（F8 交付物二） | 按所选 Build Archetype 动态装配 `.cursorrules` / `CLAUDE.md`、PSEO 路由词表（CSV/JSON）与 Landing Page 骨架（Markdown）；硬数据由确定性模板占位符注入（ADR-019）；与 GO 原子绑定后方可下载 | 前后端 |
+| **Epic 1.10** | 形态锁槽与原子 GO（ADR-018） | `opportunity_slots` / `slot_claims` 表与认领谓词统一；GO 在**同一事务**内完成「占槽 + 扣月度导出配额 + 建 Project + 解锁点火包」；每人最多 2 个活跃 GO；`Σclaimed == Σcapacity` 熔断置 `CROWDED_LOCKED` | 后端 |
+| **Epic 1.11** | 两阶段自定义词初筛沙盒（F3） | 第 1 阶段 Fast Lane 静态初筛卡（含 3 个官方 Demo 热词）；Free 半遮罩打码（弱结果 URL / 收钱域名 / 15 长尾词）；第 2 阶段 7 天脉冲雷达（Pro） | 前后端 |
+| **Epic 1.12** | 候选池只读（Watching Queue，F3） | 处于观察积累期（`CANDIDATE` / `WATCH` + `PARTIAL_DATA`）的异动流对试用与免费用户**只读**开放，不暴露可认领空槽 | 前后端 |
+| **Epic 1.13** | 承诺质押核验（Commitment Stake，F10） | 7 天质押窗口与逾期释放（`EXPIRED_RELEASED`，配额不退）；每日逾期待办释放槽位（03 I12）；与 Epic 1.5 共享凭证探针 | 后端 |
+| **Epic 1.14** | 处女地独占买断与延迟解密（Stealth Lock，F4/F13） | 仅 `Σclaimed == 0` 开放下单（03 I13）；`stealth_locks` + 60 天 `stealth_lock_displays` 打码；账本照常计入 Cohort 胜率，期满自动解密公开具体词根 | 前后端 |
+| **Epic 1.15** | 反滥用引擎（F14、13 §7.1、17 §2.5） | 邮箱 Canonical 归一化与一次性邮箱黑名单；GitHub/Google OAuth 强绑定；设备指纹与 IP 的加盐哈希存储与「同设备/IP 30 天 1 次」限流；注销时保留 `lifetime_scan_grants` 哈希、删除 `device_fingerprints` | 后端 |
 
 ### Gate 1 交付门槛（公开发布 Release 1.0 的红线）
 1. **战绩账本真实公开**：预测账本在生产环境连续运行 $\ge 60$ 天，战绩页完整公开历史预测的命中与失误名单，拒绝任何事后粉饰；
-2. **出货转化率达标（H4）**：在 Design Partner 样本中，点击 GO 的机会在 30 天内上线出货率 $\ge 30\%$；
+2. **出货转化率达标（H4）**：Design Partner 样本中，点击 GO 后 **7 天内上线凭证核验通过率 $\ge 40\%$**，且 **30 天内进入 SERP Top 100 比例 $\ge 30\%$**（以系统自身 SERP 管线追踪为准，不依赖用户 GSC 授权）；
 3. **真实付费转化**：沉淀 $\ge 10$ 名稳定付费 Pro 订阅用户；
 4. **服务质量 SLA**：核心 Feed/Detail p95 响应时间稳定 $< 1.5$ 秒，批处理管线连续 14 天于 06:30 UTC 前准时完成。
 
@@ -91,7 +105,12 @@ flowchart TD
 * **智能 Copilot 对话助手**：严格限定于平台快照数据的问答，每一句回答必须强制注入平台 `evidence_id`，杜绝通用聊天；
 * **拓展中文出海市场**：验证 `zh-CN` 研究语言与相应分词聚类；
 * **扩展出货形态**：支持 `API_DEVTOOL` 与 `MANAGED_SERVICE` 对应的机会分析；
-* **GSC 真实出货结果自动反哺校准评分阈值**。
+* **出货结果反哺校准评分阈值**：默认以自身 SERP 管线的 Top 100 入榜与排名爬升作为校准主依据；GSC 只读数据为**可选补充**（仅对自愿连接的用户生效，非评分校准的前置条件）。
+
+### Gate 2 交付门槛（进入 Phase 3 的红线）
+1. **核心漏斗跑通**：「Demo 体验 → 终身 1 次半遮罩初筛 → Pro 付费」的转化率跑通；
+2. **Builder-outcome precision 可公开**：$\ge 30$ 个已核验项目完成至少 30 天的 SERP 排名无感追踪，可对外发布真实的 Builder-outcome precision；
+3. **留存与结构达标**：季度 Builder Pass 购买占比与次月留存达到目标。
 
 ### Phase 3：规模化增长（视 Gate 2 达成情况启动）
 * **Programmatic SEO 矩阵规模化扩张**；

@@ -97,10 +97,12 @@ packages/
 | S8 | Projections | 06:00 | 账本与业务表 | 读模型、public projection、sitemap | 是 |
 
 - **SLA**：S1–S8 于 06:30 UTC 前完成；账本 checkpoint 于 07:00 前公开。
-- **屏障规则与快照批次硬冻结（Snapshot Batch Sealing）**：S4 开始前等待 S2/S3 全部完成或到达 04:30 超时。到达超时时，执行原子批次冻结：将当日 `collector_runs` 中仍处于 `RUNNING` 的作业标记为 `FAILED/TIMEOUT`；S4 特征构建查询时，**强制仅读取 `run_id` 属于已终态为 `SUCCEEDED` 或 `PARTIAL` 的快照记录**，严禁读取超时后迟到写入的数据，彻底规避并发脏读并保障回测与重算 100% 确定性（P7）。超时的来源标记为 `failed`，对应特征标 `stale`，覆盖率下降 → 轴分档可能转为 `INSUFFICIENT`，**永远不阻塞管线**。
+- **屏障规则与快照批次硬冻结（Snapshot Batch Sealing）**：S4 开始前等待 S2/S3 全部完成或到达 04:30 超时。到达超时时，执行原子批次冻结：将当日 `collector_runs` 中仍处于 `RUNNING` 的作业标记为 `FAILED/TIMEOUT`；S4 特征构建查询时，**强制仅读取 `run_id` 属于已终态为 `SUCCEEDED` 或 `PARTIAL` 的快照记录**，严禁读取超时后迟到写入的数据，彻底规避并发脏读并保障回测与重算 100% 确定性（P7）。超时的来源标记为 `failed`；若该源在 72 小时宽限期内（`source_health = STALE`）则沿用最近成功档位并打 `STALE_DATA`，**超 72h 宽限期后**覆盖率下降才可能把该轴转为 `INSUFFICIENT`（ADR-021、§5.3）。**永远不阻塞管线**。
 - **单元隔离**：collector 按 `(source, batch)` 分作业；一个作业失败只影响该源。
-- **S6 单写入者约束（ADR-014）**：`verdicts` 表的哈希链要求"同一 `obs_date` 内按 `opportunity_id` 升序前后依赖"，因此 S6 **只能由一个 Worker 实例执行**，禁止多实例并发写入该表。实现：S5 输出全部落入 `verdicts_pending` 暂存表（无哈希链约束，可并发写）；S6 由单一进程读取当日全部暂存行，按 `opportunity_id` 排序后在内存中串行计算 `row_hash` 与 Merkle 根，最后单次批量 `COPY` 写入 `verdicts` 并清空暂存表。追踪池规模（≤ 2,000 机会）下，此串行内存计算 + 批量提交预期在数百毫秒至数秒内完成，不构成管线瓶颈；若追踪池规模显著增长（见 04 §11），需重新评估是否引入分桶两级 Merkle 结构。
+- **S6 单写入者约束（ADR-014）**：`verdicts` 表的哈希链要求"同一 `obs_date` 内按 `opportunity_id` 升序前后依赖"，因此 S6 **只能由一个 Worker 实例执行**，禁止多实例并发写入该表。实现：S5 输出全部落入 `verdicts_pending` 暂存表（无哈希链约束，可并发写）；S6 由单一进程读取当日全部暂存行，按 `opportunity_id` 排序后在内存中串行计算 `row_hash` 与 Merkle 根，最后单次批量 `COPY` 写入 `verdicts` 并清空暂存表。追踪池规模（≤ 2,000 机会）下，此串行内存计算 + 批量提交预期在数百毫秒至数秒内完成，不构成管线瓶颈；若追踪池规模显著增长（见 04 §4.4），需重新评估是否引入分桶两级 Merkle 结构。
   调度层通过 pg-boss 的单例作业（同一 `obs_date` 的 S6 任务加咨询锁 `pg_advisory_lock`）保证同一时刻至多一个 S6 实例在跑，重复调度直接跳过。
+- **项目 SERP 排名匹配（零新增请求，PRD F1.1）**：S2 采集 Top 100 快照（`num=100`，见 04 §4）时，在内存中顺带匹配 `project_credentials.host`（已核验项目的域名 / 商店链接），产出 `project_serp_rankings`（rank 1–100；`best_rank IS NULL` 表示当日未入榜）。**严禁为追踪项目单独发起 SERP 请求**——rank 11–100 的匹配不产生额外采集成本。
+- **Merkle 定位（后台存证，PRD §1.7 第 7 条）**：S6 计算并封存 Merkle 根，作为**后台不可篡改的技术存证**；前台主打 **Cohort Hit Rate & Accuracy Matrix（公开战绩大盘与失误复盘）**，仅在公开站底栏留一个 Merkle 根校验入口。两者不互相替代：校验入口证明"账本未被篡改"，战绩大盘回答"判断准不准"。公开投影由 S8 另行生成（15）。
 
 ### 5.1 队列与调度（ADR-003 的落地形态）
 
@@ -116,6 +118,8 @@ packages/
 | `sync-gsc` | `0 5 * * *` | 2 次，退避 600s | 30m | 连续 2 次 |
 | `evaluate-episodes` | `0 6 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
 | `sweep-subscriptions` | `15 6 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
+| `release-expired-stakes` | `30 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
+| `expire-stealth-locks` | `45 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `verify-ledger` | `0 7 * * *` | **不重试** | 15m | 连续 1 次（P0） |
 | `assess-commercial` | 仅手工 | 不重试 | 15m | — |
 
@@ -124,6 +128,48 @@ packages/
 - **`verify-ledger` 默认验最新检查点，不是"今天"**：账本只在有裁决的日子推进，"今天没有检查点"是常态而非故障。把它当失败会让 P0 通道每天说一次假话，真话也就没人看了。
 - **队列参数不会因重新部署而更新**：pg-boss 的 `createQueue` 是 `ON CONFLICT DO NOTHING`。改重试次数需要显式 `UPDATE pgboss.queue`，这条与 `schema.sql` 里"无条件谓词每次部署重放"的教训同源。
 - **发布节奏不依赖时钟对齐**：`run-daily` 在 03:30 UTC、最迟 07:00 出验证结果，与 §5 的 SLA 一致；cron 表达式显式带 `tz: 'UTC'`，不依赖宿主机时区。
+- **质押逾期释放（`release-expired-stakes`，PRD §1.7 第 5 条、03 I12）**：扫 `projects` 中 `stake_status = 'PENDING'` 且 `stake_deadline_at < now()` 的行，将质押置 `EXPIRED_RELEASED`、释放对应 `opportunity_slots` 槽位（`slot_state → RELEASED`）并写审计；**已扣减的月度导出配额不退还**（ADR-018）。释放后该槽位重新对公域开放。
+- **买断到期解密（`expire-stealth-locks`，PRD §1.7 第 7 条）**：扫 `stealth_locks` 中 `status = 'ACTIVE'` 且 `unlock_at ≤ now()` 的行，置 `status = 'EXPIRED'`，并刷新公开投影——解除 `[Stealth Locked #ID]` 打码、公开具体词根（03 §stealth_locks、06 §7、15 §3）。账本行本身不改写，只改展示投影。
+- **项目 SERP 排名匹配**：不是独立定时任务，随 S2 的 Top 100 快照采集在内存阶段完成（见 §5 说明），因此不占单独队列。
+
+### 5.2 双通道管线（Fast Lane / Slow Lane，ADR-017）
+
+PRD F1.2 要求把"用户主动触发的即时初筛"与"系统例行观测"彻底隔离，避免前端交互的突发流量与批量巡检互相踩踏供应商配额、触发 429。两条通道共用同一份快照表与同一套采集器契约（04 §3），但调度、预算与速率上限各自独立。
+
+| 通道 | 服务对象 | 触发 | 速率与并发 | 时延目标 | 承载 |
+|---|---|---|---|---|---|
+| **Fast Lane** | 前端主动触发的「即时初筛」（F3 第 1 阶段） | 用户请求（`apps/web` → worker 短任务） | 全局令牌桶 ≤ 5 req/s | 缓存命中 < 200ms；实时采集 < 8s（PRD §9.3） | 高优先级即时任务 |
+| **Slow Lane** | 每日例行观测（S2）与每周战绩回测 | pg-boss 定时 / 分发 | 走供应商低价异步队列；全天任务均匀打散在 24h 窗口 | 无硬时延要求，容忍小时级 | `apps/worker` 批处理队列 |
+
+**削峰与去重不引入 Redis（ADR-017，修订 ADR-003）**
+- **全局令牌桶**：复用 `rate_limit_buckets`（`bucket_key / count / reset_at`，见 `apps/web/src/lib/rate-limit.ts`），以单条 `INSERT ... ON CONFLICT DO UPDATE` 的原子条件递增实现"全局 ≤ 5 req/s"计数。Fast Lane 每次外部请求前必须先取桶；桶满则排队或降级为读最近快照。
+- **7 天全局去重**：**不建缓存层**。Fast Lane 收到查询时，先查 `serp_snapshots` 中 7 天内同 `(query, market_country, research_language)` 的最近一份快照直接复用（缓存命中，API 成本为 0）。快照本就不可变，把它当缓存复用即可；引入 Redis 反而会造出**第二份可能与账本不一致的事实源**（ADR-017）。
+- 追踪池规模（≤ 2,000 机会，§11）下，Postgres 足以承担"按 key 的一次原子读写"；若压测不达标，再按 ADR-003 的推翻流程引入外部缓存。
+
+**Slow Lane 的 24 小时均匀打散（pg-boss 落地，ADR-003）**
+
+仓库实际使用 **pg-boss**（PRD 正文里写的 BullMQ 只是举例，以本仓库实现为准）。做法：
+
+1. `run-daily`（或 S1/S2 的分发作业）读当日采集计划，得到 N 个待采条目；
+2. 逐个 `boss.send('collect', item, { startAfter })` 入队，第 i 个的 `startAfter = windowStart + i × (86400 / N)` 秒（均匀铺满 24h），必要时叠加 ±抖动以错开供应商侧的精确定时；
+3. pg-boss 在到达 `startAfter` 之前不投递该 job，消费者在 24h 内匀速取件，从而**杜绝整点并发尖峰与 429**；
+4. 重试与死信沿用 §5.1 统一策略；`send` / `createQueue` 的参数不会因重新部署而自动刷新（同 §5.1 的 `ON CONFLICT DO NOTHING` 教训），调整打散窗口需显式改代码并观察。
+
+**Fast Lane 不做打散**（它对时延敏感，必须即时响应），只有 Slow Lane 铺开到 24h。
+
+### 5.3 采集源 72 小时优雅降级（ADR-021，PRD §1.6 / F1.3）
+
+单源偶发失败不得被用户读成"竞争格局变了"。判定位置在**每日管线的 S2→S4 之间**（源健康度评估），执行位置在 **S5 评分**：
+
+1. **S2/S3 落库时按源维护 `last_success_at`**（该源最近一次 `SUCCEEDED` 采集的成功时刻，可由 `collector_runs.finished_at` 推导；每个源只服务一条轴，见 PRD §1.6）。
+2. **S4 特征构建前评估源健康度**，写入 `source_health` 枚举（`OK` / `STALE` / `FAILED`，定义见 00 §4.3）：
+   - 本批成功 → `OK`；
+   - 本批失败但 `now − last_success_at ≤ 72h` → `STALE`：特征**沿用最近一次成功快照的档位**，不重算、不置 `INSUFFICIENT`；
+   - 本批失败且已超 72h → `FAILED`：该轴置 `INSUFFICIENT`。
+3. **S5 评分只读该状态**：处于 `STALE` 的轴沿用上一档并打 `STALE_DATA`；**此时不得发布降档 Verdict、不得投递降级告警**（05 §5.1 / §5.3、12）；S7 告警阶段据此跳过。
+4. 连续失败超 72 小时后，恢复正常降档与告警路径。
+
+`source_health` 同时通过 Admin Source health 面板暴露（F14），并区分 Fast Lane 与 Slow Lane 的失败来源。
 
 ## 6. 确定性边界
 
@@ -181,7 +227,7 @@ Query 注册（去重键：normalized text + market + language）
   3. `opportunity_cards_prev` 保留至下次刷新前，供当次切换出问题时手动回滚。
   Feed 查询任何时刻只读到完整的一份数据，不会看到"正在刷新中"的部分行。
 - Detail 由 `verdicts` 最新行 + 快照聚合，结果按 `(opportunity_id, obs_date, locale)` 缓存于 Postgres 表与 HTTP 缓存头。
-- 首发不引入 Redis。限流使用 Postgres 计数（令牌桶实现在 `EntitlementService` 内）；若压测不达标再引入。
+- 首发不引入 Redis（ADR-003 修订、ADR-017）。限流使用 Postgres 计数：全局令牌桶复用 `rate_limit_buckets`（§5.2，实现在 `EntitlementService` / `apps/web/src/lib/rate-limit.ts` 内），7 天全局去重复用 `serp_snapshots`；若压测不达标再按 ADR-003 的推翻流程引入。
 - 搜索：Postgres FTS + `pg_trgm`。
 
 ## 10. 存储与保留
@@ -197,7 +243,7 @@ Query 注册（去重键：normalized text + market + language）
 ## 11. 容量假设（首发，参数化）
 | 参数 | 初始值 | 说明 |
 |------|--------|------|
-| Tier A query | 500–2,000 | 每日 SERP Top10 |
+| Tier A query | 500–2,000 | 每日 SERP Top 100（一鱼多吃，rank 1–10 服务弱点计算、11–100 内存匹配项目） |
 | Tier B query | 5,000–10,000 | 每周 SERP |
 | Tier C（仅 autocomplete） | 50,000 | 每日 |
 | 商业目标域名 | 2,000–5,000 | 每周爬取 |
@@ -217,8 +263,8 @@ Query 注册（去重键：normalized text + market + language）
 
 | 场景 | 行为 |
 |------|------|
-| SERP 供应商不可用 | 该批 SERP 标 `failed`；W 轴对应机会转 `INSUFFICIENT`；触发 Admin 告警；不阻塞其他阶段 |
-| LLM 不可用 | 分类队列积压；新结果类型为 `UNCLASSIFIED`，按规则兜底（不参与"弱结果"加分）；机会报告生成返回 `QUEUED` |
-| 商业爬取失败 | 沿用最近快照，Evidence 新鲜度衰减；连续失败 ≥ 3 次的域名降级 |
+| SERP 供应商不可用 | 该批 SERP 标 `failed`；**72h 内** W 轴沿用最近成功快照并打 `STALE_DATA`（不降档、不告警）；**超 72h** 才转 `INSUFFICIENT` 并触发 Admin 告警；不阻塞其他阶段（ADR-021、§5.3） |
+| LLM 不可用 | 分类队列积压；新结果类型为 `UNCLASSIFIED`，按规则兜底（不参与"弱结果"加分）；机会报告 / 点火包生成返回 `QUEUED` |
+| 商业爬取失败 | **72h 内**沿用最近商业快照并打 `STALE_DATA`（M 轴不降档、不告警）；**超 72h** M 轴转 `INSUFFICIENT`；Evidence 新鲜度衰减；连续失败 ≥ 3 次的域名降级（ADR-021、§5.3） |
 | 预算触顶 | 自动降级：B 层降为双周 → 暂停 Discovery 扩展 → 暂停新 Tier A 升级（04 §6） |
 | 评分作业失败 | 当日不写账本、不发告警，告警值班；次日补跑，账本对缺失日期显式记录 `MISSING` |

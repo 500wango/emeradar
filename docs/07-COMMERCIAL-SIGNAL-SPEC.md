@@ -72,7 +72,8 @@ interface CommercialSummary {
   sampledDomains: number;                    // 近 30 天有成功快照的目标域名数
   sampleCoverage: number;                    // 成功快照 / max(1, 目标总数 - 因 robots.txt 禁爬域名数)
   independentPricedDomains: number;          // P：独立且有 PAID_TIER 或 CHECKOUT 的域名数
-  persistentPricedDomains: number;           // 满足持续性者
+  persistentPricedDomains: number;           // 满足持续性者（§7）
+  persistentGrowingDomains: number;          // 持续性窗口内，至少一个观测指标（自然搜索排名 / 评论计数 / 外链）出现非零正增长的持续域名数；用于排除僵尸定价站（§6.1、§7）
   revenueEvidence: {
     observed: number;                        // PLATFORM_REPORTED_REVENUE + PLATFORM_COUNTER(销售)
     selfReported: number;                    // SELF_REPORTED_REVENUE + SITE_CLAIMED_COUNTER
@@ -95,11 +96,13 @@ interface CommercialSummary {
 | 档 | 条件 |
 |----|------|
 | `INSUFFICIENT` | `sampledDomains < 3` 或 `sampleCoverage < 0.6` |
-| `HIGH` | `P ≥ 2` ∧（`revenueEvidence.observed + selfReported ≥ 1` ∨ `hasTransactionTraction` ∨ `persistentPricedDomains ≥ 1`） |
+| `HIGH` | `P ≥ 2` ∧（`revenueEvidence.observed + selfReported ≥ 1` ∨ `hasTransactionTraction` ∨（`persistentPricedDomains ≥ 1` ∧ `persistentGrowingDomains ≥ 1`）） |
 | `MEDIUM` | `P ≥ 2` ∨（`P ≥ 1` ∧ (`categoryOrAnalogPricedDomains ≥ 1` ∨ `hasTransactionTraction`)） |
 | `LOW` | 其余（含仅 `intentQueryCount`、仅 `infraOnlyDomains`、`P = 1` 且无交易代理的装饰性定价） |
 
 - **防“有人收费 ≠ 有人付费”**：单纯有 2 个域名挂静态 Pricing 表或支付按钮但 0 交易声量、0 真实流量、0 评价增长（`pricingDecorationOnly = true`）时，**禁止直接定为 HIGH**；上限仅为 `MEDIUM`。要达到 `HIGH`，必须有 `hasTransactionTraction`（交易动量证据）或持续性/营收证据支撑。
+- **僵尸定价站过滤（PRD §5.6）**：走持续性分支达到 `HIGH` 时，除"定价 / checkout 在 ≥ 90 天快照中持续存在"外，还要求**在此期间站点的自然搜索排名、评论计数或外链指标存在非零正增长**（即 `persistentGrowingDomains ≥ 1`）。定价长期挂着而排名、评论、外链三项全无增长，说明是"有基础设施但没人来"的僵尸定价站，**不得因足够长的持续性就升为 `HIGH`**。
+- **与 `PRICING_DECORATION` 的区别**：`PRICING_DECORATION` 描述的是"**只有基础设施**"——检测到支付按钮 / 定价页即成立，本身不含时间维度，上限 `LOW`（单站）或弱 `MEDIUM`（多站）。僵尸定价站描述的是"**有基础设施且长期存在，但没人来**"——它已经过了持续性门槛，缺的是增长证据，因此与纯装饰性定价是**两个不同的拦截点**：前者卡在"没有交易痕迹"，后者卡在"没有增长痕迹"。两者都不允许达到 `HIGH`。
 - `P` 只计 `OBSERVED` 且在 `evidence_max_age_days`（默认 120）内的证据。
 - **robots.txt 剔除规则**：`sampleCoverage` 的分母必须剔除被 `robots.txt` 明确禁爬（`SKIPPED/ROBOTS_DISALLOWED`）的目标域名，防止因合规爬虫行为导致商业性强的机会被永久误判为 `INSUFFICIENT`；剔除情况在商业面板与证据抽屉显式注明。
 - **强负面**（`hasStrongNegative`）：`NEG_SHUTDOWN_NOTICE`（针对 DIRECT 域名）；或 `NEG_PRICING_REMOVED` / `NEG_PAID_TO_FREE` 在 ≥ 2 个独立域名同时出现。
@@ -130,8 +133,28 @@ corroboration = 1（≥ 2 种不同证据类型支持同一域名）| 0.5（1 �
 ```
 分档：`HIGH ≥ 70`、`MEDIUM ≥ 40`、否则 `LOW`；展示时与 M 轴并列，不合并。
 
+### 6.4 新晋赢家雷达（`PROVEN_NEW_ENTRANT`，PRD §1.7.3）
+在商业信号管线之上叠加一条**识别规则**（不改变 §6.1 的 M 轴分档，只产出卡片徽章）——当以下三条同时成立时，标记该机会含新晋赢家：
+
+1. **独立域名上线不满 6 个月**：判据只能来自 `domains.established_at` / `domains.established_source`（03 §6）。
+2. **闯入 SERP Top 5**：来自 F1 / F6 的 Top 100 自然搜索快照（`serp_results`，rank ≤ 5）。
+3. **具备 `COMMERCIAL_TRACTION`**：即 observation 级交易代理证据（§3 的 `TRANSACTION_TRACTION_OBSERVED` / 平台计数 / 销售徽章等），而非仅 `PRICING_DECORATION`。
+
+**硬性规则——来源为空时不得推断上线时间**：
+
+- `established_source` 为空（或无可考证依据：注册记录、首次索引、商店上架）时，**不得推断该域名的上线时间**，因此**不得**把它判为新晋赢家。
+- **尤其不得用 `first_observed_at` 冒充上线时间**。`first_observed_at` 是"首次被本系统观测到"（PRD §5.3），与域名何时上线无关：一个 2019 年的老站今天首次进入我们的追踪池，`first_observed_at` 是今天，但它显然不是"上线不满 6 个月"。
+- 该限制让"新晋赢家"成为一个**可证伪**的标记：它只基于外部可考证依据，不基于本系统的观测起点。
+
+**与 `NEW_AUTHORITATIVE_ENTRANT` 的区别**：后者指**权威域名**（`OFFICIAL` / `MAJOR_MEDIA`）进入 Top10，是竞争加剧的信号，属告警触发器（12 §2）；`PROVEN_NEW_ENTRANT` 指**新独立站**跑通变现，是"反向克隆"的正向示范（01 §1.5、F2）。两者不是同一概念，不可混称。
+
 ## 7. 持续性
-- 域名的定价 / checkout 在快照中满足：**≥ 3 次成功快照，跨度 ≥ `persistence_days`（默认 90），期间无 `NEG_PRICING_REMOVED`**，即为持续。
+- 域名的定价 / checkout 在快照中满足：**≥ 3 次成功快照，跨度 ≥ `persistence_days`（默认 90），期间无 `NEG_PRICING_REMOVED`**，即为持续（`persistentPricedDomains`）。
+- **持续性 ≠ 有生意（僵尸定价站过滤，PRD §5.6）**：持续性本身只能证明"这套定价被长期运营"，不能证明"有人来"。因此 §6.1 的 `HIGH` 持续性分支额外要求 **`persistentGrowingDomains ≥ 1`**——在同一个 ≥ 90 天窗口内，该站点至少有一个观测指标出现非零正增长：
+  - 自然搜索排名（Top 100 快照中位排名改善，或首次入榜）；
+  - 评论 / 安装计数（`PLATFORM_COUNTER` / `TRANSACTION_TRACTION_OBSERVED`）环比为正；
+  - 外链指标（若采集到）为正。
+  三项全平或全无数据的持续站，判为**僵尸定价站**，不得凭"挂得久"升为 `HIGH`——其上限与 `PRICING_DECORATION` 一致（单站 `LOW` / 多站弱 `MEDIUM`）。
 - 快照频率：目标域名每周一次（Tier A 每 3 日），因此 90 天内正常有 ≥ 12 次机会；缺失快照不视为"消失"，连续 3 次抓取失败才降级并标注。
 - 冷启动限制：系统运行不足 90 天时，`PERSISTENCE` 不可能成立；分档只能通过营收证据达到 `HIGH`，界面显示"持续性验证尚需 N 天"。
 
@@ -191,3 +214,8 @@ Tier 2（无头浏览器渲染后）仍未提取到任何价格文本时，视�
 | 站点自述与平台计数矛盾 | 两条并存，写矛盾记录 |
 | 强负面出现 | 降 1 档且 `hasStrongNegative = true` |
 | 抽取价格不在页面文本中 | 丢弃，不产生 `PAID_TIER_OBSERVED` |
+| **仅检测到支付 provider 的僵尸站**（有定价 / checkout，无增长、无交易代理） | M 不得为 `HIGH`（上限 `MEDIUM`；持续性分支需 `persistentGrowingDomains ≥ 1`） |
+| **存在矛盾证据**（自述与平台计数冲突，或定价与下架先后并存） | 两条证据均保留并在面板展示，且 M 轴**不得越级为 `HIGH`**（`corroboration` 对矛盾方置 0） |
+| **估算无佐证**（`THIRD_PARTY_ESTIMATE` 高值，无 `OBSERVED` 支撑） | 不参与分档，M 不得为 `HIGH`（上限 `LOW` / `INSUFFICIENT`） |
+
+以上三行即 PRD F7 要求的测试集覆盖项（"仅检测到支付 provider 的僵尸站""存在矛盾证据""估算无佐证"），三者 M 轴均不得越级为 `HIGH`。

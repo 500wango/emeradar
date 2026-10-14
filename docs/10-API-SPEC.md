@@ -1,6 +1,6 @@
 # 10 — REST API 规格
 
-Status: Approved ｜ 依赖：03、05、09、12、13 ｜ 被依赖：16
+Status: Draft ｜ Owner: 后端 ｜ Last reviewed: 2026-10-14（对齐 PRD v2.1：原子 GO、槽位、质押、买断、半遮罩初筛）｜ 依赖：00-INDEX、03、05、09、12、13、15 ｜ 被依赖：16
 
 Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定义 REST 契约；OpenAPI 3.1 文件由 Zod schema 生成（`packages/core`），本文与生成物冲突时以生成物为准，并须回补本文。
 
@@ -26,7 +26,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
   "title": "Quota exceeded",
   "status": 403,
   "code": "QUOTA_EXCEEDED",
-  "detail": "Monthly deep report quota reached (30/30).",
+  "detail": "Monthly atomic GO quota reached (5/5).",
   "request_id": "req_…",
   "upgrade": { "required_plan": "PRO", "url": "https://{domain}/pricing" }
 }
@@ -37,14 +37,21 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | 400 | `VALIDATION_ERROR` | 参数或体校验失败；`errors[]` 含字段路径 |
 | 401 | `UNAUTHENTICATED` | 缺失 / 无效凭证 |
 | 403 | `FORBIDDEN` | 权限不足（角色 / scope） |
-| 403 | `PLAN_REQUIRED` | 当前套餐不含该功能 |
+| 403 | `PLAN_REQUIRED` | 当前套餐不含该功能（如 Free 请求 GO 或导出点火包） |
 | 403 | `QUOTA_EXCEEDED` | 配额用尽 |
-| 404 | `NOT_FOUND` | 资源不存在或不可见 |
-| 409 | `CONFLICT` | 状态冲突（如重复创建 Project） |
-| 422 | `PRECONDITION_FAILED` | 业务前置条件不满足（如未 GO 就创建 Project） |
+| 404 | `NOT_FOUND` | 资源不存在或不可见（买断保护期内的机会对未买断者一律返回 404，**不返回 403**，避免暴露"这个词存在且被人买走了"） |
+| 409 | `CONFLICT` | 状态冲突（如重复创建 Project、重复绑定的质押凭证） |
+| 409 | `SLOT_TAKEN` | 该形态槽位已被占满，GO 失败。响应体必须附 `alternatives[]`：同一机会**仍有空余**的其他 `archetype`（可能是空数组） |
+| 409 | `ACTIVE_SLOTS_EXCEEDED` | 用户同时活跃 GO 已达 `active_go_slots_max`（默认 2） |
+| 422 | `PRECONDITION_FAILED` | 业务前置条件不满足（如未 GO 就请求点火包、质押窗口已过） |
+| 422 | `STAKE_REQUIRED` | 该用户存在逾期未质押的项目，须先处理才能发起新的 GO |
+| 422 | `STEALTH_LOCK_UNAVAILABLE` | 买断下单时 `Σclaimed > 0`（已有他人认领，处女地已被破坏） |
+| 422 | `CREDENTIAL_UNVERIFIED` | 提交的质押凭证探针校验失败（页面不可达 / 相关性不足） |
 | 429 | `RATE_LIMITED` | 触发限流 |
 | 503 | `DATA_STALE` | 当日管线未完成且明确不可服务（极少见；一般返回上一日数据并带 `data_as_of`） |
 | 5xx | `INTERNAL` | 内部错误，附 `request_id` |
+
+> `SLOT_TAKEN` 与 `QUOTA_EXCEEDED` 必须严格区分：前者是**别人占了**（换形态或换机会就有救），后者是**你自己用完了**（要么等跨月结转、要么升级）。前端据此给出完全不同的引导（16 §3.3）。
 
 ## 2. 认证与授权
 
@@ -53,9 +60,10 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | 会话 Cookie | Web 控制台 | 由 Auth.js (NextAuth v5) 管理，基于数据库会话表（03 §2）；`HttpOnly; Secure; SameSite=Lax`；自带 CSRF 防护 |
 | API Key | 脚本 / CLI | `Authorization: Bearer sk_live_…`；仅存哈希；带 scope；可随时吊销 |
 
-**Scopes**：`opportunities:read` `opportunities:write`（watch / decision）`reports:generate` `projects:write` `alerts:write` `account:read`。
+**Scopes**：`opportunities:read` `opportunities:write`（watch / decision）`reports:generate` `projects:write` `launch_kits:read` `stealth:write`（买断下单）`alerts:write` `account:read`。
 - 角色（`USER / ANALYST / ADMIN / SUPPORT`）由 13 定义；`/admin/*` 仅接受会话登录，不接受 API Key。
 - 授权与配额检查统一走 `EntitlementService.check()`（13）。
+- **原子 GO 是唯一解锁点火包的入口**，因此 `POST /opportunities/{id}/go` 同时要求 `projects:write` + `reports:generate` + `launch_kits:read` 三个 scope；持有其中任一个都不足以单独调用它（13 §4.3）。
 
 ## 3. 核心对象：Opportunity
 
@@ -83,13 +91,26 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
     "top_build_idea": "…"
   },
   "crowding": { "band": "LOW" },
-  "user_state": { "watching": false, "decision": null },
+  "slots": {
+    "capacity_total": 6,
+    "claimed_total": 4,
+    "remaining_total": 2,
+    "by_archetype": [
+      { "archetype": "TOOL", "capacity": 2, "claimed": 2, "remaining": 0 },
+      { "archetype": "MICRO_SAAS", "capacity": 2, "claimed": 1, "remaining": 1 },
+      { "archetype": "PSEO_SITE", "capacity": 2, "claimed": 1, "remaining": 1 }
+    ]
+  },
+  "stealth": { "locked": false, "unlocks_at": null },
+  "user_state": { "watching": false, "decision": null, "has_active_project": false },
   "links": { "evidence": "/opportunities/opp_…/evidence" }
 }
 ```
 - 数值分数（`score`）默认不返回；`?include=scores` 且套餐允许时返回（13）。
 - `verdict = EARLY_BET` 时客户端必须显示"商业未验证"（16）。
-- Free 套餐的 Feed 与详情按 `free_delay_days` 返回延迟数据，并带 `delayed: true`、`data_as_of`。
+- **`slots` 是每个机会都必须返回的可信字段**（不按套餐裁剪）：它告诉用户"这个窗口还剩多少位置"。已经满额的机会（`remaining_total = 0`）会带 `flags` 中的 `CROWDED_LOCKED`，且**必然**是公开投影里可见的那一类（15 §3）——换言之用户看得到的公开机会，槽位一定已经满了，这不是巧合而是发布资格的定义。
+- **Free 套餐不再有 `delayed` / `free_delay_days` 语义，该字段已删除**。免费层的实时体验是 `feed_selected_weekly`（每周 1 条刚满额锁定或刚关窗的准实时案例，15 §3）；`data_as_of` 仍然返回，用于表达"数据截止到哪一天"，与套餐无关。
+- **买断保护期**（`stealth.locked = true`）：对未持有该买断的用户，`GET /opportunities/{id}` 返回 `404 NOT_FOUND`，且**不得**出现在任何 Feed、搜索、比较结果中（PRD §1.7 第 7 条）。持有者可见，并在响应中带 `stealth.unlocks_at`。
 
 ## 4. 端点
 
@@ -102,6 +123,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | GET / POST | `/me/api-keys` | 列出 / 创建（创建响应仅一次返回明文） |
 | DELETE | `/me/api-keys/{id}` | 吊销 |
 | DELETE | `/me` | 提交账户删除（进入 7 天冷静期） |
+| GET / POST / DELETE | `/me/identities[/{provider}]` | 已绑定的社交身份（GitHub / Google）。**反滥用要求**：未绑定至少一个 OAuth 身份时，`live_scan_lifetime` 终身初筛不可用（邮箱注册本身不构成身份证明，13 §7.1）。解绑最后一个身份前必须存在其他凭证，否则 `422 PRECONDITION_FAILED` |
 
 ### 4.2 机会
 | 方法 | 路径 | 说明 |
@@ -115,36 +137,67 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | GET | `/opportunities/{id}/history` | Verdict 时间线与生命周期转换（Pro） |
 | POST | `/opportunities/compare` | 体：`{ "ids": ["opp_…", "opp_…"] }`（2–3） |
 | GET | `/evidence/{id}` `/snapshots/{id}` | 证据抽屉数据（含来源、时间、载荷摘要） |
+| GET | `/opportunities/{id}/slots` | 槽位明细：每个 `archetype` 的 `capacity` / `claimed` / `remaining`，以及当前用户是否已占、占的是哪一形态。**所有套餐可见**（透明本身就是产品卖点，13 §3.2） |
+| GET | `/candidates` | **候选池（只读）**：尚未达到发布门槛、仍在 CANDIDATE 状态的早期机会。参数 `market_country` `research_language` `topic` `limit` `cursor`。返回**脱敏前**的评分与生命周期，但**不含**初筛结果、槽位余量与任何可执行信息。Free 套餐可读（`candidate_pool_readonly = true`），**不可**点 GO、不可初筛、不可导出（13 §3.2） |
 
-### 4.3 决策与关注
+### 4.3 决策、关注与原子 GO
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | PUT / DELETE | `/opportunities/{id}/watch` | 关注 / 取消（幂等） |
 | GET | `/watchlist` | 我的关注及自上次查看的变化 |
-| POST | `/opportunities/{id}/decisions` | 体：`{ decision: GO\|PASS, verdict_id, reason_code, note? }`；`verdict_id` **必填**，由客户端给出它当下渲染的那一条裁决 |
-| GET / POST / PATCH / DELETE | `/opportunities/{id}/kill-criteria[/{kc}]` | 见 12 §5 |
+| POST | `/opportunities/{id}/decisions` | 体：`{ decision: GO\|PASS, verdict_id, reason_code, note? }`；`verdict_id` **必填**，由客户端给出它当下渲染的那一条裁决。**这是"记录意见"，不是"认领"。** 要占用槽位并解锁点火包必须走下面的 `POST /go` |
+| POST | `/opportunities/{id}/go` | **原子 GO（ADR-018）**。体：`{ archetype, verdict_id, report_id?, credential?: { type, url }, note? }`。单事务内完成：`reserve` 1 次 `atomic_go_export_monthly` → 锁定 `(opportunity_id, archetype)` 行并校验 `claimed < capacity` → `claimed += 1` → 建 `projects`（`status='IN_DEVELOPMENT'`、`stake_status='PENDING'`、`stake_deadline_at = now() + stake_window_days`）→ 解锁该形态点火包。响应 `201 { project_id, slot_claim_id, stake_deadline_at, launch_kit_url }`。失败：`409 SLOT_TAKEN`（附 `alternatives[]`）、`409 ACTIVE_SLOTS_EXCEEDED`、`403 QUOTA_EXCEEDED`、`403 PLAN_REQUIRED`（Free）、`422 STAKE_REQUIRED`（有逾期未处理的项目） |
+| GET | `/opportunities/{id}/kill-criteria` / POST / PATCH / DELETE | 见 12 §5 |
+
+**并发语义（必须实现，不可依赖前端）**：`POST /go` 对 `opportunity_slots` 的目标行先 `SELECT … FOR UPDATE`（或 `UPDATE … WHERE claimed < capacity` 条件递增）再判断，**四人同时抢同一形态的最后一个槽位时只有一个返回 201，其余返回 `409 SLOT_TAKEN`**。这条并发保证写在契约里而不是实现里，因为它是产品定价的前提（18 §4.1 有对应并发测试用例）。
 
 `reason_code`（PASS）：`NOT_MY_TOPIC` `TOO_COMPETITIVE` `WEAK_MONETIZATION` `TOO_MUCH_WORK` `NO_TIME` `DATA_DOUBT` `OTHER`；（GO）：`CLEAR_WINDOW` `MONEY_VALIDATED` `FITS_MY_SKILLS` `QUICK_WIN` `OTHER`。
 
-### 4.4 机会研究报告 (Opportunity Reports)
+### 4.3b 两阶段自定义词初筛（Screener）
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/opportunities/{id}/report` | 体：`{ locale?: "zh-CN"\|"en-US" }` → `202 { report_id, status: "QUEUED" }`（若当日快照已有 READY 报告，则直接返回 `200` 缓存结果，零额外扣额）；受配额 Hold 锁定控制（13 §4） |
-| GET | `/opportunities/{id}/report` | 查询该机会最新报告状态与数据（Free 预览前 3 条证据；Pro 完整报告） |
+| POST | `/screener/scans` | 体：`{ query, market_country, research_language, preferred_archetype? }` → `202 { scan_id }`。**第一阶段**为全量数据查询，命中已追踪机会则返回该机会的完整结果；未命中则进入**第二阶段**的按需采集（受全局令牌桶与 7 天去重约束，ADR-017 / 02 §5.2）。配额：Free `live_scan_lifetime`（**终身 1 次**）、Pro `live_scan_monthly`（每月 15 次）（13 §3.2） |
+| GET | `/screener/scans/{id}` | 查询状态与结果。**结果按套餐半遮罩**（见 §6）：Free 保留"N 个弱结果 / M 个收钱独立站 / 静态切入难度"等判断性结论，具体弱结果 URL、竞品域名与 15 个长尾词以 `restricted: true` + `null` 返回 |
+| POST | `/screener/scans/{id}/promote` | 将初筛结果转为 Watchlist 条目或（Pro）直接进入该机会的详情页。**不创建 Project**——立项必须走 `POST /go` |
+
+初筛结果**永不**产生公开投影：一个由用户自定义词触发的查询可能命中处女地，若把它写进公开页就等于把别人刚发现的空地挂上牌子（15 §3、PRD §1.7 第 6 条）。
+
+### 4.4 机会研究报告与点火包 (Report & Launch Kit)
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/opportunities/{id}/report` | 体：`{ locale?: "zh-CN"\|"en-US" }` → `202 { report_id, status: "QUEUED" }`（若当日快照已有 READY 报告，则直接返回 `200` 缓存结果，零额外扣额）。**Pro 报告生成本身不扣额**（只做 `check`），扣额发生在 GO；Free 走 `report_preview_monthly` 预览额度（13 §4.3） |
+| GET | `/opportunities/{id}/report` | 查询该机会最新报告状态与数据（Free 仅预览；Pro 完整报告） |
 | GET | `/reports/{id}` | 按 ID 获取报告详情 |
-| GET | `/reports/{id}/export?format=md|json|pdf` | 导出（Pro；支持 Markdown、JSON、PDF） |
+| GET | `/reports/{id}/export?format=md\|json\|pdf` | 导出报告（Pro；Markdown、JSON、PDF）。**Free 一律 `403 PLAN_REQUIRED`**——Free 的 `report_preview_monthly` 只能在线预览，没有导出路径 |
+| GET | `/projects/{id}/launch-kit?format=bundle\|md\|json` | 导出**形态点火包**（09 §5.3）。默认 `bundle` 返回三件套（`CLAUDE.md`/`.cursorrules`、`routes.yaml`+`keywords.csv`、`landing-skeleton.html`+`sections.yaml`）的 zip。**只有通过 `POST /go` 建立的 Project 才有此端点的资源**；不存在"先拿点火包再决定要不要 GO"的路径。未 GO / 非本人 / Project 已释放 → `404` / `403`。同一 `(project_id, archetype, template_version)` 重复导出**不重复扣额** |
 | POST | `/reports/{id}/feedback` | `{ section, rating, factual_error?: bool, note? }` |
+
+`GET /projects/{id}/launch-kit` 的响应头必须带 `X-Launch-Kit-Snapshot`、`X-Launch-Kit-Template-Version`、`X-Scoring-Config-Version`，使用户可以自行核对同一份输入是否产出同一份交付物（09 §5.3 硬约束 1）。
 
 ### 4.5 Project 与 Outcome
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/projects` | 体：`{ decision_id, report_id?, build_type, domain?, target_keywords[], launch_date? }`；`decision_id` **必填**，必须是本人的 GO，缺失即拒绝（服务端不再代造决策）；一条决策至多一个项目（§9 I6） |
-| GET / PATCH | `/projects`、`/projects/{id}` | 列表 / 更新（状态、域名、上线日期、页面） |
-| POST | `/projects/{id}/gsc/connect` | 返回 Google OAuth `authorization_url` |
+| GET | `/projects`、`GET / PATCH /projects/{id}` | 列表 / 更新（状态 `IN_DEVELOPMENT` \| `LAUNCHED` \| `ARCHIVED`、域名、上线日期、页面） |
+| POST | `/projects/{id}/stake` | **提交承诺质押凭证**（ADR-018、09 §8）。体：`{ credential_type: DOMAIN_URL\|STORE_LISTING_URL\|PUBLIC_PAGE_URL, url }`。同步触发 HTTP 探针校验 `<title>`/`<h1>`/`<meta>` 与机会主词的相关性；通过 → `stake_status = 'VERIFIED'`，返回 `200`；失败 → `422 CREDENTIAL_UNVERIFIED`（附探针实际取回的关键字段，便于用户自查），`stake_status` 保持 `PENDING`，槽位不释放，可重试至 `stake_deadline_at` |
+| GET | `/projects/{id}/stake` | 当前质押状态、`stake_deadline_at`、剩余重试次数、历次校验结果 |
+| GET | `/projects/{id}/serp-rankings` | **自身项目在该机会 Top 100 快照中的入榜历史**（`date` / `rank` / `matched_url` / `matched_via`）。数据来自每日 S2 快照的内存匹配（02 §5、04 §9.5），**不消耗 GSC**。这是替代 GSC 的主追踪路径 |
+| POST | `/projects/{id}/gsc/connect` | **可选增强项**：返回 Google OAuth `authorization_url`。仅在用户自愿连接时调用；不连接不损失任何核心战绩 |
 | GET | `/gsc/callback` | OAuth 回调（服务端处理并重定向） |
 | DELETE | `/projects/{id}/gsc` | 断开并删除令牌 |
-| GET | `/projects/{id}/metrics` | `from` `to` `group_by=week|page|query` |
+| GET | `/projects/{id}/metrics` | `from` `to` `group_by=week\|page\|query`。**响应必须标注数据来源** `source: "SERP_SNAPSHOT"`（默认）或 `"GSC"`（已连接时），两者不得混算成一条曲线 |
 | POST | `/projects/{id}/revenue` | 自填营收（恒为 `SELF_REPORTED`，界面显式标注） |
+| POST | `/projects/{id}/archive` | 归档项目。归档即释放占用的槽位（`slot_claims.state = 'RELEASED'`、`release_reason = 'USER_ARCHIVED'`），**已扣配额不退**（03 §17 I12） |
+
+> **没有独立的 `POST /projects` 端点（这是刻意的）**：Project 只能由 `POST /opportunities/{id}/go` 在原子事务里创建。保留一个裸的建项目端点就等于保留了"先建项目、事后补 GO"的后门，而 GO 一旦可以被事后补，点火包就同样可以被事后补——那正是 ADR-018 要防的（13 §4.3）。一条决策至多一个项目（03 §17 I6）。
+
+### 4.5b 处女地独占买断（Stealth Lock）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/opportunities/{id}/stealth-lock` | 查询该机会是否**可**下单：返回 `{ available, claimed_total, price, duration_days }`。`available = (claimed_total == 0)`——只要有任何一个人认领过，处女地就已被破坏，买断不再开放（PRD §1.7 第 5 条） |
+| POST | `/opportunities/{id}/stealth-lock` | 下单买断。体：`{ billing_interval: ONE_TIME }`。**资格由数据决定，不由套餐决定**：事务内再次校验 `Σclaimed == 0`，否则 `422 STEALTH_LOCK_UNAVAILABLE`。成功后该机会从所有 Feed / 搜索 / 比较 / 公开投影中消失 60 天，写入 `stealth_locks`（`status='ACTIVE'`，`unlock_at = now() + duration_days`） |
+| GET | `/me/stealth-locks` | 我持有的买断及剩余保护天数 |
+
+**买断不影响的账本行为（必须写进契约，避免实现者"顺手"把它剔除）**：买断机会照常写 `verdicts` 与 `prediction_episodes`，照常计入 Cohort 统计；公开投影只做**打码**，不做剔除（06 §6.1、15 §3.1）。
 
 ### 4.6 告警与通知
 | 方法 | 路径 | 说明 |
@@ -157,23 +210,24 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 ### 4.7 计费
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/billing/subscription` | 当前订阅 |
-| POST | `/billing/checkout-sessions` | `{ plan }` → 供应商托管结账链接 |
+| GET | `/billing/subscription` | 当前订阅（含 `plan_code`、`billing_interval`、`purchase_kind`） |
+| POST | `/billing/checkout-sessions` | 体：`{ plan_code, billing_interval, purchase_kind? }` → 供应商托管结账链接。`plan_code ∈ {FREE, PRO}`（`TEAM` 为历史兼容值，不出现在结账页，13 §3.1）；**季度 Builder Pass = `{ plan_code: "PRO", billing_interval: "QUARTER" }`**，不是独立的 `plan_code`；`purchase_kind = FOUNDING_LIFETIME` 用于预售终身档 |
 | POST | `/billing/portal-sessions` | 管理订阅链接 |
-| GET | `/billing/usage` | 当期各功能用量与上限 |
-| POST | `/webhooks/billing` | 入站：验证签名，按事件 ID 幂等处理 |
+| GET | `/billing/usage` | 当期各功能用量与上限。**必须逐 feature 返回 `{ feature, period, limit, used, remaining, carryover_available }`**，其中 `carryover_available` 表达 `usage_carryovers` 中尚未消费的结转额度（首发仅 `atomic_go_export_monthly` 会有非零值，13 §4.2）。用户必须能看懂"我这个月为什么有 6 次" |
+| POST | `/webhooks/billing` | 入站：验证签名，按事件 ID 幂等处理。`STEALTH_BUYOUT` 的 `purchase_kind` 一次性商品也走此通道，**不走 quota**（13 §4.3） |
 
 ### 4.8 公开 API（无需登录，可缓存）
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/public/track-record/summary` | 汇总统计（06 §11） |
-| GET | `/public/track-record/episodes` | 分页 Episode 列表 |
-| GET | `/public/checkpoints` | `from` / `to` 账本 checkpoint 摘要 |
-| GET | `/public/opportunities/{slug}` | 通过发布资格的机会（15） |
+| GET | `/public/track-record/summary` | 汇总统计：Cohort Hit Rate（按 Verdict 类型 / 观测月份分组）与 Accuracy Matrix（06 §11） |
+| GET | `/public/track-record/episodes` | 分页 Episode 列表。**买断保护期内的记录照常出现**，但 `primary_query_text` / 实体 / URL 替换为 `[Stealth Locked #ID]`，并附 `is_stealth_masked = true`、`unmasked_at`（15 §3.1）；列表**不得**提供任何能按单条反推词根的聚合切片（最小分组量 `k ≥ 5`） |
+| GET | `/public/checkpoints` | `from` / `to` 账本 checkpoint 摘要（后台存证用；前台仅在底栏提供校验入口，06 §1） |
+| GET | `/public/opportunities/{slug}` | 通过**准实时精选**发布资格的机会（15 §3）：仅当槽位已满额或刚进入 `WINDOW_CLOSING`。响应含 `eligibility: { reason: "CROWDED_LOCKED" \| "WINDOW_CLOSING", decided_at }`，用于公开站自证"我们只公开已经没得抢的机会" |
+| GET | `/public/opportunities?type=CASE_STUDY` | 已解密完结案例（`page_type='CASE_STUDY'`） |
 | GET | `/public/markets/{slug}` | 主题聚合 |
 | GET | `/public/methodology` | 数据源列表、观测起始日期、评分版本摘要 |
 
-公开 API 只读取 public projection，**不得**访问受限内部行（PRD §11.2）。
+公开 API 只读取 public projection，**不得**访问受限内部行（PRD §11.2）。打码是**服务端投影层**的职责：公开 API 在任何情况下都不得返回未经打码的真实词根，包括错误信息、`ETag` 生成输入与日志。
 
 ### 4.9 管理（ADMIN / ANALYST，会话登录）
 | 方法 | 路径 | 说明 |
@@ -191,20 +245,34 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 
 ## 5. 异步任务
 - 报告生成为异步：`POST` 返回 `202`，客户端轮询 `GET /reports/{id}`（建议间隔 1–2 秒，服务端返回 `Retry-After`）。
-- 状态机见 09 §2（`QUEUED` → `GENERATING` → `READY` / `FAILED`）。生成成功后额度 Commit，失败则自动释放配额（Release）。
+- 状态机见 09 §2（`QUEUED` → `GENERATING` → `READY` / `FAILED`）。**报告生成不占配额**（配额只在 GO 时扣减），因此失败无需"退还额度"，重试即可。
+- **初筛（Screener）也是异步**：`POST /screener/scans` → `202`。第二阶段需要按需采集，受全局令牌桶与 7 天去重约束（ADR-017 / 02 §5.2），因此可能排队数十秒；响应 `Retry-After` 反映预估等待。
+- **原子 GO 是同步的**：它必须以单个事务完成，不得异步化。把 GO 拆成"先返回 202、后台建项目"会使"只有一个并发请求成功"这条保证失效。
 - 首发不提供 WebSocket；如需实时更新，Phase 2 评估 SSE。
 
-## 6. 配额与权益的 API 表现
-- 每个受控端点在响应头附带 `X-Quota-Feature`、`X-Quota-Remaining`（如适用）。
+## 6. 配额、权益与半遮罩的 API 表现
+- 每个受控端点在响应头附带 `X-Quota-Feature`、`X-Quota-Remaining`（如适用）；GO 的响应头额外附 `X-Slot-{archetype}-Remaining`。
 - 被限制的字段以 `null` + `restricted: true` 返回，而不是静默省略，便于前端展示升级入口。
+- **半遮罩（D14）由服务端决定字段可见性，不靠前端 CSS**（否则一切都能被绕过）：
+  - `GET /screener/scans/{id}`（Free）：保留 `weak_result_count`、`paid_indie_domain_count`、`static_entry_difficulty` 等**判断性结论**；对 `weak_results[].url`、`competitor_domains[]`、`long_tail_keywords[].text` 返回 `null` 并标 `restricted: true`。
+  - `GET /opportunities` Feed（Free）：`feed_selected_weekly` 只返回 1 条，其余条目直接不出现在列表里（不是打码，是不返回）。
+  - **半遮罩不得使用"打星号"这类可数还原的方式**：`acme-tools.com` 打码成 `a***-t***.com` 是可以被猜回来的。要么返回完整值，要么返回 `null` + `restricted`。
 
 ## 7. 安全要求
 - CORS 仅允许应用与公开站源；公开 API 允许任意源但仅 `GET`。
 - 输入统一经 Zod 校验；输出统一经序列化白名单（禁止直接返回 ORM 对象）。
 - `Idempotency-Key`、`api-key` 等敏感头不写入日志。
 - Webhook 入站校验签名 + 时间戳容差（默认 5 分钟）。
+- **反滥用（13 §7.1 / 17 §2.5）**：邮箱在入库前做 Canonical 归一化（剥离 Gmail `+` 别名与 `.`）；一次性邮箱域在注册时即拒绝（`403 FORBIDDEN`，`code = DISPOSABLE_EMAIL`）；设备指纹与 IP **仅存加盐哈希**，明文绝不落库、绝不出现在任何 API 响应或日志中（17 §3.5）。同设备 / 同 IP 30 天内只允许 1 次终身初筛额度发放。
+- **买断相关端点不得泄露存在性**：`POST /opportunities/{id}/stealth-lock` 对非本人持有且处于保护期的机会返回 `404`，与"该机会不存在"完全同形；`422 STEALTH_LOCK_UNAVAILABLE` 只在**调用者本来就能看到该机会**（即它尚在 Feed 中）时使用。
 
 ## 8. 契约测试与版本
 - CI：从 Zod 生成 OpenAPI；用 `oasdiff`（或同类工具）检测破坏性变更；破坏性变更须递增 `/api/v2`。
 - 前端与客户端 SDK 使用生成的类型化客户端，禁止手写重复类型。
 - 弃用策略：先标注 `Deprecation` / `Sunset` 头，至少保留 90 天。
+- **必须存在的契约级测试**（18 §4.1）：
+  1. **槽位并发**：N 个并发 `POST /go` 争抢同一形态最后一个槽位，成功数必须恰好为 1，其余全部 `409 SLOT_TAKEN` 且带 `alternatives[]`。
+  2. **无 GO 无点火包**：未 GO 的 Project / 他人 Project 请求 `GET /projects/{id}/launch-kit` 必须为 `403` / `404`；Free 请求必须为 `403 PLAN_REQUIRED`。
+  3. **点火包确定性**：同一 `(project_id, archetype, template_version)` 两次导出字节一致。
+  4. **打码不泄漏**：买断保护期内，`/public/*` 的任一端点（含 `ETag` 输入与错误响应）都不得出现真实词根；用"真实词根子串"扫描全响应体作为断言（15 §8 的 0 容忍指标）。
+  5. **配额不退**：质押逾期释放槽位后，`GET /billing/usage` 的 `used` 不减少；跨月后 `carryover_available` 只结转一期。

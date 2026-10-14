@@ -10,10 +10,10 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 >
 > | 规格 | 实现现状 |
 > |---|---|
-> | §2 八条内置触发器，用户在规则里订阅**组合** | `alert_rules.rule_type` 是**单值**列，一行 = 一个 `(user, opportunity, rule_type)` |
+> | §2 内置触发器（现 12 条，见下表），用户在规则里订阅**组合** | `alert_rules.rule_type` 是**单值**列，一行 = 一个 `(user, opportunity, rule_type)` |
 > | §2 触发器名 `VERDICT_CHANGED` / `WINDOW_CLOSING_ENTERED` | 库里和代码里是 `VERDICT_CHANGE` / `WINDOW_CLOSING` —— **同义不同名**，对不上号 |
 > | §2 阈值来自 `alert_thresholds`（版本化） | **该表在 `schema.sql` 里不存在**，任何位置都没有 |
-> | §2 八条触发器全部可求值 | 只有 `VERDICT_CHANGE` 与 `WINDOW_CLOSING` 有求值路径（`services/src/alert-triggers.ts`）。其余在创建规则时被显式 400 拒绝 |
+> | §2 触发器全部可求值 | 只有 `VERDICT_CHANGE` 与 `WINDOW_CLOSING` 有求值路径（`services/src/alert-triggers.ts`）。其余在创建规则时被显式 400 拒绝 |
 > | §3 `params` JSON（triggers/scope/verdict_filter/min_confidence/digest） | 无此列；`alert_rules` 只有 `rule_type` / `frequency` / `is_active`。`scope`、`verdict_filter`、`min_confidence`、模板概念均不存在 |
 > | §4 `alert_events` 生成 + `dedupe_key` 去重 + `deliveries` 投递记录 | `alert_events` 表**建了但零读写**；流水线直接 `INSERT INTO notifications`，去重靠 `ON CONFLICT (id) DO NOTHING`；`dedupe_key` 与 `deliveries` 不存在 |
 > | §5.1 谓词 `{field, operator, value}` | `kill_criteria.predicate_dsl` 实际存的是 `{metric, op, threshold}` —— **不同构**，改写谓词要么迁移数据要么改规格 |
@@ -39,19 +39,32 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 
 系统对每个被关注（Watchlist）或有 GO 决定的机会，评估以下内置触发器；用户按渠道订阅，无需自己写条件：
 
-| 触发器 | 检测时机 | 条件 |
-|--------|----------|------|
-| `VERDICT_CHANGED` | S7（每日） | 当日 `verdict` ≠ 前一日 `verdict`（读账本，非 `raw_verdict`） |
-| `LIFECYCLE_CHANGED` | S7 | `lifecycle_transitions` 新增一条 |
-| `WINDOW_CLOSING_ENTERED` | S7 | 当日 `verdict = WINDOW_CLOSING` 且前一日不是 |
-| `SERP_WEAKNESS_DROP` | S7 | `serp_weakness` 较 7 天前下降 ≥ `serp_weakness_drop_threshold`（默认 20 分） |
-| `AUTOCOMPLETE_SPIKE` | S7 | `new_queries_7d` 较其 30 天移动平均 ≥ `autocomplete_spike_multiplier`（默认 3×） |
-| `NEW_AUTHORITATIVE_ENTRANT` | S7 | 当日 Top10 新出现 `OFFICIAL` 或 `MAJOR_MEDIA` 类域名，且该域名在 7 天前的 Top10 快照中完全未出现 |
-| `KILL_CRITERIA_TRIGGERED` | S7（评估用户 / 系统定义的 Kill criteria，见 §5） | 任一 `ACTIVE` 的 kill criteria 谓词求值为真 |
-| `PROJECT_GSC_TRACTION` | GSC 周同步后 | 关联 Project 的曝光量较上周环比 ≥ `traction_spike_multiplier`（默认 2×）且绝对曝光 ≥ `traction_min_impressions`（默认 100） |
+| 触发器 | 检测时机 | 条件 | 实现状态 |
+|--------|----------|------|----------|
+| `VERDICT_CHANGED` | S7（每日） | 当日 `verdict` ≠ 前一日 `verdict`（读账本，非 `raw_verdict`） | 已实现求值路径 |
+| `LIFECYCLE_CHANGED` | S7 | `lifecycle_transitions` 新增一条 | 无求值路径 |
+| `WINDOW_CLOSING_ENTERED` | S7 | 当日 `verdict = WINDOW_CLOSING` 且前一日不是 | 已实现求值路径 |
+| `SERP_WEAKNESS_DROP` | S7 | `serp_weakness` 较 7 天前下降 ≥ `serp_weakness_drop_threshold`（默认 20 分） | 无求值路径 |
+| `AUTOCOMPLETE_SPIKE` | S7 | `new_queries_7d` 较其 30 天移动平均 ≥ `autocomplete_spike_multiplier`（默认 3×） | 无求值路径 |
+| `NEW_AUTHORITATIVE_ENTRANT` | S7 | 当日 Top10 新出现 `result_type` 为 `OFFICIAL` 或 `EDITORIAL_MEDIA` 的域名，且该域名在 7 天前的 Top10 快照中完全未出现 | 已实现求值路径（代码中名为 `NEW_ENTRANT`） |
+| `PROVEN_NEW_ENTRANT` | S7 / F6 | 新**独立站**（上线不满 6 个月、闯入 SERP Top 5、且具备 `COMMERCIAL_TRACTION`）出现；识别规则见 07 §6.4 | 无求值路径 |
+| `KILL_CRITERIA_TRIGGERED` | S7（评估用户 / 系统定义的 Kill criteria，见 §5） | 任一 `ACTIVE` 的 kill criteria 谓词求值为真 | 无求值路径（`evaluateKillPredicate` 未落地，见 §5.3） |
+| `CUSTOM_QUERY_PULSE_CONFIRMED` | S7（对进入 7 天脉冲雷达的自定义初筛词） | 自定义初筛词的 7 天时序脉冲确认，且该词由 `CANDIDATE` 晋升为 `BUILD_NOW` 时推送抢跑通知（PRD F3 第 2 阶段、F9） | 无求值路径 |
+| `SLOTS_LAST_ONE` | S7 | 该机会某一形态剩余可认领槽位恰为 **1**（`opportunity_slots.capacity − claimed == 1`，ADR-018） | 无求值路径 |
+| `PROJECT_SERP_RANK_JUMP` | 每周（F1 Top 100 快照内存匹配后，PRD F10） | 已核验项目凭证的域名 / 商店链接**首次**进入 Top 100 / Top 30 / Top 10，或较上周排名跃升 ≥ `rank_jump_threshold`。**数据来自自身 SERP 管线（F1 一鱼多吃），不依赖 GSC** | 无求值路径 |
+| `PROJECT_GSC_TRACTION`（**可选增强**） | GSC 周同步后（**仅对自愿连接 GSC 的用户**） | 关联 Project 的曝光量较上周环比 ≥ `traction_spike_multiplier`（默认 2×）且绝对曝光 ≥ `traction_min_impressions`（默认 100） | 无求值路径 |
 
-- 所有阈值来自 `alert_thresholds` 配置（版本化，同 05 的配置管理方式，但独立于 `scoring_config` 版本流转，因为它不影响评分，只影响是否提醒）。
+**`NEW_ENTRANT` 与"新晋赢家"是两个概念（务必区分）**：
+
+- 代码库中的 `NEW_ENTRANT`（`packages/services/src/alert-triggers.ts`）对应本表的 **`NEW_AUTHORITATIVE_ENTRANT`**——**权威域名**（`OFFICIAL` / `EDITORIAL_MEDIA`）进入 Top10，是竞争加剧信号。
+  - **判据落在 `serp_results.result_type`，不是 `domain_authority_class`**。后者（`HIGH_AUTHORITY_GENERIC` / `SPECIALIST` / …）是域名分级，检出的是"维基/亚马逊这类泛权威分流注意力"这另一个信号，两者不可互相顶替。
+  - 规范拼写是 `EDITORIAL_MEDIA`；早期草案写的 `MAJOR_MEDIA` 在 `ResultType` 里不存在。
+  - "7 天前的快照"实现为**不晚于 `obs_date − 7` 的最近一份**，而不是恰好那一天：采集有缺口时后者查不到对照，会把"没有对照组"误读成"没有新进入者"。取不到对照时不求值（不告警），也不返回 false。
+- PRD 的 **`PROVEN_NEW_ENTRANT`**（§1.7.3）指**新独立站**跑通变现（上线不满 6 个月、闯入 Top 5、具备 `COMMERCIAL_TRACTION`），是正向示范，识别规则在 07 §6.4，不在本告警表内实现。二者语义、数据来源、用途都不同，不得互相代替。
+
+- 所有阈值来自 `alert_thresholds` 配置（版本化，同 05 的配置管理方式，但独立于 `scoring_config` 版本流转，因为它不影响评分，只影响是否提醒）。**注意**：该表在 `schema.sql` 中尚不存在（见文首差距表）。
 - 触发器求值使用的输入必须是**当日已落账本 / 已入库**的数据，不早于 S6 完成（对 `VERDICT_CHANGED`、`LIFECYCLE_CHANGED`）。
+- **`STALE_DATA` 期间不得告警（ADR-021、05 §5.3）**：所有 **Verdict 变化类**触发器（`VERDICT_CHANGED`、`WINDOW_CLOSING_ENTERED`、`LIFECYCLE_CHANGED`）在求值时**必须排除处于 72 小时宽限期的轴**。宽限期内该轴沿用最近一次成功快照的档位、打 `STALE_DATA`，**不得发布降档 Verdict、不得投递降级告警**——偶发采集故障不能被用户读成"竞争格局变了"。只有连续失败超 72 小时、该轴真正置 `INSUFFICIENT` 后，才恢复正常的降档与告警路径。
 
 ## 3. 告警规则（用户可配置的"是否通知我"）
 
@@ -76,7 +89,8 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 |------|----------|
 | "有变化就告诉我" | 全部触发器，`IMMEDIATE` |
 | "只关心窗口变化" | `VERDICT_CHANGED` `WINDOW_CLOSING_ENTERED` `KILL_CRITERIA_TRIGGERED`，`DAILY` |
-| "只关心我的项目" | `PROJECT_GSC_TRACTION`，`scope = PROJECTS_ONLY`，`IMMEDIATE` |
+| "只关心我的项目" | `PROJECT_SERP_RANK_JUMP`，`scope = PROJECTS_ONLY`，`IMMEDIATE`（GSC 可选增强：仅当用户自愿连接 GSC 时，可额外订阅 `PROJECT_GSC_TRACTION`） |
+| "抢跑提醒" | `CUSTOM_QUERY_PULSE_CONFIRMED` `SLOTS_LAST_ONE` `KILL_CRITERIA_TRIGGERED`，`IMMEDIATE` |
 | "每周摘要" | 全部触发器，`WEEKLY` |
 
 每个用户可创建多条 `alert_rules`（不同触发器组合对应不同渠道），无上限但受合理性校验（同一 `(triggers, scope)` 组合 + 同一渠道不可重复创建）。
@@ -90,7 +104,7 @@ S7 阶段：对每个订阅了相关触发器的用户 × 命中的机会，生�
 dedupe_key = sha256( user_id ‖ coalesce(opportunity_id, '') ‖ coalesce(project_id, '') ‖ trigger_type ‖ obs_date )
 ```
 - 同一用户对同一对象（机会或项目）的同一触发器同一天只产生一条事件（即使多条 `alert_rules` 都订阅了它，也只生成一条 `alert_events`，由投递阶段决定发到哪些渠道，避免重复通知同一信息）。
-- 对于项目级触发器（如 `PROJECT_GSC_TRACTION`），必须包含 `project_id`，防止同一用户对同一机会的多个项目发生事件碰撞覆盖。
+- 对于项目级触发器（如 `PROJECT_SERP_RANK_JUMP`，及可选的 `PROJECT_GSC_TRACTION`），必须包含 `project_id`，防止同一用户对同一机会的多个项目发生事件碰撞覆盖。
 - `KILL_CRITERIA_TRIGGERED` 的 `dedupe_key` 额外包含 `kill_criteria_id`，因为一个机会可能同时有多条 Kill criteria 触发。
 
 ### 4.2 触发到投递的映射
@@ -198,6 +212,7 @@ type KillPredicate = Comparison | CompoundPredicate;
 - `EntitlementService`（13）决定：Free 套餐是否可配置告警渠道、`alert_rules` 数量上限、`kill_criteria` 数量上限是否与套餐挂钩。
 - 触发器读取的字段来自 05（`axis_features`、`verdicts`）与 07（`commercial_stage`），Kill Criteria DSL 的字段白名单必须与这两份文档的字段命名保持同步——新增评分字段时若需开放给 Kill Criteria，同一 PR 内更新 §5.1 的 `FieldRef`。
 - REST API（10）与 Web 控制台的关注与告警规则共用同一 `AlertService`。
+- **套餐联动（PRD §1.7 第 6 条、§8.1）**：`CUSTOM_QUERY_PULSE_CONFIRMED` 建立在"自定义词即时初筛"配额之上——Free 层**终身仅 1 次**、Pro 层**每月 15 次**（Pro 未用完的月度初筛配额支持跨月累计 Rollover）。只有已消耗配额、且被加入 7 天脉冲雷达的初筛词才会产生该触发器；Free 层不支持 7 天雷达，故不会触发它。配额与可用触发器集合的裁决统一由 `EntitlementService`（13）负责，本规格不重复定义。
 
 ## 8. 测试要求（18 §3）
 | 用例 | 期望 |
@@ -209,3 +224,7 @@ type KillPredicate = Comparison | CompoundPredicate;
 | Quiet hours 内的 IMMEDIATE 事件 | 暂存，时段结束后合并发出 |
 | Webhook 连续失败 5 次 | 状态转 `DEAD`，触发系统 Email 提醒 |
 | 系统建议模板采纳后修改 | 生成独立 `USER` 记录，不影响原模板 |
+| 某轴处于 72 小时 `STALE_DATA` 宽限期（档位沿用昨日成功快照） | **不**产生任何 Verdict 变化类告警（`VERDICT_CHANGED` / `WINDOW_CLOSING_ENTERED` / `LIFECYCLE_CHANGED`）；连续失败 > 72 小时后才恢复降档告警路径（ADR-021） |
+| 机会某形态剩余槽位由 2 变为 1 | `SLOTS_LAST_ONE` 恰触发一次（只在跨过 1 的那一刻，不在"仍为 1"的每一天） |
+| 已核验项目凭证由 Top 100 之外首次进入 Top 100 | 触发 `PROJECT_SERP_RANK_JUMP`，依据来自 F1 每周 Top 100 快照的内存匹配，**不读 GSC** |
+| 订阅尚未实现求值路径的触发器（`PROVEN_NEW_ENTRANT` / `KILL_CRITERIA_TRIGGERED` / `SERP_WEAKNESS_DROP` 等） | 创建时拒绝，不产生"永远不会触发的规则"（见文首差距表） |

@@ -83,7 +83,7 @@ flowchart TD
                            ▼
 ┌────────────────────────────────────────────────────────┐
 │ Sprint 3: 预测账本公开战绩与众包校准 (Ledger & Community)│
-│ - 建设公开预测战绩大盘 (/ledger: 30d/90d 履约胜率对账)   │
+│ - 建设 Cohort Hit Rate & Accuracy Matrix (/track-record: 30d/90d 对账) │
 │ - 研报与账本底部集成社区陪审团打标 (🎯精准/偏高/偏低)     │
 └────────────────────────────────────────────────────────┘
                            │
@@ -115,7 +115,7 @@ flowchart TD
 1. 在 `Section1ExecutiveSummary` 中新增 `veteranVerdict`：
    ```typescript
    export interface VeteranVerdict {
-     headline: string; // "大站仅内页覆盖，已有 8 个月新站切入，建议 45 天窗口期内用独立首页正面截流"
+     headline: string; // "大站仅内页覆盖，已有 8 个月新站切入，趁窗口未关闭时用独立首页正面截流"
      penetrationAngle: 'HOMEPAGE_DIRECT' | 'ALTERNATIVE_INTERCEPT' | 'AGGREGATOR_PAGE';
      structuralReasons: string[]; // ["第3名为8个月新站", "Top10中6席为大站无意内页"]
    }
@@ -158,10 +158,13 @@ flowchart TD
 
 ### 4.3 Sprint 3：预测账本公开战绩与社区校准
 
-#### Task 3.1：公开战绩胜率大盘（`apps/web/src/app/ledger`）
-1. 统计并展示历史预测命中率曲线（30天/90天）；
+#### Task 3.1：Cohort Hit Rate & Accuracy Matrix（`apps/web/src/app/track-record`）
+
+1. 统计并展示历史预测的 **Cohort Hit Rate & Accuracy Matrix**（30 天 / 90 天命中率与市场形成事件率）；
 2. 每条预测附带完整时间戳快照、原始证据 Hash 与履约核销状态；
 3. 树立行业唯一的透明履约背书。
+
+> 命名口径以 PRD F13 / §7.2 为准：前台主打「公开 Cohort 战绩大盘（Hit Rate & Accuracy Matrix）」，路由为 `/track-record`；`/ledger` 不再作为公开战绩页入口。
 
 #### Task 3.2：社区陪审团众包组件（Community Jury）
 1. 研报与账本条目底部嵌入打标组件：

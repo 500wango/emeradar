@@ -2,6 +2,8 @@
 
 本方案取代旧 VPS 共享数据库方案。Compose 包含常驻的 web、PostgreSQL 16 与 worker（队列消费者），以及一次性的 migrate，使用自己的网络和数据库数据卷。
 
+> **没有 Redis / 缓存容器，这是有意为之（ADR-003 修订 + ADR-017）**。队列与调度用 `pg-boss`（跑在 `PostgreSQL` 里），Fast Lane 的全局令牌桶复用 `rate_limit_buckets`，7 天全局去重直接查 `serp_snapshots` 复用不可变快照。因此 PRD v2.1 的削峰与去重需求不会给 Compose 增加第四个常驻服务，也不会给这台 4 核 / 8GB 的机器增加一份需要单独监控内存上限与持久化策略的进程。若将来压测证明 Postgres 撑不住，按 ADR-003 的推翻流程走，不在部署脚本里先行加容器。
+
 ## 前置条件
 
 - 新 VPS 已安装 Git、Docker Engine、Docker Compose 插件（支持 `up --wait`）。

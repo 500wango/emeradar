@@ -9,7 +9,7 @@ Status: Draft ｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 �
 **核心原则**：
 1. **确定性第一**：评分纯函数（`@app/scoring`）与账本哈希链（`@app/ledger`）实行 100% 严苛的 Golden 测试，杜绝跨架构、跨版本的浮点与时间漂移；
 2. **LLM 结果必须经过确定性严查**：大模型生成的内容必须通过编译期般的自动化断言（Schema、硬数字占位符保真度、证据引用有向图），评测集纳入常规 CI；
-3. **数据库不变量自动断言**：DDL 中的 I1 至 I9 不变量必须在 CI 集成测试中执行主动攻击测试；
+3. **数据库不变量自动断言**：DDL 中的 I1 至 I14 不变量必须在 CI 集成测试中执行主动攻击测试；
 4. **测试分层与轻量敏捷**：2–3 人团队不维护冗杂低效的低质用例，重点构建高价值契约测试与金字塔分层保障。
 
 ---
@@ -20,7 +20,7 @@ Status: Draft ｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 �
 flowchart TD
   E2E[端到端测试 E2E<br/>Playwright 核心主链路 5–10 个]
   LLM_EVAL[LLM 离线基准评测集<br/>U1–U6 结构化标注集]
-  INTEG[集成测试 Integration<br/>DB 不变量 I1–I9 / pg-boss 队列 / Entitlement 并发]
+  INTEG[集成测试 Integration<br/>DB 不变量 I1–I14 / pg-boss 队列 / Entitlement 并发]
   CONTRACT[契约测试 Contract<br/>OpenAPI 破坏性检测 / JSON Schema 校验]
   UNIT[纯函数单元测试 Unit<br/>@app/scoring Golden 固件 / 无前视测试 / 哈希链]
 
@@ -66,6 +66,25 @@ flowchart TD
 | **两级爬取降级** | 模拟 SPA 壳页面返回空文本，触发 Tier 2 检测 | 确认 `fetch_tier` 被标记为 `HEADLESS`，并正确调用无头浏览器驱动 |
 | **S6 咨询锁互斥** | 两个 Worker 实例同时对同一 `obs_date` 调度 S6 账本归档 | 一个持有 `pg_advisory_lock` 执行批量写入，另一个跳过执行，绝不重复生成行哈希 |
 
+### 4.1 交付闭环、槽位与反滥用用例（PRD §1.7、ADR-018、ADR-021）
+
+以下用例覆盖首发商业闭环与防白嫖机制，均为发布前必过项：
+
+| 用例 | 场景与测试动作 | 预期断言 |
+|------|----------------|----------|
+| **Fast-Track 快车道（05 §5.0）** | 机会 `history_days = 8`、`new_queries_7d = 4` 且斜率显著 | 允许以 7 天历史进入资格评估并打 `FAST_TRACK`；**不**因 < 14 天落入 `WATCH` + `PARTIAL_DATA` |
+| **特征补偿 `RULE_BUILD_NOW_COMPENSATED`（05 §5.1）** | D=HIGH、W=HIGH、M=MEDIUM（≥2 独立定价站或初现交易代理）、conf ≥ MEDIUM | `raw_verdict = BUILD_NOW`，`explanation` 命中 `RULE_BUILD_NOW_COMPENSATED`；M=LOW 或无 observed 证据时**不得**补偿 |
+| **按形态切分槽位（ADR-018）** | 机会含 `[TOOL×2][PSEO×2]`；仅 TOOL 两个槽被占 | **不得**熔断（不置 `isCrowdedLocked` / `WINDOW_CLOSING`），W 轴照常计算；仅当 `Σclaimed == Σcapacity` 全部形态占满时才熔断。反例：任一形态空槽即不熔断，必须断言 |
+| **原子 GO 并发（ADR-018、10 §原子 GO）** | 4 个用户并发对同一形态仅剩 1 槽点击 GO | **恰好 1 个成功**（占槽 + 扣月度导出配额 + 建 Project + 解锁该形态点火包在**同一事务**内完成），其余立即失败；`opportunity_slots.claimed`、`slot_claims` 与 `usage_counters` 三方一致，无超卖 |
+| **承诺质押 3 类凭证（PRD F10）** | 分别提交 `DOMAIN_URL` / `STORE_LISTING_URL` / `PUBLIC_PAGE_URL`，探针 `<title>`/`<h1>`/`<meta>` 相关性通过 | 三类均置 `stake_status = VERIFIED`，槽位保留；探针不相关或超时则 `REJECTED` |
+| **质押 7 天逾期释放且配额不退（PRD §1.7 第 5 条、03 I12）** | GO 后 7 天内未提交凭证或不通过 | `stake_status = EXPIRED_RELEASED`，槽位释放回公共池，`slot_claims` 与 `opportunity_slots.claimed` 同步递减；**已扣减的月度导出配额不退还** |
+| **处女地独占买断（03 I13、PRD §1.7 第 5 条）** | ① `Σclaimed == 0` 下单；② 已有任一用户 GO（`Σclaimed > 0`）后下单 | ① 成功生成 `stealth_locks(ACTIVE)` + `stealth_lock_displays`（账本打码 60 天）；② **下单事务必须被拒**，买断按钮置灰 |
+| **反滥用-邮箱归一化（13 §7.1、17 §2.5）** | 同一自然人用 `j.doe+free@gmail.com` 与 `jdoe@gmail.com` 先后注册领取终身免费初筛 | 归一为同一 `canonical_email`，第二次领取被拒；非 Gmail 域**不**剥离点号（不同人不得误合并） |
+| **反滥用-指纹 30 天限流（03 §2）** | 同一 `fingerprint_hash`/`ip_hash` 30 天内第二次触发免费实时初筛；随后注销账户并重注册 | 第二次被拒；注销后 `lifetime_scan_grants` 哈希**保留**（`user_id` 置 NULL）、`device_fingerprints` **删除**，重注册仍无法再领 |
+| **两阶段初筛与半遮罩可见性（F3）** | Free 用户提交自定义词；Pro 用户提交同词 | 第 1 阶段 5 秒内返回静态初筛卡；Free 的具体弱结果 URL、收钱竞品域名与 15 长尾词在**API 响应与渲染层双重不可得**（高斯模糊），Pro 全量可见 |
+| **`STALE_DATA` 72h 宽限（ADR-021、05 §5.3）** | 某源 72 小时内偶发失败 | 沿用最近成功快照档位并打 `STALE_DATA`；**不发布降档 Verdict、不投递降级告警**；连续失败 73 小时后该轴才置 `INSUFFICIENT` 并恢复降档与告警 |
+| **`WINDOW_CLOSING` 的 14 天约束（05 §5.1）** | ① 降档发生在 `obs_date` 前 14 天内且 `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`；② 降档发生在 30 天前或无前置已发布裁决 | ① 触发 `WINDOW_CLOSING`；② **不得**触发，低 W 只能落入 `WATCH` 或 `PASS` |
+
 ---
 
 ## 5. 契约测试（Contract Testing）
@@ -90,6 +109,7 @@ flowchart TD
 | **U4 解释文本** | 50 条每日 Why Now 样本 | 事实包与生成比对 | 自动占位符解析率 100%；事实一致性 ≥ 95% | PR 抽检 |
 | **U5 机会研究报告** | 20 份真实机会报告样本 | 见 §7 评测计分卡（Rubric） | **Rubric 得分 ≥ 7/8 且 R1、R2 零容忍项 100% 达标** | 发布新模型前 |
 | **U6 本地化** | 每语言 100 组翻译对 | 双语对比 | 占位符、硬数字与证据引用保真度 100% | PR 抽检 |
+| **U7 点火包装配** | 每个 Build Type / 形态各 10 份 | 见 §7.1 点火包 rubric（L1–L6） | **Rubric 得分 ≥ 5/6 且 L1、L2 零容忍项 100% 达标** | 发布新模型前 |
 
 ---
 
@@ -108,14 +128,29 @@ flowchart TD
 | **R7. 止损红线明确度** | 必须包含至少 1 条可落地的 Kill Criteria 条件 | 1 分 | 否 |
 | **R8. 时效与免责声明** | 明确标注观测基准日，附带标准免责声明 | 1 分 | 否 |
 
+### 7.1 点火包评分体系（Launch Kit Rubric，09 §5）
+
+PRD §3.3 要求「机会报告与点火包 rubric 通过率」并列达标，故除报告 R1–R8 外，另设点火包（按所选 Build Archetype 动态装配）rubric，由 2 名独立评审双盲打分：
+
+| 维度 | 检查内容 | 分值 | 一票否决？ |
+|------|----------|------|------------|
+| **L1. 形态绑定一致性** | 点火包形态与 GO 所选 Build Archetype 一致，未混入其他形态的模板或词表 | 1 分 | **是（未通过总分记 0）** |
+| **L2. 硬数据占位符注入** | 词表、竞品价格、搜索动量等硬数字 100% 由确定性模板注入，无 LLM 编造（ADR-019） | 1 分 | **是（未通过总分记 0）** |
+| **L3. PSEO 词表可导入** | `slug` / 关键词 / 建议 `<title>` / `<h1>` / Meta 模板齐全，可直接导入 Next.js / Astro 路由 | 1 分 | 否 |
+| **L4. 工程规范可执行性** | `CLAUDE.md` / `.cursorrules` 的技术栈、MVP 边界、避坑指南具体可执行 | 1 分 | 否 |
+| **L5. 落地页文案证据锚定** | Hero / 痛点 / 定价文案锚定 F7 已观测证据，未越出 M 轴证据强度 | 1 分 | 否 |
+| **L6. 语言边界正确** | 词表与落地页文案保持 `research_language`（`en-US`），仅说明文字随 `ui_locale`（14 §5.4） | 1 分 | 否 |
+
+通过线：**≥ 5/6 且 L1、L2 零容忍项 100% 达标**。点火包 rubric 与报告 rubric 分别统计，任一不达标不得放行 Gate 0 / Gate 1。
+
 ---
 
 ## 8. 端到端自动化测试（E2E Testing）
 
 基于 Playwright 编写 3 条核心用户黄金链路（运行于 Staging 回放环境，不消耗生产预算）：
 1. **Onboarding → Feed 决策流**：新用户完成 4 问偏好问卷 → 浏览 Feed → 筛选 S 级周末工具 → 打开 Detail → 展开证据抽屉查看证据 → 点击 `GO` 并输入理由；
-2. **机会报告导出 → Project 立项流**：针对 GO 状态机会触发生成 → 验证报告 6 大分析板块正常渲染 → 一键导出 Markdown / PDF → 点击“基于此机会立项”成功创建 Project；
-3. **公开站 SEO 渲染流**：访问 `/track-record` 验证 Merkle Checkpoint 展开组件正常 → 访问延迟机会页验证 `noindex` / `indexable` 标签符合预期。
+2. **机会报告导出 → Project 立项流**：针对 GO 状态机会触发生成 → 验证报告 6 大分析板块正常渲染 → 一键导出 Markdown / PDF / JSON → 原子 GO（选择 Build Archetype，同一事务内占槽 + 扣导出配额 + 建 Project + 解锁该形态点火包）；
+3. **公开站 SEO 渲染流**：访问 `/track-record` 验证 Cohort Hit Rate & Accuracy Matrix 渲染与底栏 Merkle 根校验入口正常 → 访问**准实时精选机会页**（`CROWDED_LOCKED` / `WINDOW_CLOSING` 口径，PRD §7.1 已废除 45 天延迟）验证 `noindex` / `indexable` 标签符合预期。
 
 ---
 
@@ -125,7 +160,7 @@ flowchart TD
 flowchart LR
   PR[提交 Pull Request] --> G1[Gate A: 代码静态质检<br/>TypeScript / ESLint / Prettier]
   G1 --> G2[Gate B: 确定性纯函数测试<br/>Scoring Golden / Ledger / oasdiff]
-  G2 --> G3[Gate C: DB 不变量集成测试<br/>Testcontainers I1–I9 验证]
+  G2 --> G3[Gate C: DB 不变量集成测试<br/>Testcontainers I1–I14 验证]
   G3 --> MERGE[允许合并至 main]
 
   MERGE --> NIGHTLY[夜间流水线 Nightly]

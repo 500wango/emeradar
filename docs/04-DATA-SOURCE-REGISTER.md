@@ -13,22 +13,25 @@ Status: Draft ｜ 依赖：02、03 ｜ 被依赖：05、06、07、08
 
 ## 2. 数据源登记表
 
-| ID | 名称 | 类别 | 方式 | ToS 风险 | 频率 | 角色 | 备注 |
-|----|------|------|------|----------|------|------|------|
-| `src_ac` | Google Autocomplete | AUTOCOMPLETE | 授权 API（首选）/ 无官方接口 | **HIGH**（自采）→ MEDIUM（授权供应商） | 每日 | D 轴核心输入；`first_observed` 来源 | 无官方 API；见 §8 |
-| `src_serp` | Google SERP Top10 | SERP | 授权 API | MEDIUM | A 层每日 / B 层每周 | W 轴核心输入 | 直接抓取需豁免 |
-| `src_trends` | Google Trends | ATTENTION | 官方接口（如可用）/ 第三方 | MEDIUM | 每周 | D 轴辅助（权重 ≤ 0.10）；**不得成为单点依赖** | 缺失时 D 轴自动重归一 |
-| `src_hn` | Hacker News | ATTENTION | 官方 API | LOW | 每日 | Why Now / D 轴辅助 | |
-| `src_github` | GitHub（搜索、Trending） | ATTENTION | 官方 API | LOW | 每日 | Why Now | 遵守速率限制 |
-| `src_reddit` | Reddit | ATTENTION | 官方 API | MEDIUM | 每日 | Why Now | 商用条款需评估 |
-| `src_ph` | Product Hunt | ATTENTION | 官方 API | MEDIUM | 每日 | Why Now；商业类比 | 商用条款需评估 |
-| `src_crawl` | 竞品站点爬取（定价 / checkout / 计数器） | COMMERCIAL | 自建爬虫，**两级管道**（静态 HTTP 优先，动态渲染站点回退无头浏览器，见 §4.2） | LOW–MEDIUM | 每周（A 层域名每 3 日） | M 轴核心输入（OBSERVED） | 遵守 robots.txt |
-| `src_platform_rev` | 收入透明平台（公开验证的收入 / 销售数据） | COMMERCIAL | 授权 / 公开页 | MEDIUM | 每周 | M 轴营收证据 | 逐平台评估条款 |
-| `src_gsc` | Google Search Console | GSC | 用户 OAuth | LOW | 每周 | 结果回流、校准 | 只读最小权限 |
-| `src_rdap` | RDAP / WHOIS | OTHER | 公开协议 | LOW | 按需 | 域名年龄（辅助） | 可选 |
-| `src_traffic_est` | 第三方流量估算 | COMMERCIAL | 授权 API | MEDIUM | — | 仅展示（`THIRD_PARTY_ESTIMATE`） | Phase 2，可选 |
+| ID | 名称 | 类别 | 方式 | ToS 风险 | 频率 | 角色 | 72h 降级方案 | 备注 |
+|----|------|------|------|----------|------|------|--------------|------|
+| `src_ac` | Google Autocomplete | AUTOCOMPLETE | 授权 API（首选）/ 无官方接口 | **HIGH**（自采）→ MEDIUM（授权供应商） | 每日 | D 轴核心输入；`first_observed` 来源 | 72h 内沿用最近成功联想快照并打 `STALE_DATA`（D 轴不降档、不告警）；超 72h D 轴 → `INSUFFICIENT` | 无官方 API；见 §8 |
+| `src_serp` | Google SERP Top100 | SERP | 授权 API | MEDIUM | A 层每日 / B 层每周 | W 轴核心输入 | 同上；超 72h W 轴 → `INSUFFICIENT` | 直接抓取需豁免；`num=100` 一鱼多吃（§4） |
+| `src_trends` | Google Trends | ATTENTION | 官方接口（如可用）/ 第三方 | MEDIUM | 每周 | D 轴辅助（权重 ≤ 0.10）；**不得成为单点依赖** | 本就可缺失（D 轴自动重归一）；超 72h 视同缺失 | 缺失时 D 轴自动重归一 |
+| `src_hn` | Hacker News | ATTENTION | 官方 API | LOW | 每日 | Why Now / D 轴辅助 | 注意力源缺失仅降低 D 覆盖率，不影响轴分档；72h 内沿用 | |
+| `src_github` | GitHub（搜索、Trending） | ATTENTION | 官方 API | LOW | 每日 | Why Now | 同上 | 遵守速率限制 |
+| `src_reddit` | Reddit | ATTENTION | 官方 API | MEDIUM | 每日 | Why Now | 同上 | 商用条款需评估 |
+| `src_ph` | Product Hunt | ATTENTION | 官方 API | MEDIUM | 每日 | Why Now；商业类比 | 同上 | 商用条款需评估 |
+| `src_crawl` | 竞品站点爬取（定价 / checkout / 计数器） | COMMERCIAL | 自建爬虫，**两级管道**（静态 HTTP 优先，动态渲染站点回退无头浏览器，见 §4.2） | LOW–MEDIUM | 每周（A 层域名每 3 日） | M 轴核心输入（OBSERVED） | 72h 内沿用最近商业快照并打 `STALE_DATA`（M 轴不降档）；超 72h M 轴 → `INSUFFICIENT`；连续失败 ≥ 3 次的域名降级（02 §13） | 遵守 robots.txt |
+| `src_platform_rev` | 收入透明平台（公开验证的收入 / 销售数据） | COMMERCIAL | 授权 / 公开页 | MEDIUM | 每周 | M 轴营收证据 | 同 `src_crawl` | 逐平台评估条款 |
+| `src_gsc` | Google Search Console | GSC | 用户 OAuth | LOW | 每周 | **可选增强项**（PRD F10；见 §9.5） | 非关键源，缺失不影响任何轴；连接 `ERROR` 仅通知用户 | 只读最小权限 |
+| `src_rdap` | RDAP / WHOIS | OTHER | 公开协议 | LOW | 按需 | 域名年龄（辅助） | 按需源，无降级语义（缺失即不判定域名年龄） | 可选 |
+| `src_domain_established` | 域名上线 / 首次注册时间（RDAP/WHOIS 注册日、应用商店上架日、Wayback 首次快照） | OTHER | 公开协议 / 公开页 | LOW–MEDIUM | 按需 | `PROVEN_NEW_ENTRANT` 的"上线不满 6 个月"判据；写入 `domains.established_at` / `established_source`（03 §domains） | **来源为空时不得推断**（不适用 72h 沿用；缺失即不标 `PROVEN_NEW_ENTRANT`） | 每项必须连同判定依据一起存（PRD §1.7.3） |
+| `src_traffic_est` | 第三方流量估算 | COMMERCIAL | 授权 API | MEDIUM | — | 仅展示（`THIRD_PARTY_ESTIMATE`） | 仅展示，缺失不影响轴 | Phase 2，可选 |
 
 > 具体供应商（如提供 SERP / autocomplete 的商业 API）在 §8 评估矩阵中比选；候选须逐一核对当前条款与价格，不在本文预设结论。
+
+> **72h 降级登记规范（PRD §1.6、F1.3；ADR-021）**：偶发采集失败先 `STALE_DATA`——72 小时内沿用最近一次成功快照的档位，**不置 `INSUFFICIENT`、不发布降档 Verdict、不投递降级告警**；**连续失败超过 72 小时**，该源所服务的轴才正式置 `INSUFFICIENT`，届时恢复正常降档与告警路径。每个源登记时必须填写上表「72h 降级方案」列，并明确该源服务的是哪一条轴（每个源只服务一条轴）。判定位置与执行位置见 02 §5.3。
 
 ## 3. 采集器契约
 
@@ -75,6 +78,9 @@ interface RunContext {
 | 重试 | 指数退避 + 抖动；最多 3 次；仅对 `retryable` 错误 |
 | 熔断 | 单源连续失败率 > 50%（窗口 5 分钟、≥ 20 次）→ 熔断 15 分钟；自动半开探测 |
 | 速率 | 按 `limits` 与供应商配额；全局令牌桶 |
+| 通道 | **Fast Lane / Slow Lane 双通道**（ADR-017、PRD F1.2）：Fast Lane 只服务前端主动触发的「即时初筛」（全局令牌桶 ≤ 5 req/s，缓存命中 < 200ms、实时采集 < 8s）；Slow Lane 服务每日例行观测与每周回测（走供应商低价异步队列，全天任务均匀打散在 24h 窗口）。两者共用同一采集器契约与快照表，调度与速率上限各自独立（02 §5.2） |
+| 一鱼多吃 | 每次 SERP 统一请求 **Top 100（`num=100`）**：rank 1–10 参与 F6 弱点计算（05 §3.3）；rank 11–100 只在内存中匹配已核验项目的域名 / 商店链接（`project_serp_rankings`）。**严禁为追踪项目单独发起重复的 SERP 请求**（PRD F1.1） |
+| 7 天全局去重 | Fast Lane 命中 `serp_snapshots` 中 7 天内同 `(query, market_country, research_language)` 的最近一份快照即直接复用，API 成本为 0；**不建 Redis 缓存层**（ADR-017：快照不可变，额外缓存会造出第二份可能与账本不一致的事实源） |
 | 隔离 | 作业按 `(source, batch)` 划分；故障不跨源传播 |
 | 载荷 | 原始响应 gzip 存对象存储，记 `sha256`；快照表存标准化行 |
 | 时间戳 | `fetched_at` 取采集时刻；`obs_date` 取批次日期，不取 `fetched_at` 的日期（跨零点安全） |
@@ -120,7 +126,7 @@ Tier 2（按需升级）
 - Tier 2 调用计入成本账本（`source_id = src_crawl`, `run.scope.fetch_tier = 'HEADLESS'`），纳入 §6 成本模型。
 
 ### 4.3 无头浏览器基础设施（Phase 0 决策）
-首期采用**托管无头浏览器服务**（如 Browserless、ScrapingBee 一类按请求计费的托管方案，具体供应商在 Gate 0 前完成 ≥ 2 家实测比选，比选维度同 §8），不自建 Playwright 容器集群：2–3 人团队没有余力运维浏览器集群的内存泄漏、僵尸进程、指纹更新等问题，按请求付费在追踪池规模（04 §11）下的绝对成本可控。若 Phase 2 追踪池规模显著扩大，重新评估自建集群的边际成本。
+首期采用**托管无头浏览器服务**（如 Browserless、ScrapingBee 一类按请求计费的托管方案，具体供应商在 Gate 0 前完成 ≥ 2 家实测比选，比选维度同 §8），不自建 Playwright 容器集群：2–3 人团队没有余力运维浏览器集群的内存泄漏、僵尸进程、指纹更新等问题，按请求付费在追踪池规模（§4.4 的 2,000 个 Tier A/B 种子上限）下的绝对成本可控。若 Phase 2 追踪池规模显著扩大，重新评估自建集群的边际成本。
 
 ### 4.4 Autocomplete 早停剪枝（成本控制）
 **问题**：不加约束的 `seed + a–z` 全遍历，在 2,000 个 Tier A/B 种子、深度 ≤ 2 的设定下，理论峰值可达每日数万次请求；按主流商业供应商单价估算，仅 autocomplete 一项月成本可能达到目标毛利率无法承受的量级，直接威胁 Gate 0。
@@ -186,6 +192,11 @@ C_month ≈ 30 · C_day
 - 目标毛利率下可支撑的 `N_TRACKED` 上限；
 - 若上限 < 产品所需最低追踪池规模，Gate 0 不通过。
 
+### 6.4 单位经济目标（对齐 PRD F1 §8.2）
+- **单付费用户月度边际采集成本 < $1.00**：由 §4 的"Top 100 一鱼多吃"、"7 天全局去重"（复用 `serp_snapshots`，无 Redis）与"Slow Lane 24h 低价异步队列"共同压降。
+- **500 活跃用户规模下，月度新增边际 SERP API 成本 < $20**（PRD F1 验收项）。
+- Gate 0 的成本表（§6.3）必须能反推验证上述两条；任一条不满足则不得进入 Phase 1。
+
 ## 7. 数据源准入清单
 新源上线前必须全部完成：
 
@@ -222,9 +233,9 @@ C_month ≈ 30 · C_day
 - **语义声明**：`first_observed` 仅代表本系统观测；Methodology 页公开观测起始日期。
 
 ### 9.2 SERP（`src_serp`）
-- 每次保存 Top10：URL、标题、摘要、排名、SERP features；域名解析到 eTLD+1（使用公共后缀列表）。
+- 每次保存 **Top 100**（`num=100`，`serp_snapshots.depth`）：URL、标题、摘要、排名、SERP features；域名解析到 eTLD+1（使用公共后缀列表）。rank 1–10 供 F6 弱点计算，11–100 仅供内存匹配已核验项目（§4 一鱼多吃）。
 - `market_country`、`research_language` 作为请求参数显式传入，不推导。
-- 分类（结果类型、域名权威类别、相关性）由 S3 完成（08 §4）。
+- 分类（结果类型、域名权威类别、相关性）由 S3 完成（08 §4）；结果类型标签在入库时冻结（ADR-020）。
 
 ### 9.3 注意力源（HN / GitHub / Reddit / PH）
 - 输出 `INFERRED` 类 Evidence（类型 `ATTENTION_MENTION`），含实体、来源、时间、互动量。
@@ -234,7 +245,13 @@ C_month ≈ 30 · C_day
 ### 9.4 商业爬取（`src_crawl`）
 详见 07。采集器只负责抓取与结构化抽取草稿，分档在 05 / 07。
 
-### 9.5 GSC（`src_gsc`）
-- 用户经 OAuth 授权，scope 仅 `webmasters.readonly`。
-- 每周同步：按页面与查询维度的 impressions / clicks / position，回溯 28 天以吸收数据修正。
-- 令牌失效 → 连接状态 `ERROR` → 通知用户重新授权，不自动重试超过 3 次。
+### 9.5 GSC（`src_gsc`）— 降级为可选增强项（PRD F10、§12.3）
+
+GSC 不再作为"结果回流 / 校准"的常规数据源。
+
+- **主追踪改为自身 SERP Top 100 快照的内存匹配**：系统在执行 F1 例行快照采集（§4 一鱼多吃）时，于内存中匹配已核验项目的域名 / 商店链接，生成 `project_serp_rankings`（03 §projects），据此计算 Builder-outcome precision（30 天 Top 100 入榜率）与公开战绩大盘。此路径**不依赖用户授权、不消耗额外请求**。
+- **理由**：核心 ICP 是出海站长，普遍不愿授权 GSC（PRD F10 的"信任摩擦"）。把主追踪建立在自身管线上，才能对全体用户一致生效。
+- **GSC 收敛为可选增强项**：仅供愿意深度复盘精细曝光 / 点击数据的用户自愿连接，用于补充可选指标；**不参与三轴评分，也不作为 Builder-outcome precision 的必需输入**。
+  - 用户经 OAuth 授权，scope 仅 `webmasters.readonly`；**不向 LLM 发送 GSC 令牌**（08 §12）。
+  - 每周同步：按页面与查询维度的 impressions / clicks / position，回溯 28 天以吸收数据修正。
+  - 令牌失效 → 连接状态 `ERROR` → 通知用户重新授权，不自动重试超过 3 次。

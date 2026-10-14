@@ -12,6 +12,8 @@ Status: Draft ｜ 依赖：03、05 ｜ 被依赖：15
 | 战绩页 | 公开命中与失误（15） |
 | 用户侧 Replay | 选择历史日期查看当时状态（Phase 2） |
 
+**前台的定位（PRD §1.7 第 7 条）**：Merkle 树的角色是**后台不可篡改的存证 + 前台底栏的校验入口**，不是对外的主打卖点。对用户与公开页而言，账本的价值体现在 **Cohort Hit Rate & Accuracy Matrix（公开 Cohort 战绩大盘）** 与**失误复盘（Misses & Post-mortems）** 上——即系统前向追踪的 T+30/60/90 天市场形成命中率、已立项项目的自然排名爬升率，以及明确列出的预测失误。密码学部分面向愿意自行复算的人（§5 公开验证工具），不在营销层反复强调。
+
 ## 2. 数据流
 
 ```text
@@ -123,7 +125,14 @@ checkpoint_hash = SHA-256( prev_checkpoint_hash ‖ obs_date ‖ row_count ‖ m
 | 每个 Verdict 的 `input_snapshot_ids` 存在且不可变 | 03 I4 |
 | 随机重算一致 | 05 §8：每日抽 1% 重算并比对 |
 
-**公开验证工具**：提供脚本与文档，任何人可下载某日全部 Verdict 的公开摘要，重算 Merkle 根并与已公开值对比（仅对已公开延迟的机会开放，见 15）。
+**公开验证工具**：提供脚本与文档，任何人可下载某日全部 Verdict 的公开摘要，重算 Merkle 根并与已公开值对比。
+
+**公开投影的资格判据（准实时精选，PRD §7.1）**：旧的「45 天延迟公开」方案已**彻底废除**。一条机会进入公开投影的唯一途径，是它**已经失去抢跑价值**：
+
+1. **刚刚满足 `CROWDED_LOCKED`**——全部形态槽位（`Σ opportunity_slots.claimed == Σ capacity`，ADR-018）被认领满额；或
+2. **刚进入 `WINDOW_CLOSING`**——此前已发布过 `BUILD_NOW` / `EARLY_BET` 且 W 档在 14 天内下降 ≥ 1 档（05 §5.1 的三个必要条件）。
+
+**硬性排除**：仍有余槽的黄金 `BUILD_NOW`（空槽可认领）**严禁**进入公开投影，防止背刺付费 Pro 用户（PRD §1.7 第 6 条、§7.1）。入选凭据（当时凭 `CROWDED_LOCKED` 还是 `WINDOW_CLOSING`、槽位状态）随页面写 `public_pages.eligibility`（03 §15），使"为什么这条能被免费用户看到"事后可复核。
 
 ## 6. 战绩的口径：Episode
 连续多日的同一 Verdict 高度相关，直接按日统计会夸大样本量。统计单位为 **Episode**：
@@ -136,6 +145,14 @@ Episode = (opportunity_id, verdict_class, start_date)
 ```
 - 每个 Episode 只在 `start_date` 计一次预测，评估锚定到 `start_date`。
 - 同一机会离开后再次进入，算新 Episode，但两次进入间隔 < 14 天视为同一 Episode。
+
+### 6.1 Sealed Ledger（买断项目的计入与打码，PRD §1.7 第 7 条 / ADR-018）
+被用户通过 `Stealth Lock`（`stealth_locks`，03 §12）独占买断的机会，**照常写入 `verdicts` 账本、照常生成 `prediction_episodes`，并计入 Cohort 胜率统计**——买断改变的是曝光，不是事实。
+
+- **保护期内的展示**：在 60 天独占保护期内，公开投影（15）把该 Episode 的关键词与实体**打码为 `[Stealth Locked #ID]`**；保护期满（`stealth_locks.unlock_at`）后**自动解密**，公开具体词根。
+- **账本与展示解耦**：打码是**投影层行为**，不是对账本的改写——原 `verdicts` 行与 `prediction_episodes` 行从未被修改，打码别名单独存于 `stealth_lock_displays`（03 §15），且 `unmasked_at` 与 `stealth_locks.unlock_at` 严格一致（03 I14）。
+- **封印不损害"可证伪"**：因为账本行完整保留、命中与失误的分类不因打码而改变，任何人都能在保护期满后复算这条预测当时对不对。若打码会移除样本、或让胜率统计只挑好的公开，账本的可信度才真正受损——本设计刻意避免这一点。
+- **与公开验证的一致性**：§11 的 `public.track_record_episodes` 在保护期内保留该 Episode（参与汇总分子分母），仅其 `title_original` / 关键词字段替换为打码标签。
 
 ## 7. 评估规格（`eval_spec = ev-1.0`）
 
@@ -170,9 +187,11 @@ Episode = (opportunity_id, verdict_class, start_date)
 | `attention_persistence` | 第 h 天注意力源活跃数 ≥ 预测日值 |
 | **`market_formed`** | `cluster_expansion` ∧ `sustained_new_queries` |
 | **`window_closed`** | 第 h 天 W 档为 `LOW`，或窗口内 `e_specialist + e_authoritative ≥ 3` |
-| **`gsc_traction`**（Builder 结果） | 关联项目上线后 90 天内，目标关键词累计曝光 ≥ `traction_impressions`（默认 1,000）且至少有点击 |
+| **`verified_launch_within_7d`**（Builder 结果） | 机会点击 GO 后 **7 天内**，用户回填的 3 类上线凭证之一（独立域名 URL / 应用商店详情页 URL / 公开的 GitHub Release 或着陆页 URL，PRD F10）通过服务端 HTTP 探针核验（`<title>` / `<h1>` / `<meta>` 与机会主题相关） |
+| **`serp_top100_within_30d`**（Builder 结果） | 已核验项目在 **30 天内**由 F1 的 Top 100 快照**内存匹配**首次观测到进入自然搜索 Top 100（`project_serp_rankings.best_rank ≤ 100`，03 §12）。**数据来自自身 SERP 管线，不依赖 GSC**（F1 一鱼多吃、F10） |
+| `gsc_traction`（**可选增强，非必选**） | 仅供**自愿连接 GSC** 的项目：关联项目上线后 90 天内目标关键词累计曝光 ≥ `traction_impressions`（默认 1,000）且至少有点击。未连接 GSC 的项目此事件为 `pending`，**不得**因此判为失败 |
 
-评估地平线 `h ∈ {30, 60, 90}`。
+评估地平线 `h ∈ {30, 60, 90}`。Builder 结果类事件只在**存在已核验 Project** 的 Episode 上评估；`market_formed` / `window_closed` 等需求与竞争事件不要求用户授权任何外部数据。
 
 ### 7.2 基线
 | 基线 | 构造 |
@@ -195,7 +214,7 @@ B2 用于证明复合评分比"简单启发式"确有增益。
 - 置信区间：按机会聚类的 bootstrap（10,000 次），报告 95% CI。
 - 最小样本：单个指标的 Episode 数 < 100 时，标注"样本不足"，不得在公开页给出提升倍数。
 - 不做事后挑选：只报告 `eval_spec` 中预先定义的指标与地平线。
-- Builder-outcome（`gsc_traction`）在关联项目 < 30 个前仅内部使用。
+- Builder-outcome 指标在关联项目 < 30 个前仅内部使用。**可对外发布的两个口径**是 `verified_launch_within_7d`（7 天凭证核验通过率）与 `serp_top100_within_30d`（30 天 Top 100 入榜率）——两者都由自身 SERP 管线与 HTTP 探针产生，**无需用户 GSC**（PRD §3.3、Gate 1）。`gsc_traction` 只在连接了 GSC 的**子集**上单独报告，样本与前者隔离，绝不与之混算或作为对外必报项。
 - 报告必须同时给出命中与失误清单。
 
 ## 8. Outcome Evaluator
@@ -232,20 +251,23 @@ compare(candidate outputs vs. ACTIVE ledger outputs) on §7 指标
 
 ## 11. Track Record 数据契约（供 15 使用）
 
-`public.track_record_episodes`（public projection，只含满足延迟规则的机会）：
+`public.track_record_episodes`（public projection，只含**满足准实时精选资格**（`CROWDED_LOCKED` 或 `WINDOW_CLOSING`，§5）或**已进入买断打码**（§6.1）的机会）：
 
 | 字段 | 说明 |
 |------|------|
-| `episode_id` `opportunity_slug` `title_original` | 标识 |
+| `episode_id` `opportunity_slug` `title_original` | 标识（买断保护期内 `title_original` 为打码标签 `[Stealth Locked #ID]`） |
 | `market_country` `research_language` | 市场 |
 | `verdict_class` `start_date` `end_date` | Episode |
 | `verdict_at_start` 三轴分档 `confidence` | 当时状态 |
 | `first_observed_at` | 首次观测 |
 | `outcome_30d / 60d / 90d` | `market_formed` `window_closed`（true / false / pending） |
+| `is_stealth_masked` `masked_label` `unmasked_at` | 是否处于买断打码期、打码标签、自动解密时刻（03 §15 `stealth_lock_displays`） |
 | `ledger_checkpoint_hash` | 起始日 checkpoint，供验证 |
 | `is_override` | 是否含人工调整 |
 
-汇总统计（`public.track_record_summary`）：Episode 总数、已评估数、按 Verdict 的命中率、提升倍数（样本充足时）、窗口存活中位数、更新时间。
+Builder-outcome 列（供公开战绩页）：`launch_verified_7d`（bool / pending）、`serp_top100_30d`（bool / pending），分别对应 §7.1 的 `verified_launch_within_7d` 与 `serp_top100_within_30d`，均不读 GSC。
+
+汇总统计（`public.track_record_summary`）：Episode 总数、已评估数、按 Verdict 的命中率、提升倍数（样本充足时）、窗口存活中位数、**7 天凭证核验通过率与 30 天 Top 100 入榜率**（样本充足时）、更新时间。买断打码的 Episode（§6.1）计入分子与分母，不打折统计口径。
 
 ## 12. 失败与告警
 | 事件 | 级别 | 处置 |

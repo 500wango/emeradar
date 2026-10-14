@@ -81,13 +81,55 @@ create table api_keys (
   last_used_at timestamptz,
   revoked_at timestamptz
 );
+
+-- 反滥用（13 §9、PRD F14）。四张表共同支撑「Free 终身仅 1 次实时初筛」不被批量小号刷穿。
+create table email_identities (
+  user_id text primary key references users(id) on delete cascade,
+  canonical_email citext not null unique,    -- 归一化结果：小写 + 剥离 Gmail 的 "+别名" 与 "."
+  raw_email citext not null,                 -- 注册原文，仅审计与申诉用
+  normalized_at timestamptz not null default now()
+);
+-- 唯一约束是兜底而非唯一防线：归一化在应用层做（13 §9），这里防止并发注册绕过。
+-- 非 Gmail 域只做小写归一，不剥离点号——点号在多数邮箱里是有意义的字符。
+
+create table disposable_email_domains (
+  domain citext primary key,                 -- 一次性/临时邮箱域，注册时拒绝
+  source text not null,
+  added_at timestamptz not null default now()
+);
+
+create table device_fingerprints (
+  id text primary key,
+  user_id text not null references users(id) on delete cascade,
+  fingerprint_hash char(64) not null,        -- 浏览器指纹的加盐哈希；不存原始特征值
+  ip_hash char(64) not null,                 -- 客户端 IP 的加盐哈希
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  unique (fingerprint_hash, user_id)
+);
+
+create table lifetime_scan_grants (
+  id text primary key,
+  -- 可空且 SET NULL：注销时**保留**指纹哈希但切断与账号的关联。若随账号级联删除，
+  -- 注销再注册就能再领一次终身免费初筛，这条反滥用规则会自我抵消。口径与隐私说明见 §18。
+  user_id text references users(id) on delete set null,
+  fingerprint_hash char(64),
+  ip_hash char(64),
+  granted_at timestamptz not null default now()
+);
+create index lifetime_scan_grants_fp on lifetime_scan_grants (fingerprint_hash, granted_at desc);
+create index lifetime_scan_grants_ip on lifetime_scan_grants (ip_hash, granted_at desc);
+-- 这张表是「同一设备/IP 30 天内最多触发 1 次免费初筛」的**判定依据**，而不是
+-- usage_counters 的终身计数：后者只防同一账号重复领取，防不住换号重领。
+-- fingerprint_hash / ip_hash 可空：两者都缺失时该行不参与跨账号判定（宁可放行一次，
+-- 也不因为拿不到指纹而永久拒绝一个真实用户）。
 ```
 
 ## 3. 计费与用量
 
 ```sql
 create table plans (
-  code text not null,                          -- FREE / PRO / TEAM
+  code text not null,                          -- FREE / PRO（TEAM 为历史兼容值，不在结账页出现；见 13 §3.1）
   version integer not null default 1,
   entitlements jsonb not null,                -- 结构见 13 §3.2
   active boolean not null default true,        -- 仅最新 version 可为新订阅使用；旧 version 保留供快照引用
@@ -106,6 +148,12 @@ create table subscriptions (
   status text not null check (status in ('TRIALING','ACTIVE','PAST_DUE','CANCELED','PAUSED')),
   provider text not null,
   provider_subscription_id text not null unique,
+  -- 计费周期：季度即主推的 Builder Pass（PRD §8.1），它不是独立 plan_code，
+  -- 而是 PRO 权益在 QUARTER 计费间隔下的售卖方式，避免同一份权益出现两个真源。
+  billing_interval text not null default 'MONTH' check (billing_interval in ('MONTH','QUARTER','YEAR')),
+  -- 一次性买断的 PRO 权益（Founding Lifetime）不产生续费事件，用此列区分（13 §4.4）。
+  -- Stealth Buyout 不在这张表：它买的不是订阅权益，见 §12 stealth_locks。
+  purchase_kind text not null default 'SUBSCRIPTION' check (purchase_kind in ('SUBSCRIPTION','FOUNDING_LIFETIME')),
   current_period_start timestamptz,
   current_period_end timestamptz,
   cancel_at_period_end boolean not null default false
@@ -129,6 +177,23 @@ create table usage_counters (
   used integer not null default 0,
   primary key (user_id, feature, period_start)
 );
+-- 「终身额度」（Free 的 1 次实时初筛）用**固定哨兵日期** `1970-01-01` 表达 period_start，
+-- 而不是新增一张表：这样终身额度与周期额度共用同一套原子预占逻辑（13 §4.1），
+-- 不必为一个 feature 写第二份并发控制。哨兵日期由常量 `LIFETIME_PERIOD_START` 提供。
+--
+-- 跨月累计（Rollover，PRD §8.1）不改本表结构：周期结束时的剩余额度写入
+-- `usage_carryovers`，下一周期读取时叠加。
+create table usage_carryovers (
+  user_id text not null references users(id),
+  feature text not null,
+  from_period_start date not null,
+  units integer not null check (units > 0),
+  carried_at timestamptz not null default now(),
+  consumed_in_period date,                     -- 已被哪个周期消费；NULL 表示仍可叠加
+  primary key (user_id, feature, from_period_start)
+);
+-- 只对配置了 `rollover: true` 的 feature 生效（首发仅 Pro 的原子立项导出）。
+-- 每次结转都留一行，使"未用完的额度去哪了"可被逐笔回答，而不是靠一个会漂移的余额数字。
 ```
 
 ## 4. 数据源与运行
@@ -233,6 +298,10 @@ create table domains (
   host text not null unique,                   -- registrable domain (eTLD+1)
   authority_class text not null default 'UNKNOWN'
     check (authority_class in ('OFFICIAL','MAJOR_MEDIA','PLATFORM_UGC','SPECIALIST','SMALL_SITE','UNKNOWN')),
+  -- 新晋赢家（PROVEN_NEW_ENTRANT，PRD §1.7.3）需要"上线不满 6 个月"这个判据。
+  -- 该判据**不是**本系统的观测结果，必须连同来源一起存，且来源为空时不得推断：
+  established_at date,                         -- 可考证的上线/注册时间
+  established_source text,                     -- 判定该时间的依据（注册记录 / 首次索引 / 商店上架）
   first_observed_at timestamptz not null
 );
 
@@ -244,21 +313,30 @@ create table serp_snapshots (
   run_id text not null references collector_runs(id),
   raw_payload_id text references raw_payloads(id),
   fetched_at timestamptz not null,
-  result_count smallint not null,
+  depth smallint not null default 100,         -- 采集深度；首发固定 100（一鱼多吃，PRD F1.1）
+  result_count smallint not null,              -- 实际返回条数，可能 < depth
   serp_features jsonb not null default '[]',
   unique (query_id, obs_date, source_id)
 );
+-- depth = 100 的用途分工（PRD F1.1）：rank 1–10 参与 SERP 弱点计算（05 §3.3），
+-- rank 11–100 只用于在内存中匹配已核验项目的域名/商店链接（§12 project_serp_rankings），
+-- **不为追踪项目单独发起任何 SERP 请求**。因此 11–100 不额外产生采集成本。
 
 create table serp_results (
   obs_date date not null,                       -- 分区键：与 serp_snapshots.obs_date 一致，写入时冗余
   snapshot_id text not null references serp_snapshots(id),
-  rank smallint not null,
+  rank smallint not null,                       -- 1–100
   url text not null,
   domain_id text not null references domains(id),
   title text,
   snippet text,
+  -- **入库时冻结的分类标签（ADR-020）**：由 LLM 在采集入库阶段一次性生成，此后永不重算。
+  -- 评分与历史重算只读这一列，绝不在重算路径重新分类——否则同一快照集合会因模型版本
+  -- 漂移得出不同分数，"100% 可重算"（PRD P7）与账本上封存的判据都会失效。
   result_type text not null default 'UNCLASSIFIED',
     -- SPECIALIST / OFFICIAL / EDITORIAL_MEDIA / LISTICLE_AFFILIATE / DIRECTORY / UGC_THREAD / QA / VIDEO / DOC / THIN_PAGE / OFF_TOPIC / UNCLASSIFIED
+  label_frozen_at timestamptz,                  -- 分类标签写入时刻；NULL 表示尚未分类（该行不得参与评分）
+  classifier_run_id text references llm_runs(id),
   relevance numeric(3,2),
   age_days integer,
   primary key (obs_date, snapshot_id, rank)
@@ -400,10 +478,47 @@ create table axis_features (
 create table crowding_daily (
   opportunity_id text not null references opportunities(id),
   obs_date date not null,
-  go_users_14d integer not null,
+  slots_claimed_total integer not null,        -- Σ 全部形态中 slot_state = 'CLAIMED' 的数量
+  slots_capacity_total integer not null,       -- Σ 全部形态的 capacity（≤ max_capacity_total）
   crowding_index numeric(5,2) not null,
   primary key (opportunity_id, obs_date)
 );
+-- 取代早期的 go_users_14d：拥挤度按**当前占用**而非"14 天内点过 GO 的人数"计算，
+-- 因为 7 天质押逾期会释放槽位，而"点过 GO"的计数会把已释放的人永久算作占用。
+
+-- 认领槽位（ADR-018、05 §5.1、PRD §1.7 第 5 条）。按 Build Archetype 切分，是一条机会可以有
+-- 多个"队"的原因：不同形态的认领者互不挤占，避免所有订阅者做同一个同质竞品。
+create table opportunity_slots (
+  opportunity_id text not null references opportunities(id) on delete cascade,
+  archetype text not null,                     -- 00 §4.3 build_type
+  capacity integer not null check (capacity > 0),
+  claimed integer not null default 0 check (claimed >= 0 and claimed <= capacity),
+  updated_at timestamptz not null default now(),
+  primary key (opportunity_id, archetype)
+);
+
+create table slot_claims (
+  id text primary key,                         -- slc_
+  opportunity_id text not null,
+  archetype text not null,
+  user_id text not null references users(id),
+  project_id text not null references projects(id),
+  state text not null check (state in ('OPEN','CLAIMED','RELEASED','EXPIRED')),
+  claimed_at timestamptz not null default now(),
+  deadline_at timestamptz not null,            -- claimed_at + stake_window_days（默认 7 天）
+  released_at timestamptz,
+  release_reason text check (release_reason in ('STAKE_EXPIRED','STAKE_INVALID','USER_ARCHIVED','OPPORTUNITY_ARCHIVED')),
+  foreign key (opportunity_id, archetype) references opportunity_slots(opportunity_id, archetype)
+);
+-- opportunity_slots.claimed 是 slot_claims 的汇总缓存，两者由同一事务写入。
+-- 计数据此而非 COUNT(*) 是为了让 GO 的并发抢占只需锁一行（见 10 §原子 GO）。
+--
+-- **活跃认领的唯一判定（D2）**：slot_claims.state = 'CLAIMED'。任何"某人是否还占着槽"
+-- 的读路径都必须走这一列，不得改从 projects.status 推导——早期三处读路径分别用了
+-- != 'ARCHIVED' 与 != 'ABANDONED'，后者不是合法取值，等于把归档项目也算作占用。
+create unique index slot_claims_one_active_per_user_opportunity
+  on slot_claims (user_id, opportunity_id) where state = 'CLAIMED';
+create index slot_claims_deadline on slot_claims (deadline_at) where state = 'CLAIMED';
 
 -- 推荐层（05 §11）：不进账本，但每日落库以便复现
 create table opportunity_recommendations (
@@ -546,7 +661,11 @@ create table kill_criteria (
 create table alert_rules (
   id text primary key,
   user_id text not null references users(id),
-  rule_type text not null,                     -- 见 12 §3
+  -- 取值以 12 §3 为唯一真源（VERDICT_CHANGE / WINDOW_CLOSING / SLOT_SCARCITY /
+  -- PROJECT_RANK_JUMP / NEW_ENTRANT / KILL_CRITERIA / PULSE_CONFIRMED）。
+  -- 库层 CHECK 是超集，应用层按"是否已实现求值路径"再收紧：未实现的类型必须拒绝创建，
+  -- 否则规则会安静地躺在列表页里永远不响。
+  rule_type text not null,
   params jsonb not null default '{}',
   channel_ids text[] not null default '{}',
   enabled boolean not null default true
@@ -583,13 +702,70 @@ create table projects (
   opportunity_id text not null references opportunities(id),
   decision_id text not null references decisions(id),
   build_type text not null,
-  domain text,
+  domain text,                                 -- 核验通过后的主跟踪主机名；未核验时为 NULL
   launch_date date,
   target_keywords text[] not null default '{}',
-  status text not null default 'PLANNED' check (status in ('PLANNED','BUILDING','LAUNCHED','ABANDONED')),
+  status text not null default 'IN_DEVELOPMENT'
+    check (status in ('IN_DEVELOPMENT','LAUNCHED','ARCHIVED')),
+  -- 承诺质押（PRD §1.7 第 5 条、F10）。7 天内未提交有效凭证即置 EXPIRED_RELEASED 并释放槽位；
+  -- 已扣的月度导出配额**不退还**——这是让"占坑"有成本的那一半设计。
+  stake_status text not null default 'PENDING'
+    check (stake_status in ('PENDING','VERIFIED','EXPIRED_RELEASED')),
+  stake_deadline_at timestamptz not null,      -- GO 时刻 + stake_window_days（默认 7 天）
   outcome_status text not null default 'UNKNOWN'
     check (outcome_status in ('UNKNOWN','NO_TRACTION','EARLY_TRACTION','TRACTION'))
 );
+create index projects_stake_deadline on projects (stake_deadline_at) where stake_status = 'PENDING';
+-- 注意：status 的取值已统一为 IN_DEVELOPMENT/LAUNCHED/ARCHIVED（00 §4.3）。早期的
+-- PLANNED/BUILDING/ABANDONED 与代码里的同义漂移一并作废——正是这套漂移让三处槽位计数
+-- 分别用了 != 'ARCHIVED' 与 != 'ABANDONED'，从而算出不同的占用数。
+
+-- 上线凭证（PRD F10 支持 3 类）。保留历史提交，便于回答"这个项目当时凭什么算上线"。
+create table project_credentials (
+  id text primary key,
+  project_id text not null references projects(id) on delete cascade,
+  credential_type text not null
+    check (credential_type in ('DOMAIN_URL','STORE_LISTING_URL','PUBLIC_PAGE_URL')),
+  url text not null,
+  host text,                                   -- 归一化主机名，供 SERP 快照内存匹配用
+  verification_state text not null default 'PENDING'
+    check (verification_state in ('PENDING','VERIFIED','REJECTED')),
+  probe jsonb,                                 -- 探针提取的 <title>/<h1>/<meta> 与相关性判定
+  checked_at timestamptz,
+  rejection_reason text,
+  created_at timestamptz not null default now()
+);
+create unique index project_credentials_one_verified
+  on project_credentials (project_id) where verification_state = 'VERIFIED';
+
+-- 无感 SERP 排名追踪的输出（PRD F10）。数据来自 F1 每周 Top 100 快照的内存匹配，
+-- **不为追踪项目单独发起任何 SERP 请求**（一鱼多吃原则）。
+create table project_serp_rankings (
+  project_id text not null references projects(id) on delete cascade,
+  query_id text not null references queries(id),
+  obs_date date not null,
+  best_rank integer,                           -- NULL 表示当日未进入 Top 100
+  matched_url text,
+  primary key (project_id, query_id, obs_date)
+);
+
+-- 处女地独占买断（ADR-018、PRD §1.7 第 5 条）。仅在 Σclaimed == 0 时可下单，
+-- 部分唯一索引保证同一机会不会同时存在两个有效买断。
+create table stealth_locks (
+  id text primary key,                         -- slk_
+  opportunity_id text not null references opportunities(id),
+  user_id text not null references users(id),
+  status text not null check (status in ('ACTIVE','EXPIRED')),
+  locked_at timestamptz not null default now(),
+  unlock_at timestamptz not null,              -- locked_at + 60 天
+  amount_usd numeric(10,2),
+  provider_payment_id text
+);
+create unique index stealth_locks_one_active
+  on stealth_locks (opportunity_id) where status = 'ACTIVE';
+-- 买断期内的机会照常写入 verdicts 与 prediction_episodes 并计入 Cohort 胜率统计；
+-- 只有**公开投影**打码为 [Stealth Locked #ID]（06 §7、15 §3）。账本与展示在此解耦，
+-- 所以"封印"不会伤害战绩的可证伪性。
 
 create table project_pages (
   project_id text not null references projects(id),
@@ -653,6 +829,24 @@ create table opportunity_reports (
   unique (opportunity_id, user_id, snapshot_id, locale)
 );
 create index idx_opp_reports_user_opp on opportunity_reports(user_id, opportunity_id);
+
+-- AI 建站点火包（ADR-019、PRD F8 交付物二、09 §5）。
+-- 与报告的区别在于它绑定**一次具体的认领**而不是一次生成：同一机会可以放行 5 次
+-- 原子立项，每人拿到的形态可能不同，因此点火包按 slot_claim 唯一，而不是按 (user, snapshot)。
+create table launch_kits (
+  id text primary key,                         -- lkit_
+  report_id text not null references opportunity_reports(id),
+  project_id text not null references projects(id) on delete cascade,
+  slot_claim_id text not null references slot_claims(id),
+  archetype text not null,                     -- 决定装配哪一套工程规范与页面骨架
+  schema_version text not null default '1.0',
+  files jsonb not null,                        -- CLAUDE.md / .cursorrules / pseo-routes.csv|json / landing.md
+  content_hash char(64) not null,              -- 与 files 对应，用于复核与幂等
+  generated_at timestamptz not null default now(),
+  unique (slot_claim_id)
+);
+-- files 的硬数据（搜索动量、竞品价格、长尾词表）由确定性模板注入，LLM 只贡献 ≤ 500 字
+-- 叙述（ADR-019、09 §5.3），所以 content_hash 可重算：同一快照 + 同一形态必得同一份点火包。
 ```
 
 ## 14. LLM 注册与运行
@@ -704,17 +898,32 @@ create table localized_content (
 create table public_pages (
   id text primary key,                         -- pgm_
   page_type text not null
-    check (page_type in ('OPPORTUNITY','MARKET','TREND_ENTITY','REPLAY','REPORT','COMPARE','TRACK_RECORD')),
+    check (page_type in ('OPPORTUNITY','MARKET','TREND_ENTITY','REPLAY','REPORT','COMPARE','TRACK_RECORD','CASE_STUDY')),
   slug text not null,
   locale text not null,
   opportunity_id text references opportunities(id),
   status text not null check (status in ('DRAFT','PUBLISHED','UNPUBLISHED')),
   indexable boolean not null default false,
+  -- 资格判据快照。**不再含 45 天延迟**（PRD §7.1 已废除）：改为记录该页凭哪一条
+  -- 准实时口径入选（`CROWDED_LOCKED` 或 `WINDOW_CLOSING`）以及当时的槽位状态，
+  -- 使"为什么这条机会可以被免费用户看到"事后可复核（15 §3、20 §6）。
   eligibility jsonb not null,
   quality_report jsonb not null,
   canonical_url text,
   published_at timestamptz,
   unique (slug, locale)
+);
+
+-- Sealed Ledger（ADR-018、PRD §1.7 第 7 条）：买断期内公开投影的显示别名。
+-- 单独成表而非改 public_pages，是因为**打码是展示层投影**，不是事实：期满必须能
+-- 无损还原，而原页面本身从未被改写。
+create table stealth_lock_displays (
+  opportunity_id text not null references opportunities(id),
+  stealth_lock_id text not null references stealth_locks(id),
+  masked_label text not null,                  -- 形如 [Stealth Locked #7f3a]
+  locale text not null,
+  unmasked_at timestamptz not null,            -- 与 stealth_locks.unlock_at 一致
+  primary key (opportunity_id, locale)
 );
 ```
 
@@ -747,10 +956,16 @@ create table audit_log (
 | I7 | `row_hash = sha256(prev_hash ‖ canonical_json(row))` 可在任意时刻重验 | 06 的验证任务 |
 | I8 | 每个 `status != 'CANDIDATE'` 的机会恰有 1 条 `opportunity_queries(role='PRIMARY')` | 创建 / 升级机会的事务内保证 + `opportunity_queries_one_primary` 部分唯一索引（防多）+ 夜间一致性检查（防零：扫描无 PRIMARY 的 TRACKED/ARCHIVED 机会并告警） |
 | I9 | 高频事实表（§1 规则 2）的 `id` 列为原生 `uuid`；对外 API 一律经 `packages/db` 编解码为带前缀字符串，任何代码不得绕过该助手拼接前缀 | 代码评审 + 类型层禁止裸 `string` 传参给这些表的 id 字段（使用 branded type） |
+| I10 | 同一机会的 `Σ opportunity_slots.capacity ≤ max_capacity_total`（默认 6），且 `claimed ≤ capacity` | check 约束 + 创建槽位时的事务校验 |
+| I11 | `slot_claims.state = 'CLAIMED'` 的行数与 `opportunity_slots.claimed` 一致；同一用户在同一机会至多一条 `CLAIMED` | `slot_claims_one_active_per_user_opportunity` 部分唯一索引 + 夜间一致性检查（防汇总缓存漂移） |
+| I12 | 每个 `projects` 行的 `stake_status = 'PENDING'` 必须在 `stake_deadline_at` 前被终结（`VERIFIED` 或 `EXPIRED_RELEASED`） | 每日逾期待办任务（释放槽位）+ 监控：存在超期仍 `PENDING` 的行即告警 |
+| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0` | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地） |
+| I14 | 每条 `stealth_locks` 都有且仅有一个对应的 `stealth_lock_displays`，且 `unmasked_at = stealth_locks.unlock_at` | 下单事务内一并写入 + 夜间一致性检查 |
 
 ## 18. 保留与删除
 - 用户删除账户：软删除 `users`；级联删除 `user_preferences`、`api_keys`、`notification_channels`、`opportunity_reports`、`gsc_connections`、令牌；`decisions` 与 `projects` 匿名化保留（去除 `user_id` 关联），因其构成校准数据；`audit_log` 中的 `actor_id` 替换为哈希。
 - 账本与快照不含个人数据，永久保留。
+- **反滥用标识的留存存在一处刻意的张力（需产品决策）**：`device_fingerprints` 与 `lifetime_scan_grants` 是"同一设备/IP 30 天 1 次"的判定依据，删除账户时若一并级联删除，注销再注册即可再领一次终身免费初筛；若保留，则等于在用户注销后继续保留其设备指纹。当前口径：**保留 `lifetime_scan_grants` 的哈希值（不含与人的关联），删除 `device_fingerprints`**，并在 §2 表中以 `on delete cascade` 标注。此口径须在隐私政策中明示（17 §3）。
 
 > **实现与本节不一致（2026-10-12 核对，当日修正）**：
 >

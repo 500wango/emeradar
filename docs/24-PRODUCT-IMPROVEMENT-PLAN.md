@@ -2,6 +2,8 @@
 
 Status: Active 2026-10-11 ｜ 目标：把“机会证据验证器 → 决策 → 项目结果回流”收敛为可交付的首发闭环。
 
+> **与 v2.1 的关系**：本文记录的是 PRD v2.1 之前的**历史轮次**（P0/P1 修复与验收清单），其结论按当时的 45 天延迟与 GSC 必选口径写成。PRD 升到 v2.1 后的差距分析与逐文档设计定论（D1–D14）见 `docs/28-PRD-V2.1-ALIGNMENT.md`；本文的历史条目不再逐一回溯改写，v2.1 的新轮次以 28 为准。
+
 ## 1. 目标与非目标
 
 ### 目标
@@ -9,7 +11,7 @@ Status: Active 2026-10-11 ｜ 目标：把“机会证据验证器 → 决策 �
 - 任何用户看到的报告、GO 和项目都必须绑定已发布的 `BUILD_NOW` 或 `EARLY_BET` verdict。
 - Free、Pro 的信息流延迟、报告生成、报告导出和项目额度必须与页面、seed、API 采用同一份权益契约。
 - Watch 必须可重复点击而不产生重复规则，并可在告警页删除。
-- Project 页必须能标记上线、连接 GSC、选择 property，并显示连接状态。
+- Project 页必须能标记上线；GSC 连接为**可选增强项**（连接后可选 property 并显示状态，未连接不影响核心的自身 SERP 排名追踪）。
 - 首页只表达已观测到的事实，不把支付基础设施、哈希或示例数据说成收入证明。
 
 ### 非目标
@@ -23,9 +25,9 @@ Status: Active 2026-10-11 ｜ 目标：把“机会证据验证器 → 决策 �
 |---|---|---|
 | Verdict gate | Candidate/Watch 可进入报告或项目 | 服务层和页面同时拒绝；只有 `TRACKED + BUILD_NOW/EARLY_BET` 放行 |
 | Report lifecycle | 打开报告误扣导出额度 | 生成使用 `GENERATE_REPORT`；导出只在 Pro 执行导出权限校验 |
-| Feed entitlement | Free 被当成实时用户 | Free `feed_delay_days=45`，Pro 为 0；候选区只对实时套餐显示 |
+| Feed entitlement | Free 被当成实时用户 | Free 仅见每周 1 条准实时精选案例（`CROWDED_LOCKED` / `WINDOW_CLOSING`）与候选区只读，Pro 见全量实时 Feed；`feed_delay_days` 延迟模型已废除 |
 | Watch | 重复规则、无法取消 | 同一用户/机会/规则类型幂等；告警页可删除 |
-| Project/GSC | 用户无法完成上线和属性选择 | 项目页有状态切换、OAuth 入口、property 选择和断开入口 |
+| Project / GSC（可选） | 用户无法完成上线 | 项目页有状态切换；GSC 为**可选增强项**，提供 OAuth 入口、property 选择和断开入口，未连接不阻塞核心 SERP 追踪 |
 | Evidence copy | Stripe/hash 被包装成商业实证 | 首页使用 `observed pricing/checkout exists`，明确不证明收入 |
 | Pricing source | seed、UI、checkout 价格不一致 | 公开产品只保留 Free 与 Pro；Pro 为 `$29/mo`、`$290/yr`，另有 `$399` Founding Lifetime 一次性方案 |
 
@@ -52,7 +54,7 @@ Status: Active 2026-10-11 ｜ 目标：把“机会证据验证器 → 决策 �
 ## 4. 验收清单
 
 - Candidate 无论 Free、Pro 都不能生成报告、导出或 GO；历史 Team 账户沿用同一发布资格门槛。
-- Free 用户只看到延迟 45 天的已发布摘要；Pro 看到实时已发布决策和候选观察区。
+- Free 用户只看到每周 1 条准实时精选案例（`CROWDED_LOCKED` / `WINDOW_CLOSING`）与只读候选观察区；Pro 看到实时已发布决策和候选观察区。
 - 报告页面首次打开不会计入导出额度；Free 预览不能导出；Pro 导出权限按套餐生效。
 - Watch 重复点击返回已有规则，删除后可以再次关注。
 - GO 使用准确的 `verdict_id` 创建项目；项目可切换 `IN_DEVELOPMENT/LAUNCHED`，并显示 launch date。
@@ -62,7 +64,7 @@ Status: Active 2026-10-11 ｜ 目标：把“机会证据验证器 → 决策 �
 - 密码恢复接口对已存在和不存在邮箱返回相同结果；reset token 只存哈希、30 分钟过期、只能消费一次，并在成功后撤销全部旧 session。
 - 首页没有收入、销售量、预测准确率或固定 hash 的未经证实表述。
 - `pnpm test`、services 测试、Web build、`git diff --check` 通过。
-- Free 套餐的导出额度为 `0`，Feed 延迟为 `45` 天；服务测试已与 seed/schema 契约对齐，Pricing 页对零额度使用安全分母，避免 `0/0` 产生无效进度宽度。
+- Free 套餐的导出额度为 `0`，可访问每周 1 条准实时精选案例；服务测试已与 seed/schema 契约对齐，Pricing 页对零额度使用安全分母，避免 `0/0` 产生无效进度宽度。
 - Pricing 与 Settings 已将 `GENERATE_REPORT` 和 `EXPORT_REPORT` 分成两个可见额度指标；用户不再把“生成在线报告预览”和“导出文件”误读为同一件事。
 - Compare 已新增 `/compare?ids=...` 页面和 `POST /api/v1/opportunities/compare`；仅接受 2–3 个 `TRACKED`、`BUILD_NOW/EARLY_BET`、非 `LOW` 机会，并沿用用户的 Feed 延迟。
 - 邮箱验证已新增 `/verify-email`、`POST /api/v1/auth/verify-email` 和 `POST /api/v1/auth/resend-verification`；token 仅存 SHA-256 哈希、24 小时过期且一次性消费。未验证用户仍可登录、浏览和比较，但高价值动作统一返回 `EMAIL_VERIFICATION_REQUIRED`，账户设置提供重发入口。
