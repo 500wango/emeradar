@@ -297,6 +297,17 @@ export interface TranslationDictionary {
     citationsSource2Desc: string;
     citationsSource3Title: string;
     citationsSource3Desc: string;
+    privacyClauseBadge: string;
+    privacyClauseTitle: string;
+    privacyClauseSubtitle: string;
+    privacyClause1Title: string;
+    privacyClause1Desc: string;
+    privacyClause2Title: string;
+    privacyClause2Desc: string;
+    privacyClause3Title: string;
+    privacyClause3Desc: string;
+    privacyClauseLink: string;
+    privacyNotice: string;
   };
   feed: {
     badge: string;

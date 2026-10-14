@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Lock, UserCheck } from 'lucide-react';
 import { getServerI18n } from '@/lib/i18n/server';
 import { pageMetadata } from '@/lib/seo/site';
 import { getHomeTelemetry } from '@/lib/observatory/telemetry';
@@ -459,6 +459,17 @@ export default async function HomePage() {
                 {t('home.ctaSignUp')}
               </Link>
             </div>
+
+            <p className="mt-6 text-xs text-fg-subtle">
+              {t('home.privacyNotice')}{' '}
+              <Link href="/privacy" className="text-accent underline transition-colors hover:brightness-110">
+                {t('footer.privacy')}
+              </Link>{' '}
+              ·{' '}
+              <Link href="/terms" className="text-accent underline transition-colors hover:brightness-110">
+                {t('footer.terms')}
+              </Link>
+            </p>
           </Panel>
 
           <div className="mt-20 border-t border-line pt-14">
@@ -571,6 +582,73 @@ export default async function HomePage() {
                   {t('home.citationsSource3Desc')}
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* 10 ── Privacy & Data Protection Clause (E-E-A-T & Trust Guarantee) */}
+          <div className="mt-20 border-t border-line pt-14">
+            <SectionHeading
+              align="center"
+              eyebrow={t('home.privacyClauseBadge')}
+              title={t('home.privacyClauseTitle')}
+              lede={t('home.privacyClauseSubtitle')}
+            />
+
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <div className="flex items-center gap-2 text-accent">
+                  <ShieldCheck className="h-4 w-4" />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
+                    Clause 01
+                  </span>
+                </div>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  {t('home.privacyClause1Title')}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.privacyClause1Desc')}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <div className="flex items-center gap-2 text-accent">
+                  <Lock className="h-4 w-4" />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
+                    Clause 02
+                  </span>
+                </div>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  {t('home.privacyClause2Title')}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.privacyClause2Desc')}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <div className="flex items-center gap-2 text-accent">
+                  <UserCheck className="h-4 w-4" />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em]">
+                    Clause 03
+                  </span>
+                </div>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  {t('home.privacyClause3Title')}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.privacyClause3Desc')}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-8 text-center">
+              <Link
+                href="/privacy"
+                className="inline-flex items-center gap-1.5 font-mono text-xs text-accent transition-colors hover:brightness-110"
+              >
+                <span>{t('home.privacyClauseLink')}</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
           </div>
         </div>
