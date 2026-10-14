@@ -194,15 +194,15 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 ### 4.5b 处女地独占买断（Stealth Lock）
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/opportunities/{id}/stealth-lock` | 查询该机会是否**可**下单：返回 `{ available, claimed_total, price, duration_days, locked, held_by_me }`。`available = (claimed_total == 0 && !locked)`——只要有任何一个人认领过，处女地就已被破坏，买断不再开放（PRD §1.7 第 5 条）；而已有一把生效的锁时同样为 `false`，否则**买断者本人**会看到一个"立即买断"的按钮（他还没 GO 时 `claimed_total` 正是 0）。若调用者已有一笔**待付**占位，额外返回 `pending: { checkout_url, expires_at }` 供续付。**保护期内非持有者返回 `404`**，与 `GET /opportunities/{id}` 完全同形：否则这个端点就是一个任何人可查的存在性判据 |
-| POST | `/opportunities/{id}/stealth-lock` | 下单买断。体：`{ billing_interval: ONE_TIME }`。**资格由数据决定，不由套餐决定**：事务内再次校验 `Σclaimed == 0`，否则 `422 STEALTH_LOCK_UNAVAILABLE`。**成功即写锁**（`status='ACTIVE'`、`unlock_at = now() + duration_days`、`provider_payment_id = NULL`）并返回托管结账链接；机会从此刻起就从所有 Feed / 搜索 / 比较 / 公开投影中消失。同一用户已有一笔待付占位时返回 `409 STEALTH_LOCK_PENDING` 并附该笔的续付链接——见下 |
-| GET | `/me/stealth-locks` | 我持有的买断及剩余保护天数（`VOID` 行不出现） |
+| GET | `/opportunities/{id}/stealth-lock` | 查询该机会是否**可**下单：返回 `{ available, claimed_total, price, duration_days, locked, held_by_me }`。`available = (claimed_total == 0 && !locked)`——只要有任何一个人认领过，处女地就已被破坏，买断不再开放（PRD §1.7 第 5 条）；而已有一把生效的锁时同样为 `false`，否则**买断者本人**会看到一个"立即买断"的按钮（他还没 GO 时 `claimed_total` 正是 0）。若调用者已有一笔**待付**占位，额外返回 `pending: { lock_id, checkout_url, expires_at }` 供续付。**保护期内非持有者返回 `404`**，与 `GET /opportunities/{id}` 完全同形：否则这个端点就是一个任何人可查的存在性判据 |
+| POST | `/opportunities/{id}/stealth-lock` | 下单买断。体：`{ billing_interval: ONE_TIME }`。**资格由数据决定，不由套餐决定**：事务内再次校验 `Σclaimed == 0`，否则 `422 STEALTH_LOCK_UNAVAILABLE`。**成功即写锁**（`status='ACTIVE'`、`unlock_at = now() + duration_days`、`provider_payment_id = NULL`）并返回托管结账链接；机会从此刻起就从所有 Feed / 搜索 / 比较 / 公开投影中消失。同一用户已有一笔待付占位时返回 `409 STEALTH_LOCK_PENDING` 并附该笔的续付链接——见下。响应 `201 { lock_id, checkout_url, amount_usd, expires_at }` |
+| GET | `/me/stealth-locks` | 我持有的买断及剩余保护天数。每行 `{ lock_id, opportunity_id, opportunity_title, masked_label, locked_at, unlock_at, remaining_days, status }`。`VOID` 行不出现（那条锁从未成交，列出来只会让用户以为买成功了）；`EXPIRED` 保留（它是一段真实的历史）。**持有者看到的是真实标题**——打码是对外的，他买的正是这条机会；这也是保护期内他回到该机会的唯一入口（§7） |
 
 **占位先于付款（`provider_payment_id IS NULL` 的 `ACTIVE` 行）**：托管结账页面意味着付款完成时锁还不存在，若等到付款才建锁，付完款与建锁之间别人可以点 GO 占槽，于是钱已收、无物可交。所以**先占位、后付款**，并把风险从"钱"搬到"时间"：
 
-- 待付窗口 `stealth_lock_window_minutes`（默认 **45** 分钟）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
+- 待付窗口 **45** 分钟（`STEALTH_RESERVATION_GRACE_MINUTES`，`packages/services/src/stealth-lock-policy.ts`）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
 - 窗口一过而钱仍未到，占位自动失效（`status='VOID'`）：机会重新对全网开放。**失效不依赖清理作业是否跑过**——隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），否则一次作业停摆就会变成一次无限期的全网遮蔽。
-- 结账会话的 `expires_at` 必须**短于**待付窗口（预留投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。
+- 结账会话的 `expires_at`（`STEALTH_CHECKOUT_SESSION_MINUTES` = 35 分钟）必须**短于**待付窗口（预留 webhook 投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。这个大小关系是硬约束，不是两个各自可调的旋钮：把窗口调到 35 以下就等于开出一条"钱已收、交付物不在"的通道。
 - 同一用户**同时至多一笔待付占位**。没有这条闸时，一个付费账号可以对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，把整网反复遮黑 45 分钟。
 - 窗口内已付款：webhook 回填 `provider_payment_id`，并**同步刷新该机会的公开投影**（不等 S8 批处理），否则从付款到下一次批处理之间有最长一整天的真实词根裸奔，按 15 §8 即 P0。
 
