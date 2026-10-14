@@ -695,6 +695,39 @@ describe('买断：可见性矩阵（D3）', () => {
   });
 
   /**
+   * 反向断言：**用户自己已经建好的项目不参与打码**（10 §7 的第二处例外）。
+   *
+   * 这条不是"漏了一处"，是刻意的，而且必须钉住——否则下一次"把漏网之鱼扫一遍"
+   * 会顺手把它一起打码，用户自己的看板就此失去上下文、`stake` 的相关性探针拿不到词，
+   * 换到的是零额外保护：这条路径的读者早就掌握了该机会（他先认领了槽位、在项目上
+   * 投入过），而他能做的每个动作都已经堵死（Feed / 搜索 / 比较 / 详情 / 研报 /
+   * 槽位 / 告警，以及 `SlotService.claim` 拒非持有者）。买断卖的是**向前**的
+   * 「不被发现、不被别人占用」，不是「取消知道」——后者做不到，也不该假装做到。
+   */
+  it('用户自己的项目上，机会标题照常可见（10 §7 的例外，不是漏网）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+
+    await query(
+      `INSERT INTO projects (id, user_id, opportunity_id, title, build_type, stake_deadline_at)
+       VALUES ('prj_slk_other', $1, $2, 'my own build', 'TOOL', NOW() + INTERVAL '7 days')
+       ON CONFLICT (id) DO NOTHING`,
+      [OTHER, OPP_PROJECTED]
+    );
+
+    const projects = await harness.services.ProjectService.listUserProjects(OTHER);
+    const mine = projects.find((project: any) => project.id === 'prj_slk_other');
+    assert.ok(mine, '自己的项目不该从自己的列表里消失');
+    assert.ok(
+      mine.opportunity_title && !mine.opportunity_title.startsWith('[Stealth'),
+      '自己的项目上不该把机会标题打码——那不是保护，是把用户的看板弄坏'
+    );
+
+    const detail = await harness.services.ProjectService.getProjectDetail('prj_slk_other', OTHER);
+    assert.ok(detail?.project ?? detail, '自己的项目详情必须读得到');
+  });
+
+  /**
    * 列表类入口的第二条规矩：`createAlertRule` 挡的是"现在去建一条"，挡不住
    * "买断之前就建好了"。规则与通知都是用户自己在机会还可见时留下的行，锁生效之后
    * 它们照样在库里，而这两条查询原样带出 `o.title` / `o.slug`。
