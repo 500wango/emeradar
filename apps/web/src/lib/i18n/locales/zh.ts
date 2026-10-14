@@ -103,9 +103,71 @@ export const zh: TranslationDictionary = {
     methodology: '实证方法论',
     liveFeed: '决策动态流',
     pricing: '价格方案',
+    about: '关于我们',
+    contact: '联系我们',
+    privacy: '隐私政策',
     terms: '使用条款',
     copyright: '© {year} Emeradar Systems. 保留所有权利。',
     builtFor: '专为独立开发者、自力更生创作者与微型SaaS团队打造。',
+  },
+  about: {
+    badge: '关于 Emeradar',
+    title: '专为独立软件开发者打造的搜索机会情报平台',
+    intro:
+      'Emeradar 是一套基于客观实证的搜索信号情报平台，旨在让独立开发者在写下第一行代码前验证真实的微型 SaaS 市场需求。',
+    missionTitle: '我们的使命与方法',
+    missionDesc:
+      '我们深知开发者花费数月做出一款没人搜索、没人付费的产品的痛苦。Emeradar 用跨周连续采集的自动补全扩散率、自然搜索竞争弱点与真实公开定价实证，取代主观臆断。',
+    principlesTitle: '实证情报核心准则',
+    principlesDesc:
+      '我们绝不捏造数据。当查询词缺乏足够的历史记录时，明确显示为样本不足（Insufficient）而非虚构估算。我们把 100% 的预测推入不可篡改、带时间戳的公开账本，并在 30/60/90 天透明复盘。',
+    teamTitle: '研发与工程团队',
+    teamDesc:
+      '由经验丰富的数据工程师、搜索算法研究员与独立开发者共同打造，致力于市场验证的极致透明。',
+    dataIntegrityTitle: '数据来源与采集验证',
+    dataIntegrityDesc:
+      '我们的雷达系统持续对 Google Autocomplete、Serper 自然搜索 Top 10 结果分布以及公共商业定价端点进行交叉采样核验。',
+    byline: 'Emeradar 研发与情报团队 · 始于 2026',
+  },
+  contact: {
+    badge: '联系与支持',
+    title: '联系 Emeradar 团队',
+    intro:
+      '有任何技术咨询、合作意向或账户账单问题？欢迎直接联系我们的研发与支持团队。',
+    supportTitle: '客户支持与账单',
+    supportDesc:
+      '关于订阅计划、账户验证或账单发票，请联系 support@emeradar.com。我们在工作日 24 小时内快速响应。',
+    securityTitle: '安全漏洞披露',
+    securityDesc:
+      '我们高度重视平台安全性。若发现安全漏洞，请发送复现步骤至 security@emeradar.com。',
+    licensingTitle: '数据授权与独占买断',
+    licensingDesc:
+      '关于定制数据流、API 访问权限或处女地独占买断（Stealth Lock）协议，请联系 licensing@emeradar.com。',
+    communityTitle: '开源社区与代码仓库',
+    communityDesc:
+      '关注我们在 GitHub 上的开源项目、Schema 规范与开发者工具：github.com/500wango/emeradar。',
+    responseTimeNote: '标准响应时间为 24 小时以内（周一至周五 UTC）。',
+  },
+  privacy: {
+    badge: '隐私政策',
+    title: '隐私政策与数据保护',
+    intro:
+      '说明当您使用 Emeradar 网站、情报动态流与调研工作台时，我们如何收集、使用与保护您的信息。',
+    collectionTitle: '1. 信息收集范围',
+    collectionBody:
+      '我们仅收集用于开通 Builder Pro 权益所必需的账户邮箱、加密认证令牌以及交易标识符。我们不存储任何原始信用卡信息，所有支付均由合规国际网关处理。',
+    noSellTitle: '2. 坚决不出售用户数据',
+    noSellBody:
+      '我们绝不向数据经纪商、广告商或任何第三方出售、出租或交易您的个人信息或研究行为数据。',
+    identifiersTitle: '3. 设备凭证与防滥用机制',
+    identifiersBody:
+      '依据安全规范，用于限流和防试用滥用的设备指纹与网络特征均采用加盐单向哈希加密存储，绝不反向追踪个人身份。',
+    rightsTitle: '4. 数据留存与注销权利',
+    rightsBody:
+      '您对个人数据享有完全控制权。您可以随时在账户设置中或通过邮件联系 privacy@emeradar.com 请求彻底注销账户并删除所有关联数据。',
+    contactTitle: '5. 隐私咨询与合规',
+    contactBody:
+      '若对我们的隐私保护或 GDPR/CCPA 合规有任何疑问，请联系 privacy@emeradar.com。',
   },
   terms: {
     badge: '使用条款',
@@ -143,8 +205,8 @@ export const zh: TranslationDictionary = {
     stat4Number: 'T+30/60/90',
     stat4Label: '结果回流节点',
     signalBoardBadge: '今日雷达精选',
-    signalBoardTitle: '今日已验证可构建生态位',
-    signalBoardDesc: '这里展示已经通过观察门槛的机会。每条记录都可以回到来源和限制条件，不把观察结果当成成功保证。',
+    signalBoardTitle: '今日有哪些经过三维验证、可立即启动构建的搜索机会？',
+    signalBoardDesc: '下列机会已全部通过针对需求增速 (D)、真实公开定价 (M) 与 SERP 竞品弱点 (W) 的多周严格实证门控。',
     signalBoardLimit: '首页每日最多呈现 2 条 BUILD NOW',
     cardReport: '研报与 ROI',
     cardWorkspace: '决策工作台',
@@ -156,8 +218,8 @@ export const zh: TranslationDictionary = {
     signInToView: '登录查看完整决策流',
     observationRequestNote: '想追踪新的查询词？登录后提交观察申请；申请会进入候选池，不会即时生成裁决。',
     axesBadge: '三维实证评估体系',
-    axesTitle: '拒绝黑盒分数，只依赖客观可重算事实',
-    axesDesc: 'Demand · Commercial · Window 三轴交叉检验，任一轴不成立即行放弃。三轴只呈现分档，不折算成综合分。',
+    axesTitle: 'Emeradar 如何交叉验证需求、商业与竞争？',
+    axesDesc: 'Emeradar 通过三个独立实证门槛交叉检验候选：需求增速 (D)、真实公开定价证据 (M) 与 SERP 竞品薄弱度 (W)。任一轴未达标，裁决即为放弃 (PASS)。',
     axesGateD: '≥14 天自动补全历史',
     axesGateM: '≥2 个独立域名监测到定价或结账',
     axesGateW: '≥14 天自然结果快照',
@@ -172,8 +234,8 @@ export const zh: TranslationDictionary = {
     pillarWindowDesc: '深度穿透 SERP Top 10 低权重站点与论坛 (Reddit/Quora) 占位，挖掘单人可快速超越的缝隙。',
     pillarWindowNote: '穿透论坛与弱站占位',
     reportSectionBadge: '深度研究报告',
-    reportSectionTitle: '不只给结论，更给单兵可落地的全景研发方案',
-    reportSectionDesc: '每份研报涵盖为什么现在切入、竞品弱点地图、单周交付 MVP 架构与止损红线。',
+    reportSectionTitle: 'Emeradar 机会深度研究报告包含哪些内容？',
+    reportSectionDesc: '每份研报交付完整的极简构建蓝图：为什么是现在 (Why Now) 拐点分析、竞品 SERP 弱点穿透地图、单周交付 MVP 架构形态、可验证商业定价证据与红线止损准则。',
     reportPoint1Title: '为什么是现在 (Why Now)',
     reportPoint1Desc: '抓取长尾搜索急速扩张拐点，确认需求正在加速而非衰退。',
     reportPoint2Title: 'SERP 弱点穿透 (SERP Gaps)',
@@ -185,8 +247,8 @@ export const zh: TranslationDictionary = {
     reportPreviewCaption: '研报结构预览 · 含落地架构与止损准则',
     reportCta: '在决策流中查看最新研报',
     comparisonBadge: '范式革新',
-    comparisonTitle: '为什么传统 SEO 工具帮不到独立开发者？',
-    comparisonSubtitle: 'Ahrefs/Semrush 衡量的是存量垄断大词，而 Emeradar 专为单兵突进寻找破局缝隙。',
+    comparisonTitle: '为什么传统 SEO 工具难以帮助独立开发者验证 SaaS 想法？',
+    comparisonSubtitle: '传统关键词工具仅衡量存量垄断大词搜索量，却无法验证真实付费意愿与 SERP 穿透度。Emeradar 专为单兵突进寻找具备公开商业实证的高增速破局长尾缝隙。',
     comparisonColTrad: '传统 SEO 关键词工具',
     comparisonColEme: 'Emeradar 机会雷达',
     comparisonRow1Trad: '只堆砌几万搜索量，新手跟进即被 DR 80+ 垄断大厂碾压',
@@ -198,8 +260,8 @@ export const zh: TranslationDictionary = {
     comparisonRow4Trad: '专有黑盒算法打分，历史预测错误随意篡改删除、无法追溯',
     comparisonRow4Eme: '持续追踪结果，同时展示命中与失误',
     decisionLoopBadge: '工作流与决策架构',
-    decisionLoopTitle: '4 步极简闭环：从信号到结果',
-    decisionLoopSubtitle: '结合搜索增长、商业定价与 SERP 弱点，让独立出海产品开发的每一步都有据可依。',
+    decisionLoopTitle: '持续搜索信号决策闭环是如何运转的？',
+    decisionLoopSubtitle: '持续决策闭环贯穿四大阶段：广域雷达嗅探长尾建议、45天多周观察门控、单周落地架构方案与可验证战绩回流。',
     step1Title: '广域雷达嗅探',
     step1Desc: '自动化爬虫每日遍历数万条长尾搜索建议，捕获尚未被满足的新兴痛点。',
     step2Title: '45 天冷静期观测',
@@ -214,14 +276,26 @@ export const zh: TranslationDictionary = {
     freeDelayHighlight: 'Free：45 天延迟摘要 · 公开战绩全透明',
     proRealtimeHighlight: 'Pro：0 延迟实时信息流 · 每月 30 份报告导出',
     explorePricingBtn: '查看方案与功能对比',
-    principlesTitle: '让每个决策都有依据，也能回看结果',
-    principlesSubtitle: '每个结论都标注来源、日期和证据限制，不把观察结果包装成成功保证。',
+    principlesTitle: 'Emeradar 机会情报遵循哪些核心实证准则？',
+    principlesSubtitle: 'Emeradar 坚守三大准则：100% 可公开审计的预测账本、拒绝黑盒分数的可复核实证、以及拒绝虚构或估算缺失数据。',
     principle1Title: '数据溯源：零黑盒分数',
     principle1Desc: '每一项结论均可下钻至原始搜索结果快照与竞品 HTML 代码段。',
     principle2Title: '商业硬实证：见结账才算数',
     principle2Desc: '不以主观猜测当证据，必须监测到真实存在的价格表或结账通道。',
     principle3Title: '持续回看已经发布的决策',
     principle3Desc: '我们保留决策发布时的依据，并在结果出现后回看表现；数据不足时不虚构准确率。',
+    citationsBadge: '实证引用与数据源',
+    citationsTitle: 'Emeradar 依托哪些权威数据源与实证引用？',
+    citationsSubtitle: 'Emeradar 将所有搜索机会候选与官方索引规范、实时自动补全数据、自然搜索 SERP 结果分布以及公开商业结账端点进行交叉实证核验。',
+    citationsQuote: '创作实用、可靠、以用户为中心的内容，意味着提供原创信息、一手报告、深度研究或客观分析，并附带清晰的数据源引用。',
+    citationsCiteAuthor: 'Google Search Central',
+    citationsCiteWork: '创建实用、可靠、以用户为中心的内容官方指南',
+    citationsSource1Title: 'Google Trends 与自动补全频次',
+    citationsSource1Desc: '连续多周采样长尾词扩展速率，捕获真实搜索刚需并剔除偶发短期炒作。',
+    citationsSource2Title: 'Serper 自然搜索 SERP 结果分布',
+    citationsSource2Desc: 'Top 10 自然搜索竞品脆弱度分析，精准定位论坛老帖占位与低权重可超越缝隙。',
+    citationsSource3Title: '公开定价与结账通道实证',
+    citationsSource3Desc: '对存量竞品公开价格表与真实结账通道进行客观核验，确证付费意愿存在。',
   },
   feed: {
     badge: '决策动态流',
@@ -1181,6 +1255,21 @@ export const zh: TranslationDictionary = {
       title: '三维实证方法论：需求 / 商业 / SERP 弱点',
       description:
         '说明三类证据如何采集与打分、候选在什么条件下才被发布为可构建机会、以及缺失数据为何保持缺失。观察门槛与阈值全部公开。',
+    },
+    about: {
+      title: '关于 Emeradar — 搜索机会情报与团队介绍',
+      description:
+        'Emeradar 为独立开发者提供搜索需求验证与商业定价实证。了解我们的团队背景、三维实证研究方法论与完全公开的预测账本。',
+    },
+    contact: {
+      title: '联系 Emeradar — 客户支持、安全与合作',
+      description:
+        '直接联系 Emeradar 研发与工程团队，获取客户支持、安全漏洞报告、数据授权或业务合作。',
+    },
+    privacy: {
+      title: '隐私政策 — Emeradar',
+      description:
+        '了解 Emeradar 如何收集与保护信息：坚决不向第三方出售用户数据，采用加盐哈希存储设备凭据，保障用户数据删除权益。',
     },
     terms: {
       title: '服务条款',

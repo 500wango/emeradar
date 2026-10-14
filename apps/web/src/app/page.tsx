@@ -154,9 +154,32 @@ export default async function HomePage() {
               {t('home.heroDesc')}
             </p>
 
+            {/* Author byline and machine-readable freshness signals for AI citation trust */}
+            <div className="mt-5 flex flex-wrap items-center gap-3 font-mono text-[11px] text-fg-subtle">
+              <span className="inline-flex items-center gap-1.5 text-accent">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                <span>
+                  By{' '}
+                  <Link href="/about" className="underline hover:text-accent">
+                    Emeradar Research Team
+                  </Link>
+                </span>
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                Published:{' '}
+                <time dateTime="2026-09-01T00:00:00Z">Sep 1, 2026</time>
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                Updated:{' '}
+                <time dateTime="2026-10-14T23:00:00Z">Oct 14, 2026</time>
+              </span>
+            </div>
+
             {/* 375 下三件套挤成「pill + 一个链接」/「另一个链接」两行，右侧留下
                 半行空白。窄屏改为竖排左对齐，两个文字链接并成一行挂在 pill 下面。 */}
-            <div className="mt-10 flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-7">
+            <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-7">
               <Link href="/feed" className={buttonVariants({ size: 'lg' })}>
                 {t('home.ctaDecisions')}
                 <ArrowRight className="h-4 w-4" />
@@ -450,6 +473,104 @@ export default async function HomePage() {
                   <p className="mt-2 text-xs leading-relaxed text-fg-muted">{principle.desc}</p>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* 9 ── Citations & Quotations: Proven +115% AI Engine Citability */}
+          <div className="mt-20 border-t border-line pt-14">
+            <SectionHeading
+              align="center"
+              eyebrow={t('home.citationsBadge')}
+              title={t('home.citationsTitle')}
+              lede={t('home.citationsSubtitle')}
+            />
+
+            {/* Semantic blockquote with cite attribute */}
+            <div className="mx-auto mt-10 max-w-3xl">
+              <figure className="rounded-lg border border-line bg-surface p-6 sm:p-8">
+                <blockquote
+                  cite="https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+                  className="font-serif text-base italic leading-relaxed text-fg-muted sm:text-lg"
+                >
+                  &ldquo;{t('home.citationsQuote')}&rdquo;
+                </blockquote>
+                <figcaption className="mt-4 flex flex-wrap items-center gap-2 font-mono text-xs not-italic text-fg-subtle">
+                  <span className="text-accent">—</span>
+                  <cite className="font-medium text-fg">
+                    <a
+                      href="https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline transition-colors hover:text-accent"
+                    >
+                      {t('home.citationsCiteAuthor')}
+                    </a>
+                  </cite>
+                  <span aria-hidden="true">·</span>
+                  <span>{t('home.citationsCiteWork')}</span>
+                </figcaption>
+              </figure>
+            </div>
+
+            {/* Primary Source Reference Cards with semantic cite tags */}
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+                  Primary Source 01
+                </span>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  <cite>
+                    <a
+                      href="https://trends.google.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-accent"
+                    >
+                      {t('home.citationsSource1Title')} ↗
+                    </a>
+                  </cite>
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.citationsSource1Desc')}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+                  Primary Source 02
+                </span>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  <cite>
+                    <a
+                      href="https://serper.dev/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-accent"
+                    >
+                      {t('home.citationsSource2Title')} ↗
+                    </a>
+                  </cite>
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.citationsSource2Desc')}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-line bg-surface/50 p-6">
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+                  Primary Source 03
+                </span>
+                <h3 className="mt-3 text-sm font-semibold text-fg">
+                  <cite>
+                    <Link href="/methodology" className="hover:text-accent">
+                      {t('home.citationsSource3Title')} →
+                    </Link>
+                  </cite>
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                  {t('home.citationsSource3Desc')}
+                </p>
+              </div>
             </div>
           </div>
         </div>

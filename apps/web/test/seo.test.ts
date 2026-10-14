@@ -6,8 +6,10 @@ import {
   PRIVATE_PATH_PREFIXES,
   SITE_URL,
   STATIC_PUBLIC_PAGES,
+  aboutPageJsonLd,
   absoluteUrl,
   breadcrumbJsonLd,
+  contactPageJsonLd,
   datasetJsonLd,
   faqPageJsonLd,
   isPrivatePath,
@@ -27,7 +29,7 @@ test('私有路径用响应头声明 noindex，公开页不声明', () => {
 
   // 公开档案与营销页必须保持可索引：'/opportunities/...' 的工作台是私有的，
   // '/public/opportunities/...' 是公开档案，前缀判断不能把它们混为一谈。
-  for (const path of ['/', '/pricing', '/methodology', '/track-record', '/terms', '/public/opportunities/some-slug']) {
+  for (const path of ['/', '/pricing', '/methodology', '/track-record', '/terms', '/about', '/contact', '/privacy', '/public/opportunities/some-slug']) {
     const response = middleware(new NextRequest(`https://emeradar.com${path}`));
     assert.equal(response.headers.get('x-robots-tag'), null, `${path} 不应当被声明 noindex`);
   }
@@ -92,12 +94,24 @@ test('JSON-LD 只声明能背书的字段，面包屑每项都完整', () => {
   // 已生成合规的 512x512 位图 logo，断言其指向确切的静态资源
   assert.equal(organization.logo, `${SITE_URL}/logo.png`);
   assert.equal(organization.image, `${SITE_URL}/og-image.png`);
+  assert.ok(Array.isArray(organization.sameAs) && organization.sameAs.length > 0, 'Organization 必须有 sameAs 社交与实体链接');
 
   const app = softwareApplicationJsonLd();
   assert.equal(app['@type'], 'WebApplication');
   assert.equal(app.name, 'Emeradar');
+  assert.ok(app.author && typeof app.author === 'object', 'WebApplication 必须有 author 签名');
+  assert.ok(app.datePublished && app.dateModified, 'WebApplication 必须有时效戳 datePublished/dateModified');
+  assert.ok(Array.isArray(app.citation) && app.citation.length > 0, 'WebApplication 必须有权威引用来源 citation');
   assert.ok(Array.isArray(app.offers) && app.offers.length >= 3);
   assert.ok(Array.isArray(app.featureList) && app.featureList.length >= 3);
+
+  const aboutSchema = aboutPageJsonLd();
+  assert.equal(aboutSchema['@type'], 'AboutPage');
+  assert.equal(aboutSchema.url, `${SITE_URL}/about`);
+
+  const contactSchema = contactPageJsonLd();
+  assert.equal(contactSchema['@type'], 'ContactPage');
+  assert.equal(contactSchema.url, `${SITE_URL}/contact`);
 
   const faq = faqPageJsonLd([
     { question: 'What is Emeradar?', answer: 'Search signal intelligence engine.' },
@@ -160,5 +174,19 @@ test('robots.ts 符合规范：公开页放行、私有页阻断、声明 sitema
   for (const priv of PRIVATE_PATH_PREFIXES) {
     assert.ok(disallow.some((d) => d && d.startsWith(priv)), `robots.txt 应当阻止私有路径：${priv}`);
   }
+
+  // 必须明确放行 AI Assistant User Fetchers，避免 AITDK 报告中的 Fetchers blocked 告警
+  const aiFetchersRule = config.rules.find((r) =>
+    Array.isArray(r.userAgent) && r.userAgent.includes('ChatGPT-User')
+  );
+  assert.ok(aiFetchersRule, 'robots.txt 必须包含 ChatGPT-User 等 AI 问答抓取器规则');
+  assert.ok(
+    Array.isArray(aiFetchersRule.userAgent) &&
+      aiFetchersRule.userAgent.includes('Claude-User') &&
+      aiFetchersRule.userAgent.includes('Perplexity-User') &&
+      aiFetchersRule.userAgent.includes('meta-externalfetcher') &&
+      aiFetchersRule.userAgent.includes('MistralAI-User'),
+    'AI 问答抓取器规则必须覆盖所有主流 AI 助手抓取器'
+  );
 });
 

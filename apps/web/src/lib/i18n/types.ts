@@ -118,9 +118,55 @@ export interface TranslationDictionary {
     methodology: string;
     liveFeed: string;
     pricing: string;
+    about: string;
+    contact: string;
+    privacy: string;
     terms: string;
     copyright: string;
     builtFor: string;
+  };
+  about: {
+    badge: string;
+    title: string;
+    intro: string;
+    missionTitle: string;
+    missionDesc: string;
+    principlesTitle: string;
+    principlesDesc: string;
+    teamTitle: string;
+    teamDesc: string;
+    dataIntegrityTitle: string;
+    dataIntegrityDesc: string;
+    byline: string;
+  };
+  contact: {
+    badge: string;
+    title: string;
+    intro: string;
+    supportTitle: string;
+    supportDesc: string;
+    securityTitle: string;
+    securityDesc: string;
+    licensingTitle: string;
+    licensingDesc: string;
+    communityTitle: string;
+    communityDesc: string;
+    responseTimeNote: string;
+  };
+  privacy: {
+    badge: string;
+    title: string;
+    intro: string;
+    collectionTitle: string;
+    collectionBody: string;
+    noSellTitle: string;
+    noSellBody: string;
+    identifiersTitle: string;
+    identifiersBody: string;
+    rightsTitle: string;
+    rightsBody: string;
+    contactTitle: string;
+    contactBody: string;
   };
   terms: {
     badge: string;
@@ -239,6 +285,18 @@ export interface TranslationDictionary {
     principle2Desc: string;
     principle3Title: string;
     principle3Desc: string;
+    citationsBadge: string;
+    citationsTitle: string;
+    citationsSubtitle: string;
+    citationsQuote: string;
+    citationsCiteAuthor: string;
+    citationsCiteWork: string;
+    citationsSource1Title: string;
+    citationsSource1Desc: string;
+    citationsSource2Title: string;
+    citationsSource2Desc: string;
+    citationsSource3Title: string;
+    citationsSource3Desc: string;
   };
   feed: {
     badge: string;
@@ -1147,6 +1205,9 @@ export interface TranslationDictionary {
     pricing: { title: string; description: string };
     trackRecord: { title: string; description: string };
     methodology: { title: string; description: string };
+    about: { title: string; description: string };
+    contact: { title: string; description: string };
+    privacy: { title: string; description: string };
     terms: { title: string; description: string };
   };
 }

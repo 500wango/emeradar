@@ -34,6 +34,9 @@ Emeradar is an empirical search intelligence engine designed to validate micro-S
 - [Pricing](${SITE_URL}/pricing): Plan comparisons, quotas, and cancellation policy.
 - [Methodology](${SITE_URL}/methodology): Formal 3-axis gating specification and evidence scoring axioms.
 - [Verifiable Track Record](${SITE_URL}/track-record): Historical prediction ledger, cohort hit rates, and checkpoint hashes.
+- [About & Team](${SITE_URL}/about): Mission, empirical principles, and research team identity.
+- [Contact & Support](${SITE_URL}/contact): Engineering support, security vulnerability disclosures, and partnerships.
+- [Privacy Policy](${SITE_URL}/privacy): Data protection practices, zero data selling guarantee, and user rights.
 - [Terms of Service](${SITE_URL}/terms): Terms, usage policies, and subscription rules.
 - [Sitemap](${SITE_URL}/sitemap.xml): Machine-readable XML sitemap.
 `;

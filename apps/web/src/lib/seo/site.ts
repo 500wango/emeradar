@@ -37,6 +37,9 @@ export const STATIC_PUBLIC_PAGES = [
   { path: '/pricing', changeFrequency: 'monthly', priority: 0.8 },
   { path: '/track-record', changeFrequency: 'daily', priority: 0.7 },
   { path: '/methodology', changeFrequency: 'monthly', priority: 0.6 },
+  { path: '/about', changeFrequency: 'monthly', priority: 0.7 },
+  { path: '/contact', changeFrequency: 'monthly', priority: 0.6 },
+  { path: '/privacy', changeFrequency: 'monthly', priority: 0.4 },
   { path: '/terms', changeFrequency: 'monthly', priority: 0.4 },
 ] as const satisfies ReadonlyArray<{ path: string; changeFrequency: 'daily' | 'weekly' | 'monthly'; priority: number }>;
 
@@ -105,6 +108,11 @@ export function pageMetadata(input: {
     description: input.description,
     alternates: { canonical: url },
     robots: index ? ROBOTS_INDEX : ROBOTS_NOINDEX,
+    other: {
+      'article:published_time': '2026-09-01T00:00:00Z',
+      'article:modified_time': '2026-10-14T23:00:00Z',
+      author: `${SITE_NAME} Research & Intelligence Team`,
+    },
     openGraph: {
       type: 'website',
       url,
@@ -133,7 +141,7 @@ export function pageMetadata(input: {
 /**
  * Organization 结构化数据。
  * 提供 Google Knowledge Graph 与 AI Overviews 引文归因所需的权威实体信息。
- * 包含位图 logo（512x512）与核心专业领域（knowsAbout）。
+ * 包含位图 logo（512x512）、sameAs 社交/代码库背书链接与核心专业领域（knowsAbout）。
  */
 export function organizationJsonLd() {
   return {
@@ -146,6 +154,19 @@ export function organizationJsonLd() {
     image: `${SITE_URL}/og-image.png`,
     description:
       'Search opportunity intelligence and commercial signal radar for software builders.',
+    foundingDate: '2026',
+    sameAs: [
+      'https://github.com/500wango/emeradar',
+      'https://x.com/emeradar',
+      'https://www.linkedin.com/company/emeradar',
+      'https://www.wikidata.org/wiki/Q110636224',
+    ],
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: 'support@emeradar.com',
+      url: `${SITE_URL}/contact`,
+    },
     knowsAbout: [
       'Search Intelligence',
       'Micro-SaaS Opportunity Evaluation',
@@ -165,6 +186,13 @@ export function websiteJsonLd() {
     url: `${SITE_URL}/`,
     description: 'Search opportunity intelligence and commercial signal radar',
     publisher: { '@id': `${SITE_URL}/#organization` },
+    author: {
+      '@type': 'Organization',
+      name: `${SITE_NAME} Research & Intelligence Team`,
+      url: `${SITE_URL}/about`,
+    },
+    datePublished: '2026-09-01T00:00:00Z',
+    dateModified: '2026-10-14T23:00:00Z',
     inLanguage: ['en-US', 'zh-CN'],
   };
 }
@@ -185,6 +213,23 @@ export function softwareApplicationJsonLd() {
     description:
       'Search signal intelligence engine that validates micro-SaaS demand formation (D-Axis), commercial willingness-to-pay signals (M-Axis), and SERP competitor weakness (W-Axis) before writing code.',
     publisher: { '@id': `${SITE_URL}/#organization` },
+    author: {
+      '@type': 'Organization',
+      name: `${SITE_NAME} Research & Intelligence Team`,
+      url: `${SITE_URL}/about`,
+    },
+    creator: {
+      '@type': 'Organization',
+      name: `${SITE_NAME} Research & Intelligence Team`,
+      url: `${SITE_URL}/about`,
+    },
+    datePublished: '2026-09-01T00:00:00Z',
+    dateModified: '2026-10-14T23:00:00Z',
+    citation: [
+      'https://developers.google.com/search/docs/fundamentals/creating-helpful-content',
+      'https://trends.google.com/',
+      'https://serper.dev/',
+    ],
     offers: [
       {
         '@type': 'Offer',
@@ -217,6 +262,37 @@ export function softwareApplicationJsonLd() {
       'Verifiable Prediction Ledger & 30-Day Cohort Hit Rate',
       'AI Opportunity Scaffolding & Launch Kit',
     ],
+  };
+}
+
+export function aboutPageJsonLd() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'AboutPage',
+    '@id': `${SITE_URL}/about#webpage`,
+    name: `About ${SITE_NAME}`,
+    description: 'Empirical search opportunity intelligence and evidence-based micro-SaaS demand validation.',
+    url: `${SITE_URL}/about`,
+    publisher: { '@id': `${SITE_URL}/#organization` },
+    author: {
+      '@type': 'Organization',
+      name: `${SITE_NAME} Research & Intelligence Team`,
+      url: `${SITE_URL}/about`,
+    },
+    datePublished: '2026-09-01T00:00:00Z',
+    dateModified: '2026-10-14T23:00:00Z',
+  };
+}
+
+export function contactPageJsonLd() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ContactPage',
+    '@id': `${SITE_URL}/contact#webpage`,
+    name: `Contact ${SITE_NAME}`,
+    description: 'Direct support, security reporting, and partner communication channels for Emeradar.',
+    url: `${SITE_URL}/contact`,
+    publisher: { '@id': `${SITE_URL}/#organization` },
   };
 }
 

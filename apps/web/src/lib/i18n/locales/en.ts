@@ -103,9 +103,71 @@ export const en: TranslationDictionary = {
     methodology: 'Methodology',
     liveFeed: 'Live Feed',
     pricing: 'Pricing',
+    about: 'About',
+    contact: 'Contact',
+    privacy: 'Privacy Policy',
     terms: 'Terms of Use',
     copyright: '© {year} Emeradar Systems. All rights reserved.',
     builtFor: 'Built for indie builders, bootstrap hackers, and micro-SaaS teams.',
+  },
+  about: {
+    badge: 'About Emeradar',
+    title: 'Search Opportunity Intelligence for Independent Software Builders',
+    intro:
+      'Emeradar is an empirical signal intelligence platform engineered to validate micro-SaaS market demand before code is written.',
+    missionTitle: 'Our Mission & Approach',
+    missionDesc:
+      'We believe software builders waste months developing products nobody searches for or pays for. Emeradar replaces subjective intuition with continuous, multi-week audits across search autocomplete growth, competitor SERP vulnerability, and transactional pricing evidence.',
+    principlesTitle: 'Empirical Intelligence Principles',
+    principlesDesc:
+      'We never fabricate data. When a metric or query has insufficient historical records, it remains explicitly unrated. We publish 100% of our predictions into an immutable, time-stamped ledger with public 30-day cohort accuracy tracking.',
+    teamTitle: 'Research & Engineering Team',
+    teamDesc:
+      'Built by experienced data engineers, algorithmic search researchers, and bootstrap software builders dedicated to radical transparency in market validation.',
+    dataIntegrityTitle: 'Data Sources & Verification',
+    dataIntegrityDesc:
+      'Our radar continuously samples search engine autocompletes, organic SERP Top 10 result distributions, public pricing endpoints, and developer adoption indicators across Google, Serper, and merchant registries.',
+    byline: 'Emeradar Research & Intelligence Team · Established 2026',
+  },
+  contact: {
+    badge: 'Contact & Support',
+    title: 'Get in Touch with Emeradar',
+    intro:
+      'Have technical questions, partnership inquiries, or need account support? Reach out directly to our engineering and research desk.',
+    supportTitle: 'Customer Support & Billing',
+    supportDesc:
+      'For subscription inquiries, plan management, or account verification, contact support@emeradar.com. We respond to all inquiries within 24 hours on business days.',
+    securityTitle: 'Security & Vulnerability Disclosures',
+    securityDesc:
+      'We take platform security and data privacy seriously. Report vulnerabilities to security@emeradar.com with reproduction steps.',
+    licensingTitle: 'Data Licensing & Buyout Protection',
+    licensingDesc:
+      'For inquiries regarding custom data feeds, API access tiers, or处女地独占买断 (Stealth Lock) agreements, contact licensing@emeradar.com.',
+    communityTitle: 'Open Community & Code',
+    communityDesc:
+      'Follow open source updates, schema specifications, and developer tooling on GitHub at github.com/500wango/emeradar.',
+    responseTimeNote: 'Standard response time is within 24 hours (Monday to Friday, UTC).',
+  },
+  privacy: {
+    badge: 'Privacy Policy',
+    title: 'Privacy Policy & Data Protection',
+    intro:
+      'How Emeradar collects, uses, and safeguards information when you use our website, intelligence feeds, and research workspace.',
+    collectionTitle: '1. Information We Collect',
+    collectionBody:
+      'We collect account email addresses, encrypted authentication tokens, and transactional checkout identifiers necessary to provision Builder Pro entitlements. We do not store raw credit card numbers; all billing is processed via certified payment gateways.',
+    noSellTitle: '2. Zero Data Selling Commitment',
+    noSellBody:
+      'We do not sell, rent, or trade your personal information or research behavior to data brokers, advertisers, or third parties.',
+    identifiersTitle: '3. Device Identifiers & Anti-Abuse Controls',
+    identifiersBody:
+      'In accordance with our security specifications, device and network signatures used for rate limiting and trial abuse prevention are stored exclusively as salted, one-way cryptographic hashes.',
+    rightsTitle: '4. Data Retention & Deletion Rights',
+    rightsBody:
+      'You maintain full control over your personal data. You can request complete account deletion at any time from your Account Settings or by emailing privacy@emeradar.com.',
+    contactTitle: '5. Privacy Inquiries',
+    contactBody:
+      'For inquiries concerning our privacy practices or GDPR/CCPA compliance, contact privacy@emeradar.com.',
   },
   terms: {
     badge: 'Terms of Use',
@@ -143,8 +205,8 @@ export const en: TranslationDictionary = {
     stat4Number: 'T+30/60/90',
     stat4Label: 'Outcome checkpoints',
     signalBoardBadge: "Today's radar picks",
-    signalBoardTitle: "Today's verified build opportunities",
-    signalBoardDesc: 'These opportunities passed the observation gate. Each record links back to its sources and limitations instead of presenting a success guarantee.',
+    signalBoardTitle: "Which search opportunities are verified and ready to build now?",
+    signalBoardDesc: 'These vetted opportunities passed the strict observation gate across demand velocity, public pricing, and SERP vulnerability.',
     signalBoardLimit: 'At most 2 BUILD NOW shown here per day',
     cardReport: 'Report & ROI',
     cardWorkspace: 'Workspace',
@@ -156,8 +218,8 @@ export const en: TranslationDictionary = {
     signInToView: 'Sign in to view the feed',
     observationRequestNote: 'Have a query to observe? Sign in to submit an observation request. Requests enter the candidate pool and do not create an instant verdict.',
     axesBadge: 'Three-Axis Empirical Evaluation',
-    axesTitle: 'No black-box scores. Only evidence you can recompute.',
-    axesDesc: 'Cross-checked across Demand, Commercial, and Window. If any axis fails, we PASS. Each axis is reported as a band — never folded into a composite score.',
+    axesTitle: 'How does Emeradar validate demand, monetization, and competition?',
+    axesDesc: 'Emeradar cross-checks every candidate against three independent empirical gates: Demand velocity (D), Transactional pricing proof (M), and SERP competitor weakness (W). If any axis fails, the verdict is PASS.',
     axesGateD: '>=14 days of autocomplete history',
     axesGateM: 'Pricing or checkout observed on >=2 domains',
     axesGateW: '>=14 days of organic SERP snapshots',
@@ -172,8 +234,8 @@ export const en: TranslationDictionary = {
     pillarWindowDesc: 'Penetrate SERP Top 10 low-authority pages and Reddit/Quora forum threads to uncover solo-penetrable gaps.',
     pillarWindowNote: 'Penetrates forums and weak SERPs',
     reportSectionBadge: 'Actionable Research Report',
-    reportSectionTitle: 'Beyond verdicts: a complete build blueprint one person can execute',
-    reportSectionDesc: 'Every report includes Why Now timing, competitor weakness maps, 1-week MVP architectures, and kill criteria.',
+    reportSectionTitle: 'What is included in an Emeradar opportunity research report?',
+    reportSectionDesc: 'Each research report delivers a comprehensive build blueprint: Why Now timing, competitor SERP weakness maps, 1-week MVP archetypes, verified pricing proof, and explicit kill criteria.',
     reportPoint1Title: 'Why Now Timing',
     reportPoint1Desc: 'Detects expansion inflection points so you enter expanding waves, not decaying trends.',
     reportPoint2Title: 'SERP Weakness Map',
@@ -185,8 +247,8 @@ export const en: TranslationDictionary = {
     reportPreviewCaption: 'Report structure preview · MVP archetype and kill criteria',
     reportCta: 'View the latest report in the feed',
     comparisonBadge: 'Paradigm Shift',
-    comparisonTitle: 'Why traditional SEO tools fail indie builders',
-    comparisonSubtitle: 'Legacy tools audit enterprise volume; Emeradar spots exploitable wedges for solo builders.',
+    comparisonTitle: 'Why do traditional SEO tools fail at SaaS idea validation?',
+    comparisonSubtitle: 'Legacy keyword tools measure static trailing enterprise volumes without verifying buyer willingness to pay or SERP penetrability. Emeradar identifies exploitable long-tail wedges with verified commercial evidence designed for solo builders.',
     comparisonColTrad: 'Traditional SEO Tools',
     comparisonColEme: 'Emeradar Opportunity Radar',
     comparisonRow1Trad: 'Vanity volume queries dominated by DR 80+ enterprise giants',
@@ -198,8 +260,8 @@ export const en: TranslationDictionary = {
     comparisonRow4Trad: 'Black-box vanity scores with zero post-launch audit trail',
     comparisonRow4Eme: 'Outcome tracking that shows both hits and misses',
     decisionLoopBadge: 'Workflow & Decision Architecture',
-    decisionLoopTitle: 'A four-step loop: from signal to outcome',
-    decisionLoopSubtitle: 'Combining demand momentum, commercial proof, and SERP weakness so every indie product decision is backed by hard evidence.',
+    decisionLoopTitle: 'How does the continuous search signal decision loop work?',
+    decisionLoopSubtitle: 'The continuous decision loop operates across four stages: wide-area radar ingestion, multi-week observation gating, actionable MVP archetyping, and verifiable post-launch outcome tracking.',
     step1Title: 'Wide-area radar',
     step1Desc: 'Automated crawlers scan thousands of long-tail search expansions daily to catch emerging unaddressed pain points.',
     step2Title: '45-day observation',
@@ -214,14 +276,26 @@ export const en: TranslationDictionary = {
     freeDelayHighlight: 'Free: 45-day delayed summaries · Public verifiable track record',
     proRealtimeHighlight: 'Pro: Zero-delay realtime feed · 30 report exports/month',
     explorePricingBtn: 'Compare plans and entitlements',
-    principlesTitle: 'A clear basis for every decision',
-    principlesSubtitle: 'An opportunity is not a guarantee of success. We show the basis for each call and keep tracking what happens next.',
+    principlesTitle: "What core principles govern Emeradar's signal intelligence?",
+    principlesSubtitle: "Emeradar operates on three strict principles: 100% auditable public prediction ledgers, transparent empirical evidence instead of black-box scores, and refusing to fabricate missing data.",
     principle1Title: 'Traceable sources, no black-box score',
     principle1Desc: 'Review the search, product, and competition signals behind each call instead of relying on one score.',
     principle2Title: 'Commercial proof means a real checkout',
     principle2Desc: 'Public pricing and purchase paths show that paid products exist. They do not reveal actual sales or revenue.',
     principle3Title: 'Keep testing past decisions',
     principle3Desc: 'We preserve the record from the day a decision was published and review its outcome when results become available. No accuracy claims before there is enough data.',
+    citationsBadge: 'Primary Evidence & Citations',
+    citationsTitle: "What primary sources and citations ground Emeradar's intelligence?",
+    citationsSubtitle: 'Emeradar cross-references real-time search signals against authoritative search indices, organic SERP distributions, and verified commercial checkout endpoints.',
+    citationsQuote: 'Creating helpful, reliable, people-first content means providing original information, reporting, research, or analysis, with clear source attribution.',
+    citationsCiteAuthor: 'Google Search Central',
+    citationsCiteWork: 'Creating Helpful, Reliable, People-First Content Documentation',
+    citationsSource1Title: 'Google Trends & Autocomplete Frequency',
+    citationsSource1Desc: 'Continuous multi-week long-tail expansion rate sampling to detect genuine search momentum without transient spike contamination.',
+    citationsSource2Title: 'Serper Organic SERP Distribution',
+    citationsSource2Desc: 'Top 10 organic SERP vulnerability analysis verifying Reddit/Quora discussion density and low-authority ranking opportunities.',
+    citationsSource3Title: 'Public Pricing & Checkout Verification',
+    citationsSource3Desc: 'Empirical crawl of active SaaS pricing tiers and merchant checkout paths to verify buyer willingness-to-pay signals.',
   },
   feed: {
     badge: 'Decision feed',
@@ -1182,6 +1256,21 @@ export const en: TranslationDictionary = {
       title: 'Methodology: demand, commercial and SERP-weakness evidence',
       description:
         'How the three evidence axes are collected and scored, when a candidate qualifies as buildable, and why missing data stays missing. Observation gates and thresholds are published.',
+    },
+    about: {
+      title: 'About Emeradar — Search opportunity intelligence & team',
+      description:
+        'Emeradar provides search opportunity intelligence and commercial proof for solo builders. Learn about our founding team, empirical research methodology, and transparent prediction ledger.',
+    },
+    contact: {
+      title: 'Contact Emeradar — Support, security & inquiries',
+      description:
+        'Get in touch with the Emeradar engineering and research team for customer support, vulnerability reporting, data licensing, or feedback.',
+    },
+    privacy: {
+      title: 'Privacy Policy — Emeradar',
+      description:
+        'Read how Emeradar handles data: zero selling of user data, minimal telemetry, and complete transparency in signal storage and user rights.',
     },
     terms: {
       title: 'Terms of service',

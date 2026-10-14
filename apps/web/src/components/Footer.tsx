@@ -27,11 +27,17 @@ export function Footer() {
             <Link href="/methodology" className={linkClasses}>
               {t('footer.methodology')}
             </Link>
-            <Link href="/feed" className={linkClasses}>
-              {t('footer.liveFeed')}
-            </Link>
             <Link href="/pricing" className={linkClasses}>
               {t('footer.pricing')}
+            </Link>
+            <Link href="/about" className={linkClasses}>
+              {t('footer.about')}
+            </Link>
+            <Link href="/contact" className={linkClasses}>
+              {t('footer.contact')}
+            </Link>
+            <Link href="/privacy" className={linkClasses}>
+              {t('footer.privacy')}
             </Link>
             <Link href="/terms" className={linkClasses}>
               {t('footer.terms')}

@@ -20,15 +20,19 @@ export default function robots(): MetadataRoute.Robots {
 
   const allowList = [
     '/',
-    '/pricing',
-    '/methodology',
-    '/track-record',
-    '/terms',
-    '/public/opportunities/',
+    '/.well-known/llms.txt',
+    '/about',
+    '/contact',
     '/icon.svg',
-    '/logo.png',
-    '/og-image.png',
     '/llms.txt',
+    '/logo.png',
+    '/methodology',
+    '/og-image.png',
+    '/pricing',
+    '/privacy',
+    '/public/opportunities/',
+    '/terms',
+    '/track-record',
   ];
 
   return {
@@ -39,7 +43,28 @@ export default function robots(): MetadataRoute.Robots {
         disallow: disallowList,
       },
       {
-        userAgent: ['Googlebot', 'Googlebot-Image', 'Google-Extended', 'Bingbot', 'PerplexityBot'],
+        // 核心搜索引擎与 AI 检索代理
+        userAgent: [
+          'Googlebot',
+          'Googlebot-Image',
+          'Google-Extended',
+          'Bingbot',
+          'PerplexityBot',
+          'OAI-SearchBot',
+          'Applebot',
+        ],
+        allow: allowList,
+        disallow: disallowList,
+      },
+      {
+        // AI 问答交互抓取器（针对用户提问动态抓取，解决 AI Assistant Fetchers blocked 告警）
+        userAgent: [
+          'ChatGPT-User',
+          'Claude-User',
+          'Perplexity-User',
+          'meta-externalfetcher',
+          'MistralAI-User',
+        ],
         allow: allowList,
         disallow: disallowList,
       },
