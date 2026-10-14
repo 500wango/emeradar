@@ -5,6 +5,13 @@ export * from './report.service';
 export * from './project.service';
 export * from './slot.service';
 export * from './stake.service';
+/**
+ * 判据与写入方分成两个模块，正是为了让这里的两个星号不冲突：判据（谓词、标签、
+ * 价格与期限常量）只由 `stealth-lock-policy` 转出，`stealth-lock.service` 只转出
+ * 服务类。两边都转一次同名成员，那个名字会在包边界上整体消失。
+ */
+export * from './stealth-lock-policy';
+export * from './stealth-lock.service';
 export * from './launch-kit.service';
 export * from './ranking.service';
 export * from './public-url';

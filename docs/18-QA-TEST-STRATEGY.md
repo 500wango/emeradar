@@ -78,7 +78,9 @@ flowchart TD
 | **原子 GO 并发（ADR-018、10 §原子 GO）** | 4 个用户并发对同一形态仅剩 1 槽点击 GO | **恰好 1 个成功**（占槽 + 扣月度导出配额 + 建 Project + 解锁该形态点火包在**同一事务**内完成），其余立即失败；`opportunity_slots.claimed`、`slot_claims` 与 `usage_counters` 三方一致，无超卖 |
 | **承诺质押 3 类凭证（PRD F10）** | 分别提交 `DOMAIN_URL` / `STORE_LISTING_URL` / `PUBLIC_PAGE_URL`，探针 `<title>`/`<h1>`/`<meta>` 相关性通过 | 三类均置 `stake_status = VERIFIED`，槽位保留；探针不相关或超时则 `REJECTED` |
 | **质押 7 天逾期释放且配额不退（PRD §1.7 第 5 条、03 I12）** | GO 后 7 天内未提交凭证或不通过 | `stake_status = EXPIRED_RELEASED`，槽位释放回公共池，`slot_claims` 与 `opportunity_slots.claimed` 同步递减；**已扣减的月度导出配额不退还** |
-| **处女地独占买断（03 I13、PRD §1.7 第 5 条）** | ① `Σclaimed == 0` 下单；② 已有任一用户 GO（`Σclaimed > 0`）后下单 | ① 成功生成 `stealth_locks(ACTIVE)` + `stealth_lock_displays`（账本打码 60 天）；② **下单事务必须被拒**，买断按钮置灰 |
+| **处女地独占买断（03 I13、PRD §1.7 第 5 条）** | ① `Σclaimed == 0` 下单；② 已有任一用户 GO（`Σclaimed > 0`）后下单；③ 同一用户已有一笔待付占位时再下单；④ 待付占位超窗口后**不跑任何作业** | ① 成功生成 `stealth_locks(ACTIVE)` + `stealth_lock_displays`（账本打码 60 天）；② **下单事务必须被拒** `422`，买断按钮置灰并**写明原因**；③ `409 STEALTH_LOCK_PENDING` 且附续付链接，不产生第二把锁；④ 机会自行重新可见（判据自愈，见 03 §17 I13——把正确性挂在作业上等于让一次调度故障变成无尽遮蔽） |
+| **买断可见性矩阵（10 §7）** | 保护期内，持有者与非持有者分别请求 Feed / 详情 / 研报 / 槽位 / 告警规则 / 公开页 / 公开战报 | Feed 与比较对**双方都**排除；详情 / 研报 / 槽位 / 告警规则对持有者 `200`、对非持有者 `404`（与"不存在"同形）；公开页 `200` 且已打码；公开战报里该 Episode **仍在**分子分母，只是标题被替换 |
+| **买断打码不泄漏（10 §8.4、15 §8，0 容忍）** | 取一条词根独特的被买断机会，扫全部 `/api/v1/public/*` 响应体 | 响应体（含 `<title>`、slug、JSON-LD、公开战报）中**扫不到真实词根子串**；`is_stealth_masked` / `masked_label` / `unmasked_at` 三个字段齐备 |
 | **反滥用-邮箱归一化（13 §7.1、17 §2.5）** | 同一自然人用 `j.doe+free@gmail.com` 与 `jdoe@gmail.com` 先后注册领取终身免费初筛 | 归一为同一 `canonical_email`，第二次领取被拒；非 Gmail 域**不**剥离点号（不同人不得误合并） |
 | **反滥用-指纹 30 天限流（03 §2）** | 同一 `fingerprint_hash`/`ip_hash` 30 天内第二次触发免费实时初筛；随后注销账户并重注册 | 第二次被拒；注销后 `lifetime_scan_grants` 哈希**保留**（`user_id` 置 NULL）、`device_fingerprints` **删除**，重注册仍无法再领 |
 | **两阶段初筛与半遮罩可见性（F3）** | Free 用户提交自定义词；Pro 用户提交同词 | 第 1 阶段 5 秒内返回静态初筛卡；Free 的具体弱结果 URL、收钱竞品域名与 15 长尾词在**API 响应与渲染层双重不可得**（高斯模糊），Pro 全量可见 |

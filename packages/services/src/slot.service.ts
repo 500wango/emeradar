@@ -1,6 +1,7 @@
 import { query } from '@emeradar/db';
 import type { PoolClient } from '@emeradar/db';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
+import { stealthHiddenPredicate, hiddenFromViewer } from './stealth-lock-policy';
 
 /**
  * 认领槽位（ADR-018、01 §1.7 第 5 条、03 §8、05 §5.1）。
@@ -90,6 +91,31 @@ export class SlotService {
 
   /** 槽位明细。读路径不写库：没有行的形态按"未提供"处理，而不是就地补一行。 */
   static async getSlots(opportunityId: string, userId?: string): Promise<OpportunitySlots> {
+    /**
+     * 保护期内：持有者 200，其他人 404（与 `getOpportunityDetail` 同口径，见
+     * `opportunity.service.ts` 上的长注释）。
+     *
+     * 计划里这一条原本归在「对所有人排除，含买断者本人」那一档，和 Feed 并列。
+     * 那样写是自相矛盾的：决策是**买断者可以 GO**（见本轮口径确认），而从
+     * `/api/v1/opportunities/[id]/slots` 拿到的槽位列表正是决策栏渲染"可立项形态"
+     * 的唯一数据源。对持有者也返回空槽位，他就在 UI 上点不到 GO——"可以 GO"变成
+     * 一句只在直接调 `SlotService.claim` 时才成立的空话。裁决：按持有者可见处理。
+     *
+     * 对非持有者必须与"这条机会不存在"完全同形，所以是 404 而不是空数组：空数组
+     * 说的是"这条机会一个形态都没开放"，那是在泄露"它存在，只是你打不开"。
+     *
+     * 未传 `userId` 时用空串当"没有这个人"，理由同 `getOpportunityDetail`：
+     * 失败开放比失败关闭危险得多。
+     */
+    const visible = await query(
+      `SELECT 1 FROM opportunities o
+        WHERE o.id = $1 AND ${hiddenFromViewer('o.id', '$2')}`,
+      [opportunityId, userId ?? '']
+    );
+    if (visible.rows.length === 0) {
+      throw new EmeradarError(ErrorCode.NOT_FOUND, 'Opportunity not found', 404);
+    }
+
     const rows = await query<{ archetype: string; capacity: number; claimed: number }>(
       `SELECT archetype, capacity, claimed FROM opportunity_slots
         WHERE opportunity_id = $1 ORDER BY archetype`,
@@ -164,6 +190,34 @@ export class SlotService {
     // 竞态：两个人格（两个标签页）同时 GO 两条不同机会，各自读到 1 < 2 就都放行。
     // 按用户加事务级锁，比在每条机会上分别加锁更直接。
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`go:${input.userId}`]);
+
+    // 买断保护期内别人不能占槽（PRD §1.7 第 5 条、03 §17 I13）。这一道闸必须**与
+    // 买断下单抢同一把机会级锁**：买断侧的"下单时 Σclaimed == 0"若只是瞬间为真，一次
+    // 并发的 GO 就能在它之后落地，于是买断被卖给一条已被认领的机会，而买断者付的是
+    // 独占价。两侧各用各的锁，等于两边都以为自己是唯一写入者。
+    //
+    // 持有者自己不受限（10 §4.5b）：他买的是"一人独享窗口期"，若连立项都不允许，
+    // 这个商品就什么也没交付。所以判据是"有生效中的锁，且持有者不是我"。
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `opp:${input.opportunityId}`,
+    ]);
+    const locked = await client.query<{ user_id: string }>(
+      `SELECT sl.user_id FROM stealth_locks sl
+        WHERE sl.opportunity_id = $1
+          AND ${stealthHiddenPredicate('sl')}
+        LIMIT 1`,
+      [input.opportunityId]
+    );
+    const holder = locked.rows[0];
+    if (holder && holder.user_id !== input.userId) {
+      // 与 SLOT_TAKEN 不同：那不是"你换个形态就有救"，而是这条机会整体不可见。
+      // 用 422 而不是 409——没有任何可选的替代形态可以提示。
+      throw new EmeradarError(
+        ErrorCode.STEALTH_LOCK_UNAVAILABLE,
+        'This opportunity is under an exclusive lock.',
+        422
+      );
+    }
 
     // 同一个用户在同一条机会上只能有一条活跃认领（I11 的部分唯一索引）。在插入前
     // 先查一次，是为了把"用户重复点 GO"变成一句能读懂的话，而不是让索引冲突泄漏成

@@ -7,6 +7,7 @@ import { EntitlementService } from './entitlement.service';
 import { SlotService } from './slot.service';
 import { StakeService, CREDENTIAL_TYPES, isCredentialType, probeCredential, type CredentialProbe } from './stake.service';
 import { normalizeCredentialHost } from './credential-host';
+import { hiddenFromViewer } from './stealth-lock-policy';
 
 export const PASS_REASONS = [
   'DEMAND_TOO_THIN',
@@ -127,8 +128,8 @@ export class DecisionService {
       `SELECT o.id, o.title, o.status
          FROM opportunities o
          JOIN opportunity_cards c ON c.opportunity_id = o.id
-        WHERE o.id = $1`,
-      [input.opportunityId]
+        WHERE o.id = $1 AND ${hiddenFromViewer('o.id', '$2')}`,
+      [input.opportunityId, userId]
     );
     const opportunity = opportunityRes.rows[0];
     if (!opportunity || opportunity.status !== 'TRACKED') {

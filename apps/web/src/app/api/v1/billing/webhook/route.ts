@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { StripeService, mapStripeSubscriptionStatus } from '@emeradar/services';
+import { StripeService, StealthLockService, mapStripeSubscriptionStatus } from '@emeradar/services';
 
 function toIsoOrNull(epochSeconds: unknown): string | null {
   return typeof epochSeconds === 'number' && Number.isFinite(epochSeconds)
@@ -63,6 +63,51 @@ export async function POST(request: NextRequest) {
   try {
     switch (eventType) {
       case 'checkout.session.completed': {
+        /**
+         * 买断必须**早于**订阅分支判掉（10 §4.5b）。
+         *
+         * 两个分支看的是同一个事件，而订阅那条会去 `validatePaidCheckout` 按
+         * `stripe_checkout_intents` 断言行里的 planCode/billingCycle —— 买断压根不写
+         * 那张表（它的 `plan_code` 是 `NOT NULL REFERENCES plans(code)`，而买断不是
+         * 套餐，13 §3.1），校验必然抛错，落进下面的 catch 里 500 并释放幂等声明，
+         * 于是 Stripe 按重试计划反复投递同一个必然失败的事件，而用户已经付过钱了。
+         */
+        if (object?.metadata?.purchaseKind === 'STEALTH_BUYOUT') {
+          const outcome = await StealthLockService.confirmCheckout({
+            paymentIntentId: typeof object?.payment_intent === 'string' ? object.payment_intent : null,
+            metadata: (object?.metadata ?? {}) as Record<string, unknown>,
+          });
+
+          /**
+           * `MISSING` **不许静默吞掉**：元数据里带着 `stealthLockId`，所以"钱到了但
+           * 那把锁不在库里"是一件可以确切说出的事，不是只能推断的猜测。它是
+           * "钱已收、交付物不在"的唯一剩余入口，必须有人看到——回 200 等于把它变成
+           * 一条日志里的噪音。这里刻意**不**返回 5xx 去换重投：重投改变不了"锁不在"
+           * 这个事实，只会让 Stripe 的投递队列里多一条永远失败的记录。
+           *
+           * 所以：记 P0、放行 200，由告警去叫人。同理 `UNATTRIBUTED`（元数据不全，
+           * 说明这不是我们发出去的会话，或被改过）。
+           */
+          if (outcome.status === 'MISSING' || outcome.status === 'UNATTRIBUTED') {
+            console.error(
+              `[Stripe Webhook] P0 STEALTH LOCK UNRESOLVED (${outcome.status}): lock=${object?.metadata?.stealthLockId ?? '<none>'} ` +
+                `pi=${object?.payment_intent ?? '<none>'} event=${eventId}. Payment received but no lock could be credited.`
+            );
+          } else if (outcome.status === 'VOIDED') {
+            // 占位已作废（超过待付窗口）而钱到了。这个交错本来由"会话有效期短于
+            // 宽限期"挡住，走到这里说明有更慢的一环。锁的价值已经不在，必须人工
+            // 处置（退款或补发），所以同样按 P0 记录。
+            console.error(
+              `[Stripe Webhook] P0 STEALTH LOCK VOIDED BEFORE PAYMENT: lock=${outcome.lockId} pi=${object?.payment_intent} event=${eventId}.`
+            );
+          } else {
+            console.log(
+              `[Stripe Webhook] Stealth lock ${outcome.lockId} ${outcome.status.toLowerCase()} for opportunity ${outcome.opportunityId}.`
+            );
+          }
+          break;
+        }
+
         const userId = object?.metadata?.userId || object?.client_reference_id;
         const planCode = (object?.metadata?.planCode as 'PRO' | 'TEAM') || 'PRO';
         const billingCycle = object?.metadata?.billingCycle === 'lifetime'

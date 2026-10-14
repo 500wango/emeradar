@@ -1,4 +1,5 @@
 import { query } from '@emeradar/db';
+import { hiddenFromEveryone, hiddenFromViewer } from './stealth-lock-policy';
 import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
 import { deriveBasisState } from '@emeradar/report';
 import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from './claim-policy';
@@ -207,7 +208,19 @@ export class OpportunityService {
       minAgeDays = 0,
     } = options;
 
-    const conditions: string[] = [`o.status = 'TRACKED'`];
+    const conditions: string[] = [
+      `o.status = 'TRACKED'`,
+      /**
+       * 买断保护期内**对所有人**排除，买断者本人也在内（16 §3.3：买断后该条从他
+       * 自己的 Feed 里也消失）。
+       *
+       * 放在 `conditions` 里而不是事后过滤数组：这个数组同时喂给计数查询与列表
+       * 查询，所以分页的 `total` 与页内行数说的是同一件事。若只过滤列表，
+       * `total` 会比实际能取到的行数多，翻到最后一页会得到空页——那是一个只在
+       * "刚好有人买断了某条"时才出现的、很难复现的分页 bug。
+       */
+      hiddenFromEveryone('o.id'),
+    ];
     const params: any[] = [];
     let paramIdx = 1;
     if (minAgeDays > 0) {
@@ -402,6 +415,7 @@ export class OpportunityService {
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE o.status = 'CANDIDATE'
+         AND ${hiddenFromEveryone('o.id')}
        ORDER BY c.first_observed_at DESC
        LIMIT $1`,
       [limit]
@@ -461,6 +475,8 @@ export class OpportunityService {
       `o.status = 'TRACKED'`,
       `c.verdict IN ('BUILD_NOW', 'EARLY_BET')`,
       `c.confidence <> 'LOW'`,
+      // 比较页与 Feed 同类：保护期内对所有人排除，含买断者本人。
+      hiddenFromEveryone('o.id'),
     ];
     if (options.minAgeDays && options.minAgeDays > 0) {
       params.push(String(options.minAgeDays));
@@ -516,7 +532,7 @@ export class OpportunityService {
    */
   static async getOpportunityDetail(
     idOrSlug: string,
-    options: { minAgeDays?: number } = {}
+    options: { minAgeDays?: number; viewerId?: string | null } = {}
   ): Promise<any> {
     // Only published decisions are addressable. Without this a caller who knows
     // (or guesses) a slug could read a CANDIDATE record the feed deliberately
@@ -524,6 +540,25 @@ export class OpportunityService {
     // feed boundary.
     const conditions = [`(o.id = $1 OR o.slug = $1)`, `o.status = 'TRACKED'`];
     const params: any[] = [idOrSlug];
+    /**
+     * 买断保护期内：**持有者 200，其他人 404**（10 §7 第 267 行「非本人持有且处于
+     * 保护期的机会返回 404」）。
+     *
+     * 这里刻意**不**复用 Feed 的 `hiddenFromEveryone`。两者看着像同一个动作，
+     * 差别只在 `viewerId` 上，而那正是这个商品的全部内容：买断者花 $199 买的是
+     * "这条只有我能打开"。用 `hiddenFromEveryone` 会让他付完钱立刻读不到自己买的
+     * 东西——一个纯功能性的、当场就能被发现的 bug。
+     *
+     * 对非持有者必须回**与"这条不存在"完全同形**的 404。回 403 等于承认这里有一条
+     * 被保护的机会，等于把 404 想挡住的信息换个方式说出去。
+     *
+     * 未传 `viewerId` 时**照旧挂上这道闸**，用空串当"没有这个人"。不传就等于放行
+     * 是一种失败开放：将来新加一个调用点忘了带 viewerId，它读到的就是保护期内的
+     * 机会，而且不会有任何报错、测试也不会红。空串在 `IS DISTINCT FROM` 下恒为真，
+     * 于是"没人"看到的是"和陌生人一样多"。
+     */
+    params.push(options.viewerId ?? '');
+    conditions.push(hiddenFromViewer('o.id', `$${params.length}`));
     if (options.minAgeDays && options.minAgeDays > 0) {
       params.push(String(options.minAgeDays));
       conditions.push(`c.first_observed_at <= NOW() - ($${params.length} || ' days')::interval`);

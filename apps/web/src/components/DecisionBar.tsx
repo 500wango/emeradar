@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Bell, Check, X, FileText } from 'lucide-react';
+import { Bell, Check, X, FileText, ShieldOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { Button, buttonVariants } from '@/components/ui/Button';
 
@@ -37,6 +37,22 @@ interface DecisionBarProps {
   canGo: boolean;
   canExport: boolean;
   blockReason?: string;
+  /**
+   * 买断资格（`GET /opportunities/{id}/stealth-lock` 的响应，10 §4.5b）。
+   *
+   * 由服务端页面取好传下来，而不是在客户端再发一次请求：`claimed_total` 与上面那排
+   * 槽位徽章读的是同一张 `opportunity_slots`，让它们来自同一个响应，就不可能各说
+   * 一套。`null` 表示这条机会不提供买断入口（未登录、或服务端取不到）。
+   */
+  stealthLock: {
+    available: boolean;
+    claimedTotal: number;
+    price: number;
+    durationDays: number;
+    locked: boolean;
+    heldByMe: boolean;
+    pending: { checkoutUrl: string | null; expiresAt: string } | null;
+  } | null;
 }
 
 /** `t` 找不到键时原样返回键名，据此判断该枚举有没有译文。 */
@@ -44,6 +60,26 @@ function labelOf(t: (key: string) => string, value: string): string {
   const key = `common.archetypes.${value}`;
   const translated = t(key);
   return translated === key ? value : translated;
+}
+
+/**
+ * 买断按钮为什么不可用——**必须说出具体原因，而不是留一个灰按钮**。
+ *
+ * 三种原因给出三种完全不同的下一步：已经有人认领了（换一条机会）、你自己已经买下
+ * 了（去 GO）、别人正占着（等 45 分钟或对方付款后等 60 天）。合成一句"不可用"
+ * 会让用户以为是自己的套餐问题，那样他会去买一个解决不了任何事的升级。
+ */
+function stealthDisabledReason(
+  lock: NonNullable<DecisionBarProps['stealthLock']>,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string | null {
+  if (lock.available) return null;
+  if (lock.locked) {
+    return lock.heldByMe
+      ? t('opportunityDetail.stealthHeldByYou')
+      : t('opportunityDetail.stealthHeldByOther');
+  }
+  return t('opportunityDetail.stealthUnavailableClaimed', { count: lock.claimedTotal });
 }
 
 export function DecisionBar({
@@ -56,6 +92,7 @@ export function DecisionBar({
   canGo,
   canExport,
   blockReason,
+  stealthLock,
 }: DecisionBarProps) {
   const router = useRouter();
   const { t } = useI18n();
@@ -176,6 +213,53 @@ export function DecisionBar({
     }
   }
 
+  /**
+   * 买断下单（10 §4.5b）。
+   *
+   * 成功后**跳转到托管结账页**，而不是弹一个"已下单"的提示：此刻机会已经对全网
+   * 隐藏（下单即写锁），用户手里必须马上有一张能付款的账单，否则那条 45 分钟的
+   * 待付窗口会在一个没有任何付款入口的页面上流逝。窗口一过占位作废、机会重新
+   * 开放，而他什么都没买到。
+   */
+  async function buyout() {
+    setPending('buyout');
+    setError(null);
+    setMessage(null);
+    setUpgradeUrl(null);
+    try {
+      const res = await fetch(`/api/v1/opportunities/${opportunityId}/stealth-lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billing_interval: 'ONE_TIME' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.upgrade?.url) setUpgradeUrl(String(data.upgrade.url));
+        // 已有一笔待付占位（409）时把续付链接直接给出去。这不是错误，是"你上次
+        // 没付完"；让他从详情页重新下一单只会撞上同一道闸。
+        if (data.code === 'STEALTH_LOCK_PENDING' && data.details?.checkoutUrl) {
+          window.location.href = String(data.details.checkoutUrl);
+          return;
+        }
+        setError(data.detail || t('opportunityDetail.stealthFailed'));
+        setPending(null);
+        return;
+      }
+      if (data.checkout_url) {
+        window.location.href = String(data.checkout_url);
+        return;
+      }
+      // 没有结账链接说明这是一次模拟成交（非生产环境缺密钥）。留在原页面并把
+      // 状态刷出来，让下一屏显示"你已买断"。
+      setMessage(t('opportunityDetail.stealthSuccess', { days: stealthLock?.durationDays ?? 60 }));
+      router.refresh();
+      setPending(null);
+    } catch (err: any) {
+      setError(err.message);
+      setPending(null);
+    }
+  }
+
   async function pass() {
     if (reasons.length === 0) {
       setError(t('opportunityDetail.passReasonRequired'));
@@ -284,6 +368,37 @@ export function DecisionBar({
           <X className="w-4 h-4" />
           {t('opportunityDetail.passBtn')}
         </Button>
+        {stealthLock && (
+          /**
+           * 不可用时**不置灰**，而是渲染成一个带明确原因的禁用按钮 + 一行说明。
+           * 一个灰掉的按钮配上没有解释，会被读成"你的套餐不够"（16 §147），而这条
+           * 的失败原因与套餐无关——是"这条机会已经不是处女地了"。两者给出的是完全
+           * 不同的下一步（升级套餐 vs 换一条机会），所以必须写在用户看得到的地方。
+           */
+          <div className="flex flex-col items-start gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              className={
+                stealthLock.available
+                  ? 'border-accent/50 text-accent hover:bg-accent/10'
+                  : 'opacity-50'
+              }
+              onClick={buyout}
+              disabled={!stealthLock.available || pending !== null}
+              title={stealthDisabledReason(stealthLock, t) ?? undefined}
+            >
+              <ShieldOff className="w-4 h-4" />
+              {pending === 'buyout'
+                ? t('opportunityDetail.stealthPending')
+                : t('opportunityDetail.stealthBtn', { price: `$${stealthLock.price}` })}
+            </Button>
+            <span className="text-[11px] text-fg-subtle">
+              {stealthDisabledReason(stealthLock, t) ??
+                t('opportunityDetail.stealthHint', { days: stealthLock.durationDays })}
+            </span>
+          </div>
+        )}
         {canExport ? (
           <a
             href={`/opportunities/${slug}/report`}

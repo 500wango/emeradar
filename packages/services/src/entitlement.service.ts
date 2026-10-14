@@ -17,6 +17,15 @@ export interface UserEntitlementsInfo {
   maxAlerts: number;
   currentAlertsCount: number;
   apiAccess: boolean;
+  /**
+   * 能否下单买断（13 §3.1：FREE 为 `false`、PRO 为 `true`）。
+   *
+   * 它是一个**布尔前置闸，不是额度**：买断是一次性商品，走 `check` 而不是 `quota`
+   * （13 §4.3）。但"有权限"与"能下单"是两件事——真正决定能不能下单的是数据：
+   * 这条机会的 `Σclaimed` 是否仍为 0（PRD §1.7 第 5 条）。套餐只决定"你有没有资格
+   * 参与这件事"，不决定"这条机会还卖不卖"。
+   */
+  stealthBuyout: boolean;
   feedDelayDays: number;
   opportunityDetailFull: boolean;
   deepReportExport: boolean;
@@ -274,6 +283,7 @@ export class EntitlementService {
       maxAlerts,
       currentAlertsCount: alertCount,
       apiAccess,
+      stealthBuyout: isAdmin || !!ent.stealth_buyout,
       feedDelayDays,
       opportunityDetailFull,
       deepReportExport,

@@ -27,6 +27,7 @@ export async function GET(
     const { id } = await params;
     const data = await OpportunityService.getOpportunityDetail(id, {
       minAgeDays: ent.feedDelayDays,
+      viewerId: auth.user.id,
     });
     return NextResponse.json(data);
   } catch (error: any) {

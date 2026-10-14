@@ -269,6 +269,12 @@ Builder-outcome 列（供公开战绩页）：`launch_verified_7d`（bool / pend
 
 汇总统计（`public.track_record_summary`）：Episode 总数、已评估数、按 Verdict 的命中率、提升倍数（样本充足时）、窗口存活中位数、**7 天凭证核验通过率与 30 天 Top 100 入榜率**（样本充足时）、更新时间。买断打码的 Episode（§6.1）计入分子与分母，不打折统计口径。
 
+**这一节是买断最集中的泄露面，两个方向都要做对**：
+
+- Episode 的 `opportunity_title` / `opportunity_slug` 直接来自 `opportunities` 表，**打码必须做在这一层**（读 Episode 的服务里），不是在做响应的路由里——路由只是透传，改它等于没改。
+- `prediction_episodes` 表里没有标题列，所以 `masked_label` 只能从 `stealth_lock_displays` join 出来（03 §15）。这也是该表**必须存在且必须被读**的原因：它是唯一一处能保证"只打一次码"的地方。
+- 方向相反的第二个错误是**剔除**：少一行就是买断者用钱买走了平台的败绩，而战绩页会因此系统性偏乐观——这正是 §6.1 与 15 §3.1 第 2 条要防的事，15 §8 把它列为 100% 的 0 容忍指标。
+
 ## 12. 失败与告警
 | 事件 | 级别 | 处置 |
 |------|------|------|

@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService, SlotService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, SlotService, StealthLockService } from '@emeradar/services';
 import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
@@ -49,7 +49,10 @@ export default async function OpportunityWorkspacePage({
 
   let data: any;
   try {
-    data = await OpportunityService.getOpportunityDetail(slug, { minAgeDays: ent.feedDelayDays });
+    data = await OpportunityService.getOpportunityDetail(slug, {
+      minAgeDays: ent.feedDelayDays,
+      viewerId: session.user.id,
+    });
   } catch {
     notFound();
   }
@@ -67,6 +70,14 @@ export default async function OpportunityWorkspacePage({
    * 渲染一次。并发下仍可能有人抢先——那由 `409 SLOT_TAKEN` 兜底。
    */
   const slots = await SlotService.getSlots(opportunity.id, session.user.id);
+
+  /**
+   * 买断资格与槽位在同一层读，理由完全相同（见上）。`getAvailability` 会在保护期内
+   * 对非持有者抛 404 —— 但能走到这一行的调用者已经通过了 `getOpportunityDetail` 的
+   * 同一道判据，所以这里不会真的抛。仍然是同一份响应说了算：按钮可用性与那排槽位
+   * 徽章读的是同一张 `opportunity_slots`。
+   */
+  const stealthLock = await StealthLockService.getAvailability(opportunity.id, session.user.id);
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -194,6 +205,17 @@ export default async function OpportunityWorkspacePage({
             canGo={canGo}
             canExport={canExport}
             blockReason={blockReason}
+            stealthLock={{
+              available: stealthLock.available,
+              claimedTotal: stealthLock.claimedTotal,
+              price: stealthLock.price,
+              durationDays: stealthLock.durationDays,
+              locked: stealthLock.locked,
+              heldByMe: stealthLock.heldByMe,
+              pending: stealthLock.pending
+                ? { checkoutUrl: stealthLock.pending.checkoutUrl, expiresAt: stealthLock.pending.expiresAt }
+                : null,
+            }}
           />
         </div>
       </div>

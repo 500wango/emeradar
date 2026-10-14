@@ -352,6 +352,7 @@ export interface TranslationDictionary {
     outcome30d: string;
     outcome60d: string;
     observedMetric: string;
+    maskedUnlockAt: string;
     noEpisodes: string;
     cohortTitle: string;
     cohortDesc: string;
@@ -785,6 +786,14 @@ export interface TranslationDictionary {
     passReasonOutsideTimeBudget: string;
     passReasonNotMySkill: string;
     passReasonOther: string;
+    stealthBtn: string;
+    stealthPending: string;
+    stealthHint: string;
+    stealthSuccess: string;
+    stealthFailed: string;
+    stealthUnavailableClaimed: string;
+    stealthHeldByYou: string;
+    stealthHeldByOther: string;
     watchFailed: string;
     goFailed: string;
     passReasonRequired: string;
@@ -1007,6 +1016,7 @@ export interface TranslationDictionary {
     alreadyOnFile: string;
     primaryQuery: string;
     openRecord: string;
+    stealthLocked: string;
   };
   onboarding: {
     eyebrow: string;

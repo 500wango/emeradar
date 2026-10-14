@@ -120,7 +120,7 @@ flowchart TD
 | `project_status` | `IN_DEVELOPMENT` `LAUNCHED` `ARCHIVED`（**取代** 03 早期的 `PLANNED`/`BUILDING`/`ABANDONED` 与代码中的同义漂移；认领是否占用见 05 §5.1 的判定） |
 | `credential_type` | `DOMAIN_URL` `STORE_LISTING_URL` `PUBLIC_PAGE_URL` |
 | `stake_status` | `PENDING` `VERIFIED` `EXPIRED_RELEASED` |
-| `stealth_lock_status` | `ACTIVE` `EXPIRED` |
+| `stealth_lock_status` | `ACTIVE` `EXPIRED` `VOID`（`VOID` = 未付款占位超时作废，**不是** 60 天期满；两者的区别是钱有没有到，见 03 §12 与 §17 I15） |
 | `source_health` | `OK` `STALE` `FAILED`（采集源健康度，见 05 §5.3 与 02 §管线） |
 
 **Verdict flags**（`PARTIAL_DATA` `BASELINE_PERIOD` `FAST_TRACK` `CROWDED_LOCKED` `W_DROPPING` `M_NEGATIVE` `LOW_CONFIDENCE` `STALE_DATA`）**不在本表定义**，权威定义在 `05 §5.3`；其他文档只引用其字面量。

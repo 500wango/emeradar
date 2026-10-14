@@ -42,7 +42,10 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
 
   let detail: any;
   try {
-    detail = await OpportunityService.getOpportunityDetail(slug, { minAgeDays: ent.feedDelayDays });
+    detail = await OpportunityService.getOpportunityDetail(slug, {
+      minAgeDays: ent.feedDelayDays,
+      viewerId: session.user.id,
+    });
   } catch {
     notFound();
   }

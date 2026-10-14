@@ -6,6 +6,7 @@ import {
   UNIMPLEMENTED_RULE_TYPES,
   isEvaluatedRuleType,
 } from './alert-triggers';
+import { hiddenFromViewer } from './stealth-lock-policy';
 
 export type { AlertRuleType };
 
@@ -56,12 +57,20 @@ export class AlertService {
       );
     }
 
+    /**
+     * 这是一个**存在性判据**，所以保护期内的处置必须与"这条机会不存在"完全同形。
+     *
+     * 若这里放行，一个非持有者只要试着建一条规则，就能从"成功"与"404"的差别里
+     * 问出"这条机会是不是正被买断"——而这恰好是 D3 用 404 想挡住的那条信息。
+     * 持有者照常放行：他的告警盯的是自己买下的东西。
+     */
     const opportunityRes = await query<{ id: string }>(
       `SELECT o.id
        FROM opportunities o
        JOIN opportunity_cards c ON c.opportunity_id = o.id
-       WHERE o.id = $1 AND o.status = 'TRACKED'`,
-      [input.opportunityId]
+       WHERE o.id = $1 AND o.status = 'TRACKED'
+         AND ${hiddenFromViewer('o.id', '$2')}`,
+      [input.opportunityId, userId]
     );
     if (opportunityRes.rows.length === 0) {
       throw new EmeradarError(

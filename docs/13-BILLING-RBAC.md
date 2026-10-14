@@ -149,8 +149,14 @@ type ReservationResult =
 | `AlertService.createRule` | `alert_rules_max` | `check` | 同上，行数上限检查 |
 | `OpportunityService.compare` | `compare_max_items` | `check` | 请求体 `ids.length` ≤ 上限，非消耗型 |
 | `ProjectService.submitCredential` | 不单独扣额 | `check` | 质押凭证提交只做归属与格式校验；额度已在 GO 时扣减，**逾期释放槽位时不退还**（PRD §1.7 第 5 条） |
-| `StealthLockService.purchase` | `stealth_buyout` | `check` + 下单事务内校验 `Σclaimed == 0` | 一次性商品，不走 quota；资格由数据决定而不是套餐 |
+| `StealthLockService.purchase` | `stealth_buyout` | `check` + 下单事务内校验 `Σclaimed == 0` | 一次性商品，不走 quota；资格由数据决定而不是套餐。另有"同一用户同时至多一笔待付占位"的闸（10 §4.5b）——它不是额度，是防止用免费占位遮蔽全网 |
 | REST API Key 调用 | `api_access` | `check` | 布尔前置检查 |
+
+**买断的这笔钱记在哪**：`stripe_checkout_intents` 用不了——它的 `plan_code` 是 `NOT NULL REFERENCES plans(code)`，而买断不是套餐（§3.1），硬塞进去会给"哪些钱是订阅收入"这个问题制造第二份答案。落点：
+
+- 成交事实在 `stealth_locks`（`amount_usd` + `provider_payment_id`），它是这笔收入的**唯一真源**。
+- 同时在 `stripe_purchases` 补一行 `payment:<pi>` 归属（该表允许只有 PI、没有订阅的行，见 03 §13）。**这一行不是记账用的，是归因用的**：入站的 `charge.refunded` / 争议事件按 `payment_intent` 去 `stripe_purchases` 找唯一一行，找不到就抛错并被 `retry-stripe-attributions` 每小时重试——一次拒付会变成一条永久 500 的循环，而锁还挂着。
+- **退款后果**：买断属一次性商品，一经付款不退（与 Founding Lifetime 同口径）。但**拒付（dispute）与供应商侧退款是客观事件，不能靠"我们规定不退"当它不存在**：一旦发生，把该锁置 `VOID`（机会立即回到公共池、打码解除），并在 `audit_log` 留痕。让它继续挂着，等于用一次拒付换 60 天的独占——那会让买断成为一条"付不付钱都行"的路径。
 
 **`reserve` 需感知 Rollover**：读侧可用额度为 `limit + Σ 未消费结转`（§4.2），因此 §4.1 的条件更新 `WHERE used + :units <= :limit` 中的 `:limit` 必须是**含结转的有效上限**，而不是 `entitlements` 里的原始 `limit`。把有效上限在事务内算出并作为参数传入，是把这条规则只写在一处的最简单办法。
 

@@ -45,6 +45,20 @@ export const scanSchema = z.object({
 });
 
 /**
+ * POST /opportunities/{id}/stealth-lock（10 §4.5b、Epic 1.14）。
+ *
+ * `ONE_TIME` **只是一个标记位，不是真周期**。规格把体写成
+ * `{ billing_interval: ONE_TIME }`，而 `ONE_TIME` 根本不在 `billing_interval` 的
+ * 枚举里——那套值（`MONTH` `QUARTER` `YEAR` `LIFETIME`）描述的是订阅周期，买断不是
+ * 订阅（13 §3.1：不进 `plans`、不产生续费）。所以这里用 `z.literal` 只接受这一个
+ * 值并要求必填，而不是拿一个周期枚举去校验它：允许省略或允许别的值，就等于给
+ * "买断是一种订阅"留一个入口，而这条路径不该碰到 `plans` / `subscriptions`。
+ */
+export const stealthLockPurchaseSchema = z.object({
+  billing_interval: z.literal('ONE_TIME'),
+});
+
+/**
  * POST /decisions records the user's GO or PASS on a tracked opportunity.
  *
  * `verdictId` is required, and it is the caller's — not the server's — that

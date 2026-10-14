@@ -11,6 +11,8 @@ import {
   SubscriptionLifecycleService,
   StakeService,
   ProjectService,
+  StealthLockService,
+  StripeService,
   retryStripeAttributions,
 } from '@emeradar/services';
 import { query } from '@emeradar/db';
@@ -296,6 +298,53 @@ export const TASKS: TaskSpec[] = [
         // 逐个打出来是为了可追责：释放槽位同时意味着该用户扣掉的立项额度成了沉没
         // 成本，事后对账需要知道是**哪一次**作业、收了**谁**的。
         console.log('[task] released:', released);
+      }
+    },
+  },
+  {
+    command: 'expire-stealth-locks',
+    // 与 02 §5.1 的任务表逐字一致（`45 7 * * *`）。排在这里而不是更晚，是因为
+    // 作废扫描要跑一次出站的 Stripe 查询；排在其它写库作业之后可以让它拿到的
+    // `locked_at` 已经是当日最终态，少一次无谓的会话查询。
+    cron: '45 7 * * *',
+    description: '期满解密买断锁并作废超窗口的未付款占位',
+    retryLimit: 2,
+    retryDelaySeconds: 300,
+    expireInSeconds: 900,
+    alertAfterFailures: 2,
+    async run(_args, context) {
+      // 这条作业**不是正确性的前提**：隐藏与否由 `stealthHiddenPredicate` 从数据
+      // 自身判定（期满即解密、超窗口即不再隐藏），所以作业停摆一天也不会有一条
+      // 机会被永久藏住。它负责的是**记账与投影**：把状态翻成终态，让"买了没买成"
+      // 与"买了到期了"能分开统计，并让公开投影跟上。
+      const expired = await StealthLockService.releaseExpired();
+      console.log(
+        `[task] expired ${expired.length} stealth lock(s) (trigger=${context.trigger})`
+      );
+
+      // 翻状态前先向 Stripe 确认会话确实未付款（D1 第 1 条）。`isCheckoutSessionPaid`
+      // 查不到会话时返回 true —— "问不出来"不等于"没付款"，而猜错的方向必须是
+      // **保留**：猜"没付款"会作废一笔真金白银的买断，猜"付款了"只留下一条多待
+      // 一天的占位。
+      const voided = await StealthLockService.voidUnpaid(async (sessionId) =>
+        StripeService.isCheckoutSessionPaid(sessionId)
+      );
+      console.log(`[task] voided ${voided.length} unpaid stealth reservation(s)`);
+
+      // 逐条刷新公开投影。两件事都需要：期满要把真实词根放回公开页；作废要把
+      // 一条从没被买成的打码页撤掉。
+      //
+      // 刷新失败**只记不抛**：作业的价值是记账，一次投影刷新失败由下一次 S8 补上
+      // （15 §3.1 第 4 条对期满方向本来就是这个口径），把它升级成任务失败只会让
+      // 整条作业重跑。
+      const affected = [...expired, ...voided];
+      for (const item of affected) {
+        await StealthLockService.refreshProjection(item.opportunityId);
+      }
+      if (affected.length > 0) {
+        // 逐条打出来是为了可追责：一条买断的消失意味着 60 天独占结束了，事后
+        // 对账要知道是哪一次作业、动了哪一条机会。
+        console.log('[task] stealth lock transitions:', affected);
       }
     },
   },

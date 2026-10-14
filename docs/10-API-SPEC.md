@@ -46,6 +46,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | 422 | `PRECONDITION_FAILED` | 业务前置条件不满足（如未 GO 就请求点火包、质押窗口已过） |
 | 422 | `STAKE_REQUIRED` | 该用户存在逾期未质押的项目，须先处理才能发起新的 GO |
 | 422 | `STEALTH_LOCK_UNAVAILABLE` | 买断下单时 `Σclaimed > 0`（已有他人认领，处女地已被破坏） |
+| 409 | `STEALTH_LOCK_PENDING` | 该用户已有一笔待付占位未结。响应体附该笔的 `checkout_url` 与 `expires_at`——这条闸是"同时至多一笔"，所以第二次请求必须**能续付**而不是撞死 |
 | 422 | `CREDENTIAL_UNVERIFIED` | 提交的质押凭证探针校验失败（页面不可达 / 相关性不足） |
 | 429 | `RATE_LIMITED` | 触发限流 |
 | 503 | `DATA_STALE` | 当日管线未完成且明确不可服务（极少见；一般返回上一日数据并带 `data_as_of`） |
@@ -193,9 +194,19 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 ### 4.5b 处女地独占买断（Stealth Lock）
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/opportunities/{id}/stealth-lock` | 查询该机会是否**可**下单：返回 `{ available, claimed_total, price, duration_days }`。`available = (claimed_total == 0)`——只要有任何一个人认领过，处女地就已被破坏，买断不再开放（PRD §1.7 第 5 条） |
-| POST | `/opportunities/{id}/stealth-lock` | 下单买断。体：`{ billing_interval: ONE_TIME }`。**资格由数据决定，不由套餐决定**：事务内再次校验 `Σclaimed == 0`，否则 `422 STEALTH_LOCK_UNAVAILABLE`。成功后该机会从所有 Feed / 搜索 / 比较 / 公开投影中消失 60 天，写入 `stealth_locks`（`status='ACTIVE'`，`unlock_at = now() + duration_days`） |
-| GET | `/me/stealth-locks` | 我持有的买断及剩余保护天数 |
+| GET | `/opportunities/{id}/stealth-lock` | 查询该机会是否**可**下单：返回 `{ available, claimed_total, price, duration_days, locked, held_by_me }`。`available = (claimed_total == 0 && !locked)`——只要有任何一个人认领过，处女地就已被破坏，买断不再开放（PRD §1.7 第 5 条）；而已有一把生效的锁时同样为 `false`，否则**买断者本人**会看到一个"立即买断"的按钮（他还没 GO 时 `claimed_total` 正是 0）。若调用者已有一笔**待付**占位，额外返回 `pending: { checkout_url, expires_at }` 供续付。**保护期内非持有者返回 `404`**，与 `GET /opportunities/{id}` 完全同形：否则这个端点就是一个任何人可查的存在性判据 |
+| POST | `/opportunities/{id}/stealth-lock` | 下单买断。体：`{ billing_interval: ONE_TIME }`。**资格由数据决定，不由套餐决定**：事务内再次校验 `Σclaimed == 0`，否则 `422 STEALTH_LOCK_UNAVAILABLE`。**成功即写锁**（`status='ACTIVE'`、`unlock_at = now() + duration_days`、`provider_payment_id = NULL`）并返回托管结账链接；机会从此刻起就从所有 Feed / 搜索 / 比较 / 公开投影中消失。同一用户已有一笔待付占位时返回 `409 STEALTH_LOCK_PENDING` 并附该笔的续付链接——见下 |
+| GET | `/me/stealth-locks` | 我持有的买断及剩余保护天数（`VOID` 行不出现） |
+
+**占位先于付款（`provider_payment_id IS NULL` 的 `ACTIVE` 行）**：托管结账页面意味着付款完成时锁还不存在，若等到付款才建锁，付完款与建锁之间别人可以点 GO 占槽，于是钱已收、无物可交。所以**先占位、后付款**，并把风险从"钱"搬到"时间"：
+
+- 待付窗口 `stealth_lock_window_minutes`（默认 **45** 分钟）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
+- 窗口一过而钱仍未到，占位自动失效（`status='VOID'`）：机会重新对全网开放。**失效不依赖清理作业是否跑过**——隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），否则一次作业停摆就会变成一次无限期的全网遮蔽。
+- 结账会话的 `expires_at` 必须**短于**待付窗口（预留投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。
+- 同一用户**同时至多一笔待付占位**。没有这条闸时，一个付费账号可以对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，把整网反复遮黑 45 分钟。
+- 窗口内已付款：webhook 回填 `provider_payment_id`，并**同步刷新该机会的公开投影**（不等 S8 批处理），否则从付款到下一次批处理之间有最长一整天的真实词根裸奔，按 15 §8 即 P0。
+
+**买断者保留 GO 的权利**：`Σclaimed == 0` 约束的是**下单那一刻**。下单之后买断者自己可以在这条机会上 GO——PRD 第 72 行与第 364 行把它写成「由买断者**一人独享窗口期**」，若买断者连立项都不行，这个商品就什么也没交付。于是 `Σclaimed` 会从 0 变成 1，而 60 天打码继续到 `unlock_at`：被打码的是**账本投影**，不是买断者自己的项目。
 
 **买断不影响的账本行为（必须写进契约，避免实现者"顺手"把它剔除）**：买断机会照常写 `verdicts` 与 `prediction_episodes`，照常计入 Cohort 统计；公开投影只做**打码**，不做剔除（06 §6.1、15 §3.1）。
 
@@ -264,7 +275,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 - `Idempotency-Key`、`api-key` 等敏感头不写入日志。
 - Webhook 入站校验签名 + 时间戳容差（默认 5 分钟）。
 - **反滥用（13 §7.1 / 17 §2.5）**：邮箱在入库前做 Canonical 归一化（剥离 Gmail `+` 别名与 `.`）；一次性邮箱域在注册时即拒绝（`403 FORBIDDEN`，`code = DISPOSABLE_EMAIL`）；设备指纹与 IP **仅存加盐哈希**，明文绝不落库、绝不出现在任何 API 响应或日志中（17 §3.5）。同设备 / 同 IP 30 天内只允许 1 次终身初筛额度发放。
-- **买断相关端点不得泄露存在性**：`POST /opportunities/{id}/stealth-lock` 对非本人持有且处于保护期的机会返回 `404`，与"该机会不存在"完全同形；`422 STEALTH_LOCK_UNAVAILABLE` 只在**调用者本来就能看到该机会**（即它尚在 Feed 中）时使用。
+- **买断相关端点不得泄露存在性**：`POST /opportunities/{id}/stealth-lock` 对非本人持有且处于保护期的机会返回 `404`，与"该机会不存在"完全同形；`422 STEALTH_LOCK_UNAVAILABLE` 只在**调用者本来就能看到该机会**（即它尚在 Feed 中）时使用。**同一条规矩适用于一切读取路径**——详情、研报、槽位明细、告警规则创建：保护期内对**非持有者**一律 404，对**持有者**一律 200（他买的就是独享）。Feed / 搜索 / 比较是例外：那三处对**所有人**（含持有者）排除，因为 PRD 要的是"从 Feed 中消失"，而持有者回到这条机会的入口是 `GET /me/stealth-locks`。把 404 与"隐藏"混成一个口径会两头都错：对持有者 404，等于 $199 换到一条看不见的记录；对非持有者只隐藏不 404，则告警规则的创建会变成一台存在性探测器。
 
 ## 8. 契约测试与版本
 - CI：从 Zod 生成 OpenAPI；用 `oasdiff`（或同类工具）检测破坏性变更；破坏性变更须递增 `/api/v2`。

@@ -755,14 +755,32 @@ create table stealth_locks (
   id text primary key,                         -- slk_
   opportunity_id text not null references opportunities(id),
   user_id text not null references users(id),
-  status text not null check (status in ('ACTIVE','EXPIRED')),
+  -- ACTIVE：生效中（已付款，或仍在待付窗口内）；EXPIRED：60 天保护期满，自动解密；
+  -- VOID：待付窗口内未付款，占位作废。VOID 与 EXPIRED 必须分开：前者是"钱从没到"，
+  -- 后者是"买了、期限到了"，把两者并成一档会让买断的成单率无法统计（00-INDEX §4.3）。
+  status text not null check (status in ('ACTIVE','EXPIRED','VOID')),
   locked_at timestamptz not null default now(),
-  unlock_at timestamptz not null,              -- locked_at + 60 天
+  -- locked_at + 60 天。**在待付窗口内就已确定**，而不是等付款后重算：投影要能在
+  -- 下单那一刻就说出解密时刻，且付款落账不该让一个已公布的期限悄悄平移。
+  unlock_at timestamptz not null,
   amount_usd numeric(10,2),
-  provider_payment_id text
+  -- 付款凭据。**它是"已付款"的唯一标记**——待付占位与已成交买断靠它区分，
+  -- 而不是靠一个新状态值（那是同一事实的第二种表示，必然会漂）。
+  provider_payment_id text,
+  -- 托管结账会话。落库的理由是"同时至多一笔未付款占位"这条闸需要能**续付**：
+  -- 用户丢了结账标签页时，第二次 POST 必须拿回同一个链接，而不是撞上部分唯一索引报错。
+  provider_checkout_session_id text,
+  provider_checkout_url text,
+  checkout_expires_at timestamptz
 );
 create unique index stealth_locks_one_active
   on stealth_locks (opportunity_id) where status = 'ACTIVE';
+-- 待付占位与 60 天期限共用 ACTIVE，二者的区别只在 provider_payment_id 是否为 NULL。
+-- 因此"此刻是否被买断隐藏"的判据必须同时看两者与时间，见 §17 I13。
+create index idx_stealth_locks_void_scan
+  on stealth_locks (status, locked_at) where provider_payment_id is null;
+create index idx_stealth_locks_expiry_scan
+  on stealth_locks (status, unlock_at);
 -- 买断期内的机会照常写入 verdicts 与 prediction_episodes 并计入 Cohort 胜率统计；
 -- 只有**公开投影**打码为 [Stealth Locked #ID]（06 §7、15 §3）。账本与展示在此解耦，
 -- 所以"封印"不会伤害战绩的可证伪性。
@@ -917,13 +935,23 @@ create table public_pages (
 -- Sealed Ledger（ADR-018、PRD §1.7 第 7 条）：买断期内公开投影的显示别名。
 -- 单独成表而非改 public_pages，是因为**打码是展示层投影**，不是事实：期满必须能
 -- 无损还原，而原页面本身从未被改写。
+--
+-- 它是**所有打码读路径的唯一标签来源**，而不是一张可以现算的冗余副本：公开战报
+-- （06 §11）要输出 is_stealth_masked / masked_label / unmasked_at，若每个投影各自
+-- 现算标签，第一处漂移就会变成一次 P0 泄露。一次 join 拿到同一份标签，是让"只打
+-- 一次码"在结构上成立的最小做法。
 create table stealth_lock_displays (
-  opportunity_id text not null references opportunities(id),
   stealth_lock_id text not null references stealth_locks(id),
+  -- 冗余存 opportunity_id 只为读路径少一次 join，不作为主键的一部分。
+  opportunity_id text not null references opportunities(id),
   masked_label text not null,                  -- 形如 [Stealth Locked #7f3a]
   locale text not null,
-  unmasked_at timestamptz not null,            -- 与 stealth_locks.unlock_at 一致
-  primary key (opportunity_id, locale)
+  unmasked_at timestamptz not null,            -- 与 stealth_locks.unlock_at 逐字一致（I14）
+  -- 主键按**锁**而不是按机会：同一机会的第一笔买断 EXPIRED 之后，第二笔买断是合法
+  -- 的（那时 Σclaimed 又回到 0，见 I13），而按 (opportunity_id, locale) 做主键时
+  -- 第二笔会撞主键，唯一的出路是删掉第一笔的显示行——于是第一笔的锁就永远失去了
+  -- 它"有且仅有一条显示行"的性质。键选错会把一个不变量的破坏伪装成一次主键冲突。
+  primary key (stealth_lock_id, locale)
 );
 ```
 
@@ -959,8 +987,9 @@ create table audit_log (
 | I10 | 同一机会的 `Σ opportunity_slots.capacity ≤ max_capacity_total`（默认 6），且 `claimed ≤ capacity` | check 约束 + 创建槽位时的事务校验 |
 | I11 | `slot_claims.state = 'CLAIMED'` 的行数与 `opportunity_slots.claimed` 一致；同一用户在同一机会至多一条 `CLAIMED` | `slot_claims_one_active_per_user_opportunity` 部分唯一索引 + 夜间一致性检查（防汇总缓存漂移） |
 | I12 | 每个 `projects` 行的 `stake_status = 'PENDING'` 必须在 `stake_deadline_at` 前被终结（`VERIFIED` 或 `EXPIRED_RELEASED`） | 每日逾期待办任务（释放槽位）+ 监控：存在超期仍 `PENDING` 的行即告警 |
-| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0` | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地） |
-| I14 | 每条 `stealth_locks` 都有且仅有一个对应的 `stealth_lock_displays`，且 `unmasked_at = stealth_locks.unlock_at` | 下单事务内一并写入 + 夜间一致性检查 |
+| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0`。**追加**：每条 `status='ACTIVE'` 的行必须满足 `provider_payment_id IS NOT NULL`（已成交）**或** `locked_at` 落在待付窗口内（`stealth_lock_window_minutes`，默认 45）。窗口一过，该行既不再隐藏机会、也不再算 ACTIVE，无论清理作业跑没跑 | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地）+ **判据自愈**：隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算，不依赖作业成败（多一道"只有作业跑过才算数"的门，就等于把正确性挂在调度器上） |
+| I14 | 每条 `stealth_locks` 在**每个已发布的 locale** 各有且仅有一条 `stealth_lock_displays`，且 `unmasked_at` 与 `unlock_at` 逐字一致 | 下单事务内一并写入 + 夜间一致性检查 |
+| I15 | `VOID` 行永不与 `provider_payment_id IS NOT NULL` 并存——钱到了就不可能作废 | 作废作业翻状态前先向供应商确认该会话未付款（一次查询，只对超窗口的行做）；webhook 落到 `VOID` 行即记 P0 告警（这是"钱已收、交付物不在"的唯一剩余入口，必须有人看到而不是静默 200） |
 
 ## 18. 保留与删除
 - 用户删除账户：软删除 `users`；级联删除 `user_preferences`、`api_keys`、`notification_channels`、`opportunity_reports`、`gsc_connections`、令牌；`decisions` 与 `projects` 匿名化保留（去除 `user_id` 关联），因其构成校准数据；`audit_log` 中的 `actor_id` 替换为哈希。

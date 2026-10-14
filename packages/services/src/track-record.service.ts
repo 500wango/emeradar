@@ -8,6 +8,7 @@ import {
   buildRowHashInput,
   LedgerRowRecord,
 } from '@emeradar/ledger';
+import { getActiveMasks } from './stealth-lock-policy';
 
 /**
  * 单边样本不出比率 —— docs/16 §3.1a 的强制口径，导出的纯函数便于直接测。
@@ -19,6 +20,51 @@ import {
 export function rateIfTwoSided(hitCount: number, evaluatedCount: number): string | null {
   if (evaluatedCount === 0 || hitCount === 0 || hitCount === evaluatedCount) return null;
   return `${Math.round((hitCount / evaluatedCount) * 1000) / 10}%`;
+}
+
+/**
+ * 公开战报里一条 Episode 允许外露的字段**白名单**。
+ *
+ * 写成白名单而不是"取 `e.*` 再覆盖几个字段"，是因为这两种写法在**将来**的行为完全
+ * 不同：给 `prediction_episodes` 加一列时，白名单天然不泄露，覆盖法默认泄露，而要
+ * 发现它得有人记得回来看这个文件。`docs/15 §8` 把真实词根外泄定成 0 容忍，靠"记得"
+ * 守不住。
+ *
+ * 顺带把 `criteria_snapshot` 与 `metrics.observed` 挡在外面：两者都是 `JSONB` 自由
+ * 字段，内容不做保证——`observed` 的具体形态取决于评估器当天的写入，没有理由让它
+ * 出现在一个未登录就能读的响应里。公开页真正用到的只有 `clusterExpansion` 与
+ * `windowClosed`（见 `apps/web/src/app/track-record/page.tsx` 的 `observedMetric`），
+ * 所以 `metrics` 也只放这两个键。
+ */
+const PUBLIC_EPISODE_FIELDS = [
+  'id',
+  'published_verdict',
+  'predicted_at',
+  'outcome_30d',
+  'outcome_60d',
+  'outcome_90d',
+  'evaluated_30d_at',
+  'evaluated_60d_at',
+  'evaluated_90d_at',
+] as const;
+
+const PUBLIC_METRIC_HORIZONS = ['h30', 'h60', 'h90'] as const;
+const PUBLIC_METRIC_KEYS = ['clusterExpansion', 'windowClosed'] as const;
+
+/** 只放出公开页真正渲染的两个聚合键，其余（`observed` 等自由字段）一律不带出。 */
+function projectPublicMetrics(metrics: unknown): Record<string, unknown> {
+  const source = (metrics ?? {}) as Record<string, any>;
+  const out: Record<string, unknown> = {};
+  for (const horizon of PUBLIC_METRIC_HORIZONS) {
+    const entry = source[horizon];
+    if (!entry || typeof entry !== 'object') continue;
+    const picked: Record<string, unknown> = {};
+    for (const key of PUBLIC_METRIC_KEYS) {
+      if (entry[key] !== undefined) picked[key] = entry[key];
+    }
+    out[horizon] = picked;
+  }
+  return out;
 }
 
 export class TrackRecordService {
@@ -113,6 +159,40 @@ export class TrackRecordService {
       `SELECT COUNT(*)::text AS count FROM opportunities WHERE status = 'TRACKED'`
     );
 
+    /**
+     * 保护期内的 Episode：**打码，但一行都不许少**。
+     *
+     * 方向与别处相反，是最容易做错的一点。Feed / 详情 / 槽位那些读路径的处置是
+     * "把整条排除掉"，于是很自然的冲动是在这里也 `WHERE NOT EXISTS (stealth_locks...)`。
+     * 那样做等于**买断者用 $199 买走了平台的败绩**——保护期内 60 天里的失手记录
+     * 会从公开战报上整段消失，而战报对外承诺的正是"命中与失误都公开"。
+     *
+     * `docs/10 §4.8` 第 223 行写的是「买断保护期内的记录**照常出现**」，`docs/15 §3.1`
+     * 第 2 条与 §8 的「Cohort 统计口径完整率 100%」都是 P0。所以：
+     *
+     *   - 分子分母：`stats` 与 `cohorts` 全部由**未打码**的 `episodes` 算出，
+     *     打码只发生在这最后一步的投影上。上面那些 `e.outcome_30d === 'HIT'` 的
+     *     谓词碰的都是真数据，一个字都没改。
+     *   - 词根：`opportunity_title` / `opportunity_slug` 换成 `[Stealth Locked #ID]`
+     *     与不含词根的 slug；`docs/06 §11` 要求同时输出
+     *     `is_stealth_masked` / `masked_label` / `unmasked_at`，好让页面能说清
+     *     "这一条是被买断的"而不是显示成一条坏数据。
+     */
+    const masks = await getActiveMasks(episodes.map((e: any) => e.opportunity_id));
+    const publicEpisodes = episodes.map((episode: any) => {
+      const mask = masks.get(episode.opportunity_id);
+      const projected: Record<string, unknown> = {
+        is_stealth_masked: Boolean(mask),
+        masked_label: mask?.maskedLabel ?? null,
+        unmasked_at: mask?.unmaskedAt ?? null,
+      };
+      for (const field of PUBLIC_EPISODE_FIELDS) projected[field] = episode[field];
+      projected.metrics = projectPublicMetrics(episode.metrics);
+      projected.opportunity_title = mask ? mask.maskedLabel : episode.opportunity_title;
+      projected.opportunity_slug = mask ? mask.maskedSlug : episode.opportunity_slug;
+      return projected;
+    });
+
     return {
       stats: {
         totalPredictions: episodes.length,
@@ -121,7 +201,7 @@ export class TrackRecordService {
         hitRate30d,
         activeWatchlistCount: Number(watchlistRes.rows[0]?.count ?? 0),
       },
-      episodes,
+      episodes: publicEpisodes,
       cohorts,
       checkpoints: ckpRes.rows,
     };

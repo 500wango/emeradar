@@ -1,4 +1,5 @@
 import { query } from '@emeradar/db';
+import { getActiveMask, type ActiveMask } from './stealth-lock-policy';
 
 export interface PublicationDecision {
   eligible: boolean;
@@ -120,19 +121,36 @@ export class PublicPublicationService {
   }
 
   static async publishOpportunity(opportunityId: string, locale = 'en-US'): Promise<PublicationDecision> {
-    const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale);
-    // `title` lives on opportunities, not on the card; the previous single-table
-    // read referenced a column that has never existed there, so every
-    // projection threw and was swallowed by the caller's catch.
-    const row = await query<any>(
+    const cardRes = await query<any>(
       `SELECT c.slug, o.title, c.primary_query, c.why_now_summary, c.top_idea
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE c.opportunity_id = $1`,
       [opportunityId]
     );
-    if (!row.rows[0]) return decision;
-    const card = row.rows[0];
+    const card = cardRes.rows[0];
+    if (!card) {
+      return { eligible: false, indexable: false, eligibility: { reason: 'NO_CARD' }, qualityReport: {} };
+    }
+
+    /**
+     * 买断打码必须**早于**资格判定（15 §3.1 第 6 条）。
+     *
+     * 两者的条件恰好互斥：准实时精选要求"槽位已满额或刚进 `WINDOW_CLOSING`"，而买断
+     * 要求"槽位一个都没被认领"。所以一条被买断的机会在资格判定里必然不通过对不对？
+     * 不是必然——但**一旦它不通过**，`status` 会落到 `DRAFT`，而公开页查询是
+     * `WHERE slug=$1 AND status='PUBLISHED'`，页面就成了 404。而 15 §3.1 第 1 条明写
+     * 「**不是删除、不是 404**」：打码页必须**以 200 存在**、只把内容换掉。
+     *
+     * 顺序写反不会报错，只会让一个付了钱的用户买到的东西从 404 变成 404。
+     */
+    const mask = await getActiveMask(opportunityId);
+    if (mask) return this.publishMasked(card, mask, opportunityId, locale);
+
+    // 不在保护期：撤掉可能仍留着的打码页（画布上只有一条记录该活得下来）。
+    await this.clearMaskedProjection(opportunityId);
+
+    const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale);
     const status = decision.eligible ? 'PUBLISHED' : 'DRAFT';
     await query(
       `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, eligibility, quality_report, published_at)
@@ -157,5 +175,103 @@ export class PublicPublicationService {
       ]
     );
     return decision;
+  }
+
+  /**
+   * 写打码投影（15 §3.1、06 §6.1）。**以 200 存在，但 `indexable = false`。**
+   *
+   * 三件事都是必须的，少一件就是一次可观测的泄露：
+   *
+   *   1. **换 slug**。`opportunity_cards.slug` 由词/标题生成，所以它自己就是泄露面
+   *      ——15 §8 把「URL slug」与正文并列列为 0 容忍。只改 `content` 而留着一条含
+   *      词根的 URL，页面上照样能读出这条机会是什么。
+   *   2. **把原 slug 那行翻成 `DRAFT`**，而不是删掉。公开页查询带 `status='PUBLISHED'`，
+   *      `DRAFT` 即读不到；而**不删行**意味着期满能把原页原样恢复，不必重算一次
+   *      eligibility 去重建一个"和原来差不多"的页面。
+   *   3. **标签取自 `stealth_lock_displays`**（`mask.maskedLabel`），不在这里现算：
+   *      公开战报（06 §11）要输出同一份标签，两处现算就是两个实现，第一处漂移即 P0。
+   *
+   * 打码页的 `indexable` 恒为 `false`（15 §5）：它**故意**不进 sitemap，也不该被
+   * 索引——它是给人看的证据（"这条被买断了"），不是内容资产。
+   */
+  private static async publishMasked(
+    card: any,
+    mask: ActiveMask,
+    opportunityId: string,
+    locale: string
+  ): Promise<PublicationDecision> {
+    // 原页留在站点里但不再是"已发布"，于是它既不会 200 也不进 sitemap。
+    await query(
+      `UPDATE public_pages SET status = 'DRAFT'
+        WHERE opportunity_id = $1 AND slug = $2 AND locale = $3 AND status <> 'DRAFT'`,
+      [opportunityId, card.slug, locale]
+    );
+
+    await query(
+      `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, eligibility, quality_report, published_at)
+       VALUES ($1,$2,$3,'OPPORTUNITY',$4,'PUBLISHED',false,$5,$6,$7,NOW())
+       ON CONFLICT (slug, locale) DO UPDATE SET
+         status = 'PUBLISHED',
+         indexable = false,
+         content = EXCLUDED.content,
+         eligibility = EXCLUDED.eligibility,
+         quality_report = EXCLUDED.quality_report`,
+      [
+        `pgm_masked_${mask.lockId}_${locale}`,
+        mask.maskedSlug,
+        locale,
+        opportunityId,
+        // 三轴档位、判定、观测日期照常展示，只有能反推出词根的那几项被替换
+        // （15 §3.1 第 1 条：其余结构化信息照常）。
+        JSON.stringify({
+          title: mask.maskedLabel,
+          primaryQuery: mask.maskedLabel,
+          whyNow: mask.maskedLabel,
+          topIdea: mask.maskedLabel,
+          isStealthMasked: true,
+          maskedLabel: mask.maskedLabel,
+          unmaskedAt: mask.unmaskedAt,
+        }),
+        JSON.stringify({
+          reason: 'STEALTH_LOCKED',
+          lockId: mask.lockId,
+          unmaskedAt: mask.unmaskedAt,
+        }),
+        JSON.stringify({
+          checks: { maskedProjection: true },
+          failedChecks: [],
+          notEvaluated: ['templateTextRatio', 'proofAndLimits', 'bodyLength'],
+          note: 'Masked projection: the quality gate is not evaluated while a Stealth Lock is in force.',
+        }),
+      ]
+    );
+
+    return {
+      eligible: false,
+      indexable: false,
+      eligibility: { reason: 'STEALTH_LOCKED', lockId: mask.lockId, unmaskedAt: mask.unmaskedAt },
+      qualityReport: {
+        checks: { maskedProjection: true },
+        failedChecks: [],
+        masked: true,
+        unmaskedAt: mask.unmaskedAt,
+        note: 'The publication quality gate is not evaluated while a Stealth Lock is in force.',
+      },
+    };
+  }
+
+  /**
+   * 撤掉某条机会的打码投影。
+   *
+   * 删行而不是翻 `DRAFT`：这一行**只由打码产生**，期满之后没有任何东西会再引用它，
+   * 留着只会在 `public_pages` 里积累一批永远 DRAFT 的幽灵行。它是我们的投影产物，
+   * 不是业务记录——与本轮"作废买断不得删业务行"（03 §17 I15）是两回事。
+   */
+  private static async clearMaskedProjection(opportunityId: string): Promise<void> {
+    await query(
+      `DELETE FROM public_pages
+        WHERE opportunity_id = $1 AND slug LIKE 'stealth-lock-%'`,
+      [opportunityId]
+    );
   }
 }

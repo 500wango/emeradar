@@ -235,6 +235,160 @@ export class StripeService {
   }
 
   /**
+   * A one-time Checkout Session for a Stealth Lock buyout (Epic 1.14、10 §4.5b).
+   *
+   * Deliberately **not** built on `createCheckoutSession`, and deliberately not
+   * recorded in `stripe_checkout_intents`. That table's `plan_code` is
+   * `NOT NULL REFERENCES plans(code)`, and a buyout is not a plan (13 §3.1):
+   * forcing it in would give the question "which of this money is subscription
+   * revenue" a second, disagreeing answer. The authoritative record of the sale
+   * is the `stealth_locks` row the caller already wrote.
+   *
+   * `metadata` is set on the **Session** as well as mirrored onto the PaymentIntent.
+   * The comment on `createCheckoutSession` explains the mirroring direction
+   * ("session metadata is not copied onto the objects Stripe creates"); the
+   * converse matters just as much here, because `checkout.session.completed`
+   * hands us the *Session* — dispatch on `payment_intent_data` metadata alone and
+   * the branch never fires, the event falls through to the subscription handler,
+   * and the buyer's $199 activates nothing while Stripe retries forever.
+   */
+  static async createStealthLockCheckout(opts: {
+    userId: string;
+    opportunityId: string;
+    stealthLockId: string;
+    amountCents: number;
+    returnUrl?: string;
+    expiresInMinutes: number;
+  }): Promise<{ url: string; sessionId: string; expiresAt: Date; mock: boolean }> {
+    const userRes = await query<{ id: string; email: string }>(
+      `SELECT id, email FROM users WHERE id = $1`,
+      [opts.userId]
+    );
+    if (userRes.rows.length === 0) {
+      throw new EmeradarError(ErrorCode.NOT_FOUND, 'User not found.', 404);
+    }
+    const user = userRes.rows[0];
+    const returnUrl = safeReturnUrl(opts.returnUrl);
+    const expiresAt = new Date(Date.now() + opts.expiresInMinutes * 60_000);
+
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) {
+      // Same fail-closed rule as subscriptions: never grant a paid good because a
+      // secret is missing. The dev simulation is only reachable outside production.
+      if (isProduction()) {
+        console.error('[StripeService] STRIPE_SECRET_KEY is not configured; refusing a buyout checkout.');
+        throw new EmeradarError(
+          ErrorCode.INTERNAL,
+          'Billing is temporarily unavailable. Please try again later.',
+          503
+        );
+      }
+      console.warn('[StripeService] STRIPE_SECRET_KEY not set (non-production). Running dev mock buyout.');
+      return {
+        url: `${returnUrl}?stealth_lock_session=mock_${opts.stealthLockId}`,
+        sessionId: `mock_sl_sess_${opts.stealthLockId}`,
+        expiresAt,
+        mock: true,
+      };
+    }
+
+    const customerRes = await query<{ stripe_customer_id: string | null }>(
+      `SELECT stripe_customer_id FROM subscriptions WHERE user_id = $1`,
+      [opts.userId]
+    );
+    const knownCustomerId = customerRes.rows[0]?.stripe_customer_id ?? null;
+
+    const form = new URLSearchParams();
+    form.append('mode', 'payment');
+    // Pinned for the same reason the subscription path pins it: with dynamic
+    // payment methods, `checkout.session.completed` also fires for async methods
+    // whose funds have not settled, and the lock would then be marked paid on a
+    // promise. Card-only keeps "completed" and "paid" the same statement.
+    form.append('payment_method_types[]', 'card');
+    form.append('client_reference_id', opts.userId);
+    if (knownCustomerId) {
+      form.append('customer', knownCustomerId);
+    } else {
+      form.append('customer_email', user.email);
+    }
+    form.append('line_items[0][price_data][currency]', 'usd');
+    form.append('line_items[0][price_data][product_data][name]', 'Emeradar Stealth Buyout');
+    form.append('line_items[0][price_data][unit_amount]', String(opts.amountCents));
+    form.append('line_items[0][quantity]', '1');
+    form.append('expires_at', String(Math.floor(expiresAt.getTime() / 1000)));
+    form.append('success_url', `${returnUrl}?stealth_lock=success`);
+    form.append('cancel_url', `${returnUrl}?stealth_lock=canceled`);
+    form.append('metadata[purchaseKind]', 'STEALTH_BUYOUT');
+    form.append('metadata[userId]', opts.userId);
+    form.append('metadata[opportunityId]', opts.opportunityId);
+    form.append('metadata[stealthLockId]', opts.stealthLockId);
+    form.append('payment_intent_data[metadata][purchaseKind]', 'STEALTH_BUYOUT');
+    form.append('payment_intent_data[metadata][userId]', opts.userId);
+    form.append('payment_intent_data[metadata][opportunityId]', opts.opportunityId);
+    form.append('payment_intent_data[metadata][stealthLockId]', opts.stealthLockId);
+
+    const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${stripeKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new EmeradarError(
+        ErrorCode.INTERNAL,
+        'Failed to initialize the checkout session. Please try again later.',
+        res.status || 500,
+      );
+    }
+    return { url: data.url, sessionId: data.id, expiresAt, mock: false };
+  }
+
+  /**
+   * Whether a Checkout Session has actually been paid.
+   *
+   * Used by the void sweep before it writes a reservation off. The sweep must not
+   * infer "unpaid" from the clock: a payment completed just before the session
+   * expired whose webhook is late would then be voided, i.e. money captured with
+   * nothing delivered — the precise outcome the reservation design exists to
+   * avoid (03 §17 I15). `null` (a reservation whose session never got created)
+   * is unambiguously unpaid.
+   */
+  static async isCheckoutSessionPaid(sessionId: string | null): Promise<boolean> {
+    if (!sessionId) return false;
+    if (sessionId.startsWith('mock_')) return false;
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) return false;
+    try {
+      const res = await fetch(
+        `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
+        {
+          headers: { Authorization: `Bearer ${stripeKey}` },
+          signal: AbortSignal.timeout(10_000),
+        }
+      );
+      if (!res.ok) return false;
+      const session: any = await res.json();
+      return session?.payment_status === 'paid';
+    } catch {
+      // A lookup failure must not authorize a void: "could not tell" is not
+      // "unpaid" when the wrong guess costs someone their purchase.
+      return true;
+    }
+  }
+
+  /** The lock a refunded/disputed PaymentIntent bought, if any (13 §4.3). */
+  static async findStealthLockByPaymentIntent(paymentIntentId: string): Promise<string | null> {
+    const res = await query<{ id: string }>(
+      `SELECT id FROM stealth_locks WHERE provider_payment_id = $1 LIMIT 1`,
+      [paymentIntentId]
+    );
+    return res.rows[0]?.id ?? null;
+  }
+
+  /**
    * Activates (or refreshes) a subscription for a user.
    *
    * Idempotent by design: when Stripe supplies the authoritative period end we

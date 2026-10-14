@@ -175,6 +175,19 @@ export const ErrorCode = {
   STAKE_REQUIRED: 'STAKE_REQUIRED',
   /** 质押凭证的 HTTP 探针校验未通过（页面不可达 / 与机会主词相关性不足）。 */
   CREDENTIAL_UNVERIFIED: 'CREDENTIAL_UNVERIFIED',
+  /**
+   * 买断下单时该机会已被认领（`Σclaimed > 0`），处女地条件不再满足（10 §1.1）。
+   * 只在**调用者本来就能看到该机会**时使用——对保护期内的非持有者要返回 404 与
+   * "不存在"同形，否则这个错误码本身就成了存在性探测器（10 §7）。
+   */
+  STEALTH_LOCK_UNAVAILABLE: 'STEALTH_LOCK_UNAVAILABLE',
+  /**
+   * 该用户已有一笔待付占位未结。**这条闸是"同时至多一笔"**，所以第二次请求必须
+   * 能续付而不是撞死：响应体要附上那笔的 `checkoutUrl` 与 `expiresAt`。
+   * 没有它，一个付费账号就能对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，
+   * 把整网反复遮黑 45 分钟（10 §4.5b）。
+   */
+  STEALTH_LOCK_PENDING: 'STEALTH_LOCK_PENDING',
   NOT_FOUND: 'NOT_FOUND',
   CONFLICT: 'CONFLICT',
   PRECONDITION_FAILED: 'PRECONDITION_FAILED',

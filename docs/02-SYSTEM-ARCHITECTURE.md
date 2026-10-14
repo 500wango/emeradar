@@ -129,7 +129,9 @@ packages/
 - **队列参数不会因重新部署而更新**：pg-boss 的 `createQueue` 是 `ON CONFLICT DO NOTHING`。改重试次数需要显式 `UPDATE pgboss.queue`，这条与 `schema.sql` 里"无条件谓词每次部署重放"的教训同源。
 - **发布节奏不依赖时钟对齐**：`run-daily` 在 03:30 UTC、最迟 07:00 出验证结果，与 §5 的 SLA 一致；cron 表达式显式带 `tz: 'UTC'`，不依赖宿主机时区。
 - **质押逾期释放（`release-expired-stakes`，PRD §1.7 第 5 条、03 I12）**：扫 `projects` 中 `stake_status = 'PENDING'` 且 `stake_deadline_at < now()` 的行，将质押置 `EXPIRED_RELEASED`、释放对应 `opportunity_slots` 槽位（`slot_state → RELEASED`）并写审计；**已扣减的月度导出配额不退还**（ADR-018）。释放后该槽位重新对公域开放。
-- **买断到期解密（`expire-stealth-locks`，PRD §1.7 第 7 条）**：扫 `stealth_locks` 中 `status = 'ACTIVE'` 且 `unlock_at ≤ now()` 的行，置 `status = 'EXPIRED'`，并刷新公开投影——解除 `[Stealth Locked #ID]` 打码、公开具体词根（03 §stealth_locks、06 §7、15 §3）。账本行本身不改写，只改展示投影。
+- **买断到期解密（`expire-stealth-locks`，PRD §1.7 第 7 条）**：扫 `stealth_locks` 中 `status = 'ACTIVE'` 且 `unlock_at ≤ now()` 的行，置 `status = 'EXPIRED'`，并刷新公开投影——解除 `[Stealth Locked #ID]` 打码、公开具体词根（03 §stealth_locks、06 §7、15 §3）。账本行本身不改写，只改展示投影。同一作业顺带作废待付占位：`status = 'ACTIVE'` 且 `provider_payment_id IS NULL` 且 `locked_at < now() - 45 分钟` 的行置 `status = 'VOID'` 并刷新投影（10 §4.5b）。
+  - **这两步都只是记账，不是正确性的前提。** "此刻是否被买断隐藏"由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），因此作业停摆一天，到期解密与占位失效**照常发生**，只是 `status` 列的翻牌与投影刷新会迟到。让一个每日作业成为"机会能不能被看到"的开关，就等于让一次调度故障变成一次无限期的全网遮蔽。
+  - **作废前必须向供应商确认该会话确实未付款**（一次查询，只对超过待付窗口的行做）。钱到了却把占位判为作废，就是"钱已收、交付物不在"，而这正是"先占位"这个方案本来要避免的结局（03 §17 I15）。
 - **项目 SERP 排名匹配**：不是独立定时任务，随 S2 的 Top 100 快照采集在内存阶段完成（见 §5 说明），因此不占单独队列。
 
 ### 5.2 双通道管线（Fast Lane / Slow Lane，ADR-017）
