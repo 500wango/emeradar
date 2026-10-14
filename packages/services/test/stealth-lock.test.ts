@@ -652,6 +652,97 @@ describe('买断：可见性矩阵（D3）', () => {
       }
     );
   });
+
+  /**
+   * 研报是**另一条入口**，而且比详情漏得更多：详情只给卡片字段，研报给全文。
+   *
+   * 这条用例是补出来的：端到端演练时发现，详情端点已经正确 404，而研报端点对
+   * 同一个非持有者原样返回 21 KB（真实标题、slug、121 处词根）。原因是判据只加在
+   * `getOpportunityDetail` 那条查询上，研报自己按 `o.id = $1 OR o.slug = $1` 直取。
+   * 光看"我接线了哪几个函数"是查不出这个的——所以这条断言必须钉在服务层，
+   * 而不是路由层：路由挡得住 HTTP，挡不住点火包那条服务层直调。
+   */
+  it('研报：买断者读得到，其他人 404（与"不存在"完全同形）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+
+    await assert.rejects(
+      () =>
+        harness.services.ReportService.getOrGenerateReport(OPP_PROJECTED, OTHER, 'en-US', {
+          viewerId: OTHER,
+        }),
+      (error: any) => {
+        assert.strictEqual(error.code, 'NOT_FOUND');
+        assert.strictEqual(error.status, 404);
+        return true;
+      }
+    );
+
+    // 不传 viewerId 必须按"陌生人"处理（fail-closed），否则漏掉一个调用点就等于开一扇门。
+    await assert.rejects(
+      () => harness.services.ReportService.getOrGenerateReport(OPP_PROJECTED, OTHER, 'en-US'),
+      (error: any) => error.code === 'NOT_FOUND'
+    );
+
+    // 持有者方向：判据必须放行。报告是否能生成出来与可见性无关（本夹具未必喂足了
+    // 生成所需的证据），所以这里断言的是"没被买断判据挡住"，不是"生成成功"。
+    try {
+      await harness.services.ReportService.getOrGenerateReport(OPP_PROJECTED, BUYER, 'en-US', {
+        viewerId: BUYER,
+      });
+    } catch (error: any) {
+      assert.notStrictEqual(error.code, 'NOT_FOUND', '持有者被买断判据挡住了自己的研报');
+    }
+  });
+
+  /**
+   * 列表类入口的第二条规矩：`createAlertRule` 挡的是"现在去建一条"，挡不住
+   * "买断之前就建好了"。规则与通知都是用户自己在机会还可见时留下的行，锁生效之后
+   * 它们照样在库里，而这两条查询原样带出 `o.title` / `o.slug`。
+   *
+   * 断言用的是"行消失"，不是"标题被打码"：行里带着 `opportunity_id`，而本库的机会 id
+   * 直接嵌了 slug，只换标题会把词根留在同一行的另一个字段上。
+   */
+  it('告警规则与通知列表：非持有者看不到被买断的机会，持有者照常看到', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+
+    await query(
+      `INSERT INTO alert_rules (id, user_id, opportunity_id, rule_type, frequency) VALUES
+         ('alr_slk_other', $1, $3, 'VERDICT_CHANGE', 'IMMEDIATE'),
+         ('alr_slk_buyer', $2, $3, 'VERDICT_CHANGE', 'IMMEDIATE')
+       ON CONFLICT (id) DO NOTHING`,
+      [OTHER, BUYER, OPP_PROJECTED]
+    );
+    await query(
+      `INSERT INTO notifications (id, user_id, opportunity_id, title, body) VALUES
+         ('ntf_slk_other', $1, $2, 'leaked title', 'leaked body'),
+         ('ntf_slk_system', $1, NULL, 'system notice', 'no opportunity attached')
+       ON CONFLICT (id) DO NOTHING`,
+      [OTHER, OPP_PROJECTED]
+    );
+
+    const othersRules = await harness.services.AlertService.listAlertRules(OTHER);
+    assert.ok(
+      !othersRules.some((rule: any) => rule.opportunity_id === OPP_PROJECTED),
+      '非持有者的规则列表里仍然带着被买断的机会'
+    );
+    const buyerRules = await harness.services.AlertService.listAlertRules(BUYER);
+    assert.ok(
+      buyerRules.some((rule: any) => rule.opportunity_id === OPP_PROJECTED),
+      '持有者自己的规则反而被隐藏了'
+    );
+
+    const othersNotes = await harness.services.AlertService.listNotifications(OTHER);
+    assert.ok(
+      !othersNotes.some((note: any) => note.opportunity_id === OPP_PROJECTED),
+      '非持有者的通知列表里仍然带着被买断的机会'
+    );
+    // `opportunity_id IS NULL` 的系统通知不该被这条判据误伤。
+    assert.ok(
+      othersNotes.some((note: any) => note.id === 'ntf_slk_system'),
+      '系统通知被买断判据误伤了'
+    );
+  });
 });
 
 describe('买断：公开投影打码（D4、15 §3.1）', () => {

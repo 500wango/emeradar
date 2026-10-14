@@ -104,6 +104,10 @@ export class LaunchKitService {
     // `consumeQuota: false`：报告与点火包由同一次原子立项一并解锁（13 §4.3）。
     const report = await ReportService.getOrGenerateReport(claim.opportunityId, userId, locale, {
       consumeQuota: false,
+      // 点火包只能由持有该槽位的人装配，所以 viewerId 就是持有者本人。显式传进去是
+      // 为了让报告那条查询的可见性判据有确定的答案，而不是靠省略参数去撞 fail-closed
+      // 的默认值——那个默认值会让持有者自己被 404。
+      viewerId: userId,
     });
 
     const snapshotId = await LaunchKitService.snapshotIdFor(claim.opportunityId);
@@ -198,6 +202,10 @@ export class LaunchKitService {
     const locale: Locale = stored.rows[0]?.locale === 'zh-CN' ? 'zh-CN' : 'en-US';
     const report = await ReportService.getOrGenerateReport(claim.opportunityId, userId, locale, {
       consumeQuota: false,
+      // 点火包只能由持有该槽位的人装配，所以 viewerId 就是持有者本人。显式传进去是
+      // 为了让报告那条查询的可见性判据有确定的答案，而不是靠省略参数去撞 fail-closed
+      // 的默认值——那个默认值会让持有者自己被 404。
+      viewerId: userId,
     });
     const recomputed = assembleLaunchKit({
       report: report.data,
