@@ -194,6 +194,12 @@ export function websiteJsonLd() {
     datePublished: '2026-09-01T00:00:00Z',
     dateModified: '2026-10-14T23:00:00Z',
     inLanguage: ['en-US', 'zh-CN'],
+    sameAs: [
+      'https://github.com/500wango/emeradar',
+      'https://x.com/emeradar',
+      'https://www.linkedin.com/company/emeradar',
+      'https://www.wikidata.org/wiki/Q110636224',
+    ],
   };
 }
 
@@ -212,11 +218,23 @@ export function softwareApplicationJsonLd() {
     operatingSystem: 'All',
     description:
       'Search signal intelligence engine that validates micro-SaaS demand formation (D-Axis), commercial willingness-to-pay signals (M-Axis), and SERP competitor weakness (W-Axis) before writing code.',
+    sameAs: [
+      'https://github.com/500wango/emeradar',
+      'https://x.com/emeradar',
+      'https://www.linkedin.com/company/emeradar',
+      'https://www.wikidata.org/wiki/Q110636224',
+    ],
     publisher: { '@id': `${SITE_URL}/#organization` },
     author: {
       '@type': 'Organization',
       name: `${SITE_NAME} Research & Intelligence Team`,
       url: `${SITE_URL}/about`,
+      sameAs: [
+        'https://github.com/500wango/emeradar',
+        'https://x.com/emeradar',
+        'https://www.linkedin.com/company/emeradar',
+        'https://www.wikidata.org/wiki/Q110636224',
+      ],
     },
     creator: {
       '@type': 'Organization',

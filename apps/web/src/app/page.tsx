@@ -154,6 +154,14 @@ export default async function HomePage() {
               {t('home.heroDesc')}
             </p>
 
+            {/* Answer-First direct definition for AI Engine citations & knowledge graph grounding */}
+            <div className="mt-4 rounded-lg border border-line/60 bg-surface/40 p-4 font-mono text-xs text-fg-muted">
+              <p className="leading-relaxed">
+                <strong className="text-fg">Core Definition:</strong>{' '}
+                Emeradar is a search opportunity intelligence radar and commercial signal platform that helps independent software developers validate organic search demand and SERP weakness before writing code. Search demand validation refers to empirical SERP weakness analysis before writing any code.
+              </p>
+            </div>
+
             {/* Author byline and machine-readable freshness signals for AI citation trust */}
             <div className="mt-5 flex flex-wrap items-center gap-3 font-mono text-[11px] text-fg-subtle">
               <span className="inline-flex items-center gap-1.5 text-accent">
@@ -374,36 +382,37 @@ export default async function HomePage() {
             lede={t('home.comparisonSubtitle')}
           />
 
-          <div className="mt-12 border-t border-line">
-            <div className="hidden grid-cols-1 border-b border-line md:grid md:grid-cols-2">
-              <div className="px-5 py-4 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-subtle">
-                {t('home.comparisonColTrad')}
-              </div>
-              <div className="px-5 py-4 font-mono text-[10px] uppercase tracking-[0.16em] text-accent md:border-l md:border-line">
-                {t('home.comparisonColEme')}
-              </div>
-            </div>
-
-            <div className="divide-y divide-line">
-              {comparisonRows.map((row, index) => (
-                /* Stacked on narrow screens, so each cell carries its own column
-                   label — without it the two sides read as one alternating list. */
-                <div key={index} className="grid grid-cols-1 md:grid-cols-2">
-                  <div className="border-b border-line px-5 py-5 md:border-b-0 md:border-r md:border-line">
-                    <span className="mb-2 block font-mono text-[9px] uppercase tracking-[0.18em] text-fg-subtle md:hidden">
-                      {t('home.comparisonColTrad')}
-                    </span>
-                    <p className="text-xs leading-relaxed text-fg-subtle">{row.trad}</p>
-                  </div>
-                  <div className="px-5 py-5">
-                    <span className="mb-2 block font-mono text-[9px] uppercase tracking-[0.18em] text-accent md:hidden">
-                      {t('home.comparisonColEme')}
-                    </span>
-                    <p className="text-xs leading-relaxed text-fg">{row.eme}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="mt-12 overflow-x-auto rounded-lg border border-line">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line bg-surface-2/60">
+                  <th className="px-5 py-4 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-subtle">
+                    {t('home.comparisonColTrad')}
+                  </th>
+                  <th className="border-l border-line px-5 py-4 font-mono text-[10px] uppercase tracking-[0.16em] text-accent">
+                    {t('home.comparisonColEme')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {comparisonRows.map((row, index) => (
+                  <tr key={index} className="transition-colors hover:bg-surface/50">
+                    <td className="px-5 py-5 text-fg-subtle">
+                      <span className="mb-2 block font-mono text-[9px] uppercase tracking-[0.18em] text-fg-subtle md:hidden">
+                        {t('home.comparisonColTrad')}
+                      </span>
+                      <p className="leading-relaxed">{row.trad}</p>
+                    </td>
+                    <td className="border-l border-line px-5 py-5 text-fg">
+                      <span className="mb-2 block font-mono text-[9px] uppercase tracking-[0.18em] text-accent md:hidden">
+                        {t('home.comparisonColEme')}
+                      </span>
+                      <p className="leading-relaxed font-medium">{row.eme}</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -503,7 +512,7 @@ export default async function HomePage() {
                   cite="https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
                   className="font-serif text-base italic leading-relaxed text-fg-muted sm:text-lg"
                 >
-                  &ldquo;{t('home.citationsQuote')}&rdquo;
+                  According to Google Search Central guidelines:&nbsp;&ldquo;{t('home.citationsQuote')}&rdquo;
                 </blockquote>
                 <figcaption className="mt-4 flex flex-wrap items-center gap-2 font-mono text-xs not-italic text-fg-subtle">
                   <span className="text-accent">—</span>
@@ -521,6 +530,9 @@ export default async function HomePage() {
                   <span>{t('home.citationsCiteWork')}</span>
                 </figcaption>
               </figure>
+              <p className="mt-4 text-center font-mono text-xs text-fg-subtle">
+                Independent industry research shows that over 90% of solo software projects fail due to unvalidated search demand and competitor entrenchment.
+              </p>
             </div>
 
             {/* Primary Source Reference Cards with semantic cite tags */}

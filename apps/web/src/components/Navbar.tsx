@@ -30,7 +30,7 @@ import { cn } from '@/lib/cn';
  */
 export function Navbar() {
   const pathname = usePathname();
-  const { user, isLoading, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { t, isZh } = useI18n();
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'ANALYST';
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -207,9 +207,7 @@ export function Navbar() {
               <LanguageSwitcher variant="minimal" />
             </div>
 
-            {isLoading ? (
-              <div className="h-8 w-24 animate-pulse rounded-full bg-surface-2" />
-            ) : user ? (
+            {user ? (
               <>
                 {/* Tier badge removed from navbar — visible in profile dropdown only */}
 
