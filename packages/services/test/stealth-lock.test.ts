@@ -42,6 +42,8 @@ const OPP_RACE = 'opp_slk_race';
 const OPP_HOLDER_GO = 'opp_slk_holder_go';
 /** 打码投影用例。 */
 const OPP_PROJECTED = 'opp_slk_projected';
+/** 打码时机用例：下单（未付款）时公开页**不得**被打码。 */
+const OPP_RESERVED = 'opp_slk_reserved';
 /** 未付款窗口用例。 */
 const OPP_ABANDONED = 'opp_slk_abandoned';
 /** 待付占位的第二条机会（同一个人、不同机会）。 */
@@ -65,6 +67,7 @@ const VERDICT_OF: Record<string, string> = {
   [OPP_RACE]: 'vdt_slk_race',
   [OPP_HOLDER_GO]: 'vdt_slk_holder_go',
   [OPP_PROJECTED]: 'vdt_slk_projected',
+  [OPP_RESERVED]: 'vdt_slk_reserved',
   [OPP_ABANDONED]: 'vdt_slk_abandoned',
   [OPP_PENDING_A]: 'vdt_slk_pending_a',
   [OPP_EPISODE]: 'vdt_slk_episode',
@@ -775,6 +778,63 @@ describe('买断：可见性矩阵（D3）', () => {
       othersNotes.some((note: any) => note.id === 'ntf_slk_system'),
       '系统通知被买断判据误伤了'
     );
+  });
+});
+
+describe('买断：下单本身不动公开投影（15 §3.1 第 7 条）', () => {
+  it('未付款占位期间，API 已隐藏，但公开页照常是真实 slug（刻意，不是漏网）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+
+    // 这条机会在买断**之前**就已经有公开页了——这是最常见的情形：它是处女地
+    // （`Σclaimed == 0`），不等于它还没被发布过。
+    const realSlug = OPP_RESERVED.replace(/_/g, '-');
+    await query(
+      `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, published_at)
+       VALUES ($1, $2, 'en-US', 'OPPORTUNITY', $3, 'PUBLISHED', true, $4, NOW())`,
+      [`pg_real_${OPP_RESERVED}`, realSlug, OPP_RESERVED, JSON.stringify({ title: `${KEYWORD} title` })]
+    );
+
+    // 下单但不付款：留下一笔待付占位。
+    const { lockId: id } = await harness.services.StealthLockService.purchase(BUYER, OPP_RESERVED);
+    const lock = await query<any>(`SELECT provider_payment_id FROM stealth_locks WHERE id = $1`, [id]);
+    assert.strictEqual(lock.rows[0].provider_payment_id, null, '本用例的前提是"还没收到钱"');
+
+    // ① API 侧：占位那一刻就已经对所有人隐藏（10 §7）。
+    await assert.rejects(
+      () => harness.services.OpportunityService.getOpportunityDetail(OPP_RESERVED, { viewerId: OTHER }),
+      (error: any) => error.code === 'NOT_FOUND'
+    );
+
+    // ② 公开投影侧：**不得**被打码。这条契约的方向与别处相反——要断言"没被打码"。
+    // 打码会把真实 slug 那行翻成 `DRAFT`（第 6 条末），也就是把该页踢出 sitemap；
+    // 若触发条件只是"有人下了单"，一个不付款的 Pro 用户就拿到一根免费杠杆：
+    // 对任意机会下单再关掉标签页，即可让一个已经积累权重的公开页下线。
+    // `STEALTH_LOCK_PENDING` 是限流（一次只遮一条），不是授权。
+    const pages = await query<any>(`SELECT slug, status FROM public_pages WHERE opportunity_id = $1`, [
+      OPP_RESERVED,
+    ]);
+    assert.ok(
+      !pages.rows.some((r) => r.slug.startsWith('stealth-lock-')),
+      '下单就写了打码页——那等于把"下线任意公开页"做成了一根免费的杠杆'
+    );
+    assert.strictEqual(
+      pages.rows.find((r) => r.slug === realSlug).status,
+      'PUBLISHED',
+      '钱还没到，公开页必须照常在线'
+    );
+
+    // ③ 口径是"永不欠打码"，不是"永不打码"：转折点在**付款**。钱一到，同一页必须
+    // 立刻变成打码态（这一侧另有专门用例，这里只钉住转折点是付款而不是下单）。
+    await harness.services.StealthLockService.confirmCheckout({
+      paymentIntentId: 'pi_slk_reserved',
+      metadata: { stealthLockId: id, userId: BUYER },
+    });
+    const after = await query<any>(`SELECT slug, status FROM public_pages WHERE opportunity_id = $1`, [
+      OPP_RESERVED,
+    ]);
+    assert.ok(after.rows.some((r) => r.slug.startsWith('stealth-lock-') && r.status === 'PUBLISHED'));
+    assert.strictEqual(after.rows.find((r) => r.slug === realSlug).status, 'DRAFT');
   });
 });
 
