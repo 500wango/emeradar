@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/client';
 import { runMigration } from '../src/migrate';
+import { guardPoolErrors } from './pool-guard';
 
 /**
  * 0004 是一次带数据回填的迁移，而它最难验证的部分恰恰在**空库上看不见**：
@@ -18,10 +19,10 @@ import { runMigration } from '../src/migrate';
  */
 test('0004 回填：存量项目折算成认领，且不伪造核验', async () => {
   const name = `emeradar_slot_backfill_${randomUUID().replace(/-/g, '')}`;
-  const maintenance = new Pool({ connectionString: pool.options.connectionString });
+  const maintenance = guardPoolErrors(new Pool({ connectionString: pool.options.connectionString }));
   const url = new URL(pool.options.connectionString!);
   url.pathname = `/${name}`;
-  const target = new Pool({ connectionString: url.toString() });
+  const target = guardPoolErrors(new Pool({ connectionString: url.toString() }));
   const source = path.resolve(__dirname, '../src/migrations');
   const partial = fs.mkdtempSync(path.join(os.tmpdir(), 'emeradar-0003-'));
   let created = false;

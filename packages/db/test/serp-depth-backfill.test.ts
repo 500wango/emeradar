@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/client';
 import { runMigration } from '../src/migrate';
+import { guardPoolErrors } from './pool-guard';
 
 /**
  * 0006 把 SERP 采集深度从 10 提到 100，并给快照补上 `depth` / `result_count`。
@@ -22,10 +23,10 @@ import { runMigration } from '../src/migrate';
  */
 test('0006 回填：存量快照保留 10 的深度，新默认值是 100', async () => {
   const name = `emeradar_serp_depth_${randomUUID().replace(/-/g, '')}`;
-  const maintenance = new Pool({ connectionString: pool.options.connectionString });
+  const maintenance = guardPoolErrors(new Pool({ connectionString: pool.options.connectionString }));
   const url = new URL(pool.options.connectionString!);
   url.pathname = `/${name}`;
-  const target = new Pool({ connectionString: url.toString() });
+  const target = guardPoolErrors(new Pool({ connectionString: url.toString() }));
   const source = path.resolve(__dirname, '../src/migrations');
   const partial = fs.mkdtempSync(path.join(os.tmpdir(), 'emeradar-0005-'));
   let created = false;

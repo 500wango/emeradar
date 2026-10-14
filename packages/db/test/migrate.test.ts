@@ -7,14 +7,15 @@ import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { pool } from '../src/client';
 import { runMigration } from '../src/migrate';
+import { guardPoolErrors } from './pool-guard';
 
 // Never migrate the configured application database: create an isolated database.
 test('versioned migrations: fresh, replay, adoption, checksum and rollback', async () => {
   const name = `emeradar_migrations_test_${randomUUID().replace(/-/g, '')}`;
-  const maintenance = new Pool({ connectionString: pool.options.connectionString });
+  const maintenance = guardPoolErrors(new Pool({ connectionString: pool.options.connectionString }));
   const url = new URL(pool.options.connectionString!);
   url.pathname = `/${name}`;
-  const target = new Pool({ connectionString: url.toString() });
+  const target = guardPoolErrors(new Pool({ connectionString: url.toString() }));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'emeradar-migrations-'));
   let created = false;
   try {
