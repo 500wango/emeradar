@@ -100,6 +100,7 @@ export const zh: TranslationDictionary = {
   footer: {
     tagline: '面向独立开发者的搜索机会智能平台与商业信号雷达',
     trackRecord: '可验证战绩',
+    methodology: '实证方法论',
     liveFeed: '决策动态流',
     pricing: '价格方案',
     terms: '使用条款',

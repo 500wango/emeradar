@@ -36,6 +36,7 @@
 | 26 | SECURITY-AUDIT | 生产主机对外暴露什么、加固了什么、怎么验证、还剩什么 | 运维 |
 | 27 | SEO-BASELINE | 站点 SEO 与 Google 文档的差距、改了什么、怎么验证、还剩什么 | 前端、增长 |
 | 28 | PRD-V2.1-ALIGNMENT | PRD v2.1 带来的差距、本次设计定论（D1–D14）与逐文档修订记录 | 产品、全员 |
+| 29 | GEO-OPTIMIZATION | GEO (生成式引擎优化) 落地规范与 Google AI Overviews 对齐报告 | 前端、增长 |
 
 ## 2. 依赖关系
 

@@ -74,13 +74,15 @@ export function isPrivatePath(pathname: string): boolean {
 
 /**
  * 允许索引。`max-image-preview:large` 让搜索结果能放大使用页面图片（Google 明确支持），
- * `max-snippet: -1` 表示不限制摘要长度。
+ * `max-snippet: -1` 表示不限制摘要长度（Google AI Overviews 提取核心依据），
+ * `max-video-preview: -1` 表示不限制视频预览。
  */
 export const ROBOTS_INDEX = {
   index: true,
   follow: true,
   'max-image-preview': 'large',
   'max-snippet': -1,
+  'max-video-preview': -1,
 } as const;
 
 export const ROBOTS_NOINDEX = { index: false, follow: false } as const;
@@ -110,26 +112,47 @@ export function pageMetadata(input: {
       title: input.title,
       description: input.description,
       locale: input.locale === 'zh-CN' ? 'zh_CN' : 'en_US',
+      images: [
+        {
+          url: `${SITE_URL}/og-image.png`,
+          width: 1200,
+          height: 630,
+          alt: `${SITE_NAME} — Search Signal Intelligence`,
+        },
+      ],
     },
     twitter: {
-      card: 'summary',
+      card: 'summary_large_image',
       title: input.title,
       description: input.description,
+      images: [`${SITE_URL}/og-image.png`],
     },
   };
 }
 
 /**
- * Organization 与 WebSite。只写我们真的能背书的字段：没有法定主体名、没有 social 账号
- * 就不编一个出来 —— 结构化数据里编造实体信息正是 Google 要求避免的。
- * 说明：目前站点只有 SVG 图标，没有符合 Google 图片要求的位图 logo，因此不填 logo。
+ * Organization 结构化数据。
+ * 提供 Google Knowledge Graph 与 AI Overviews 引文归因所需的权威实体信息。
+ * 包含位图 logo（512x512）与核心专业领域（knowsAbout）。
  */
 export function organizationJsonLd() {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
+    '@id': `${SITE_URL}/#organization`,
     name: SITE_NAME,
     url: `${SITE_URL}/`,
+    logo: `${SITE_URL}/logo.png`,
+    image: `${SITE_URL}/og-image.png`,
+    description:
+      'Search opportunity intelligence and commercial signal radar for software builders.',
+    knowsAbout: [
+      'Search Intelligence',
+      'Micro-SaaS Opportunity Evaluation',
+      'SERP Weakness Analysis',
+      'Demand Formation Tracking',
+      'Commercial Willingness to Pay',
+    ],
   };
 }
 
@@ -137,8 +160,161 @@ export function websiteJsonLd() {
   return {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
+    '@id': `${SITE_URL}/#website`,
     name: SITE_NAME,
     url: `${SITE_URL}/`,
+    description: 'Search opportunity intelligence and commercial signal radar',
+    publisher: { '@id': `${SITE_URL}/#organization` },
+    inLanguage: ['en-US', 'zh-CN'],
+  };
+}
+
+/**
+ * SoftwareApplication / WebApplication。
+ * 声明 Emeradar 平台属性、功能特性与订阅定价层级，便于 Google AI Overviews 提取产品事实。
+ */
+export function softwareApplicationJsonLd() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebApplication',
+    '@id': `${SITE_URL}/#software`,
+    name: SITE_NAME,
+    url: `${SITE_URL}/`,
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'All',
+    description:
+      'Search signal intelligence engine that validates micro-SaaS demand formation (D-Axis), commercial willingness-to-pay signals (M-Axis), and SERP competitor weakness (W-Axis) before writing code.',
+    publisher: { '@id': `${SITE_URL}/#organization` },
+    offers: [
+      {
+        '@type': 'Offer',
+        name: 'Free Tier',
+        price: '0',
+        priceCurrency: 'USD',
+        description: 'Monthly free report, public archive access, and verifiable prediction track record.',
+      },
+      {
+        '@type': 'Offer',
+        name: 'Builder Pro Monthly',
+        price: '29',
+        priceCurrency: 'USD',
+        billingDuration: 'P1M',
+        description: '30 monthly opportunity reports, real-time unredacted signal radar feed, AI scaffolding launch kit.',
+      },
+      {
+        '@type': 'Offer',
+        name: 'Builder Pro Yearly',
+        price: '290',
+        priceCurrency: 'USD',
+        billingDuration: 'P1Y',
+        description: 'Yearly subscription with 2 months free, real-time signal radar feed, automated alert tracking.',
+      },
+    ],
+    featureList: [
+      'Search Demand Formation Tracking (D-Axis)',
+      'Commercial Willingness-to-Pay Signal Evidence (M-Axis)',
+      'SERP Weakness & Competitor Window Analysis (W-Axis)',
+      'Verifiable Prediction Ledger & 30-Day Cohort Hit Rate',
+      'AI Opportunity Scaffolding & Launch Kit',
+    ],
+  };
+}
+
+/**
+ * FAQPage 结构化数据。
+ * Google AI Overviews 与 Search FAQ Rich Snippet 的核心来源。
+ */
+export function faqPageJsonLd(faqs: Array<{ question: string; answer: string }>) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqs.map((faq) => ({
+      '@type': 'Question',
+      name: faq.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: faq.answer,
+      },
+    })),
+  };
+}
+
+/**
+ * TechArticle 结构化数据（用于方法论与机会公开档案）。
+ * 符合 docs/15 §6.2 规范与 Google 知识图谱对技术深度解析文章的要求。
+ */
+export function techArticleJsonLd(input: {
+  headline: string;
+  description: string;
+  path: string;
+  locale?: Locale;
+  datePublished?: string;
+  dateModified?: string;
+  articleSection?: string[];
+  aboutName?: string;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    '@id': `${absoluteUrl(input.path)}#article`,
+    headline: input.headline,
+    description: input.description,
+    url: absoluteUrl(input.path),
+    inLanguage: input.locale === 'zh-CN' ? 'zh-CN' : 'en-US',
+    author: {
+      '@type': 'Organization',
+      name: `${SITE_NAME} Intelligence Engine`,
+      url: `${SITE_URL}/`,
+    },
+    publisher: {
+      '@id': `${SITE_URL}/#organization`,
+    },
+    ...(input.datePublished ? { datePublished: input.datePublished } : {}),
+    ...(input.dateModified ? { dateModified: input.dateModified } : {}),
+    ...(input.articleSection ? { articleSection: input.articleSection } : {}),
+    ...(input.aboutName
+      ? {
+          about: {
+            '@type': 'Thing',
+            name: input.aboutName,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Dataset 结构化数据（用于公开战绩页）。
+ * 符合 docs/15 §6.1 规范，供 AI 模型精确索引预测样本集与命中率指标。
+ */
+export function datasetJsonLd(input: {
+  name: string;
+  description: string;
+  path: string;
+  temporalCoverage?: string;
+  spatialCoverage?: string;
+  variableMeasured?: string[];
+  license?: string;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Dataset',
+    '@id': `${absoluteUrl(input.path)}#dataset`,
+    name: input.name,
+    description: input.description,
+    url: absoluteUrl(input.path),
+    license: input.license || `${SITE_URL}/methodology`,
+    creator: {
+      '@id': `${SITE_URL}/#organization`,
+    },
+    temporalCoverage: input.temporalCoverage || '2026-09-01/..',
+    spatialCoverage: input.spatialCoverage || 'US',
+    variableMeasured: input.variableMeasured || [
+      'Demand Formation (D-Axis)',
+      'Competitor Entry Window (W-Axis)',
+      'Market Formation Outcome (Hit/Miss)',
+      '30-Day Cohort Hit Rate',
+    ],
   };
 }
 

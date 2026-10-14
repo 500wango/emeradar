@@ -8,7 +8,7 @@ import { AuthProvider } from '@/lib/auth-context';
 import { I18nProvider } from '@/lib/i18n';
 import { getServerI18n } from '@/lib/i18n/server';
 import { fontVariables } from '@/lib/fonts';
-import { ROBOTS_INDEX, SITE_NAME, SITE_URL, absoluteUrl, organizationJsonLd, websiteJsonLd } from '@/lib/seo/site';
+import { ROBOTS_INDEX, SITE_NAME, SITE_URL, absoluteUrl, organizationJsonLd, softwareApplicationJsonLd, websiteJsonLd } from '@/lib/seo/site';
 
 // CSP nonces are per request; HTML must never be prerendered with a stale nonce.
 export const dynamic = 'force-dynamic';
@@ -30,7 +30,10 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s · ${SITE_NAME}`,
     },
     description,
-    icons: { icon: '/icon.svg' },
+    icons: {
+      icon: '/icon.svg',
+      apple: '/logo.png',
+    },
     robots: ROBOTS_INDEX,
     alternates: { canonical: absoluteUrl('/') },
     openGraph: {
@@ -40,8 +43,21 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       locale: locale === 'zh-CN' ? 'zh_CN' : 'en_US',
+      images: [
+        {
+          url: `${SITE_URL}/og-image.png`,
+          width: 1200,
+          height: 630,
+          alt: `${SITE_NAME} — Search Signal Intelligence`,
+        },
+      ],
     },
-    twitter: { card: 'summary', title, description },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [`${SITE_URL}/og-image.png`],
+    },
   };
 }
 
@@ -55,8 +71,8 @@ export default async function RootLayout({
   return (
     <html lang={locale === 'zh-CN' ? 'zh-CN' : 'en'} className={fontVariables}>
       <body className="min-h-screen flex flex-col bg-canvas text-fg antialiased">
-        {/* 站点级实体（Organization / WebSite）：告诉搜索引擎这个域是谁、叫什么。 */}
-        <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
+        {/* 站点级实体（Organization / WebSite / WebApplication）：提供 Google Knowledge Graph 核心知识图谱。 */}
+        <JsonLd data={[organizationJsonLd(), websiteJsonLd(), softwareApplicationJsonLd()]} />
         <AuthProvider>
           <I18nProvider initialLocale={locale}>
             <a

@@ -475,13 +475,13 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="border-b border-line">
               <tr>
-                <th className="w-2/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <th scope="col" className="w-2/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
                   {p.colFeature}
                 </th>
-                <th className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <th scope="col" className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
                   {p.colFree}
                 </th>
-                <th className="bg-accent/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                <th scope="col" className="bg-accent/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
                   {p.colPro}
                 </th>
               </tr>
@@ -489,7 +489,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
             <tbody className="divide-y divide-line">
               {p.matrixRows.map((row: any, idx: number) => (
                 <tr key={idx}>
-                  <td className="px-5 py-4 text-sm font-medium text-fg">{row.feature}</td>
+                  <th scope="row" className="px-5 py-4 text-left text-sm font-medium text-fg">{row.feature}</th>
                   <td className="px-5 py-4 text-sm text-fg-muted">{row.free}</td>
                   <td className="bg-accent/5 px-5 py-4 font-mono text-xs text-accent">{row.pro}</td>
                 </tr>
@@ -548,9 +548,9 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                     )}
                   />
                 </button>
-                {isOpen && (
+                <div className={cn(isOpen ? 'block' : 'hidden')}>
                   <p className="pb-5 text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{faq.a}</p>
-                )}
+                </div>
               </div>
             );
           })}

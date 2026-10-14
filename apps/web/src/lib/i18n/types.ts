@@ -115,6 +115,7 @@ export interface TranslationDictionary {
   footer: {
     tagline: string;
     trackRecord: string;
+    methodology: string;
     liveFeed: string;
     pricing: string;
     terms: string;

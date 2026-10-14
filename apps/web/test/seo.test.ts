@@ -8,10 +8,14 @@ import {
   STATIC_PUBLIC_PAGES,
   absoluteUrl,
   breadcrumbJsonLd,
+  datasetJsonLd,
+  faqPageJsonLd,
   isPrivatePath,
   organizationJsonLd,
   pageMetadata,
   publicOpportunityPath,
+  softwareApplicationJsonLd,
+  techArticleJsonLd,
   websiteJsonLd,
 } from '../src/lib/seo/site';
 
@@ -64,10 +68,13 @@ test('页面 metadata 的 canonical、robots 与 Open Graph 来自同一个 path
     follow: true,
     'max-image-preview': 'large',
     'max-snippet': -1,
+    'max-video-preview': -1,
   });
   assert.equal(metadata.openGraph?.url, `${SITE_URL}/pricing`);
   assert.equal(metadata.openGraph && 'locale' in metadata.openGraph ? metadata.openGraph.locale : undefined, 'zh_CN');
-  assert.equal(metadata.twitter && 'card' in metadata.twitter ? metadata.twitter.card : undefined, 'summary');
+  assert.equal(metadata.twitter && 'card' in metadata.twitter ? metadata.twitter.card : undefined, 'summary_large_image');
+  assert.ok(Array.isArray(metadata.openGraph?.images) && metadata.openGraph.images.length > 0);
+  assert.equal((metadata.openGraph.images[0] as any).url, `${SITE_URL}/og-image.png`);
 
   const hidden = pageMetadata({ title: 'x', description: 'y', path: '/pricing', locale: 'en-US', index: false });
   assert.deepEqual(hidden.robots, { index: false, follow: false });
@@ -82,8 +89,43 @@ test('JSON-LD 只声明能背书的字段，面包屑每项都完整', () => {
   const organization = organizationJsonLd();
   assert.equal(organization['@type'], 'Organization');
   assert.equal(organization['@context'], 'https://schema.org');
-  // 没有位图 logo 就不填 logo：结构化数据里编造或指错资源会让整块数据失去意义。
-  assert.equal('logo' in organization, false);
+  // 已生成合规的 512x512 位图 logo，断言其指向确切的静态资源
+  assert.equal(organization.logo, `${SITE_URL}/logo.png`);
+  assert.equal(organization.image, `${SITE_URL}/og-image.png`);
+
+  const app = softwareApplicationJsonLd();
+  assert.equal(app['@type'], 'WebApplication');
+  assert.equal(app.name, 'Emeradar');
+  assert.ok(Array.isArray(app.offers) && app.offers.length >= 3);
+  assert.ok(Array.isArray(app.featureList) && app.featureList.length >= 3);
+
+  const faq = faqPageJsonLd([
+    { question: 'What is Emeradar?', answer: 'Search signal intelligence engine.' },
+  ]);
+  assert.equal(faq['@type'], 'FAQPage');
+  assert.equal(faq.mainEntity.length, 1);
+  assert.equal(faq.mainEntity[0].name, 'What is Emeradar?');
+
+  const tech = techArticleJsonLd({
+    headline: 'Methodology: 3-Axis Evaluation',
+    description: 'Demand, Commercial, and Window Gating.',
+    path: '/methodology',
+    locale: 'zh-CN',
+    articleSection: ['Lifecycle', 'Gate'],
+  });
+  assert.equal(tech['@type'], 'TechArticle');
+  assert.equal(tech.headline, 'Methodology: 3-Axis Evaluation');
+  assert.equal(tech.url, `${SITE_URL}/methodology`);
+  assert.equal(tech.inLanguage, 'zh-CN');
+
+  const dataset = datasetJsonLd({
+    name: 'Emeradar Ledger',
+    description: 'Prediction dataset',
+    path: '/track-record',
+  });
+  assert.equal(dataset['@type'], 'Dataset');
+  assert.equal(dataset.name, 'Emeradar Ledger');
+  assert.equal(dataset.url, `${SITE_URL}/track-record`);
 
   const crumbs = breadcrumbJsonLd([
     { name: 'Home', path: '/' },
@@ -96,3 +138,27 @@ test('JSON-LD 只声明能背书的字段，面包屑每项都完整', () => {
     assert.ok(item.item.startsWith(SITE_URL));
   });
 });
+
+test('robots.ts 符合规范：公开页放行、私有页阻断、声明 sitemap 与核心爬虫', async () => {
+  const robotsModule = await import('../src/app/robots');
+  const config = robotsModule.default();
+
+  assert.equal(config.sitemap, `${SITE_URL}/sitemap.xml`);
+  assert.ok(Array.isArray(config.rules) && config.rules.length >= 2);
+
+  const starRule = config.rules[0];
+  assert.equal(starRule.userAgent, '*');
+  const allow = Array.isArray(starRule.allow) ? starRule.allow : [starRule.allow];
+  const disallow = Array.isArray(starRule.disallow) ? starRule.disallow : [starRule.disallow];
+
+  for (const page of STATIC_PUBLIC_PAGES) {
+    assert.ok(allow.includes(page.path), `robots.txt 应当允许公开页：${page.path}`);
+  }
+  assert.ok(allow.includes('/public/opportunities/'), 'robots.txt 应当允许公开档案');
+  assert.ok(allow.includes('/logo.png') && allow.includes('/og-image.png'), 'robots.txt 应当允许抓取图片资产');
+
+  for (const priv of PRIVATE_PATH_PREFIXES) {
+    assert.ok(disallow.some((d) => d && d.startsWith(priv)), `robots.txt 应当阻止私有路径：${priv}`);
+  }
+});
+

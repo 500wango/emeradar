@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getServerI18n } from '@/lib/i18n/server';
-import { pageMetadata } from '@/lib/seo/site';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { breadcrumbJsonLd, pageMetadata } from '@/lib/seo/site';
 import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 
 /**
@@ -28,11 +29,18 @@ export async function generateMetadata() {
 }
 
 export default async function TermsPage() {
-  const { t } = await getServerI18n();
+  const { t, isZh } = await getServerI18n();
+
+  const breadcrumbs = breadcrumbJsonLd([
+    { name: isZh ? '首页' : 'Home', path: '/' },
+    { name: isZh ? '服务条款' : 'Terms of Service', path: '/terms' },
+  ]);
 
   return (
-    <PageFrame width="prose">
-      <PageHeader eyebrow="TERMS" title={t('terms.title')} lede={t('terms.intro')} />
+    <>
+      <JsonLd data={breadcrumbs} />
+      <PageFrame width="prose">
+        <PageHeader eyebrow="TERMS" title={t('terms.title')} lede={t('terms.intro')} />
 
       <div className="mt-12 space-y-10">
         {SECTIONS.map(([title, body], index) => (
@@ -55,5 +63,6 @@ export default async function TermsPage() {
         </Link>
       </p>
     </PageFrame>
+    </>
   );
 }

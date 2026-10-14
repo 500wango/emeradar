@@ -3,7 +3,8 @@ import { ArrowUpRight } from 'lucide-react';
 import { TrackRecordService } from '@emeradar/services';
 import { formatDate } from '@/lib/format';
 import { getServerI18n } from '@/lib/i18n/server';
-import { pageMetadata } from '@/lib/seo/site';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { breadcrumbJsonLd, datasetJsonLd, pageMetadata } from '@/lib/seo/site';
 import { Badge, type BadgeTone, VerdictBadge, type Verdict } from '@/components/ui/Badge';
 import { PageFrame, PageHeader } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
@@ -59,23 +60,36 @@ export async function generateMetadata() {
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();
   const { stats, episodes, cohorts = [], checkpoints = [] } = data;
-  const { t } = await getServerI18n();
+  const { t, isZh } = await getServerI18n();
 
   const checkpoint = checkpoints[0];
   const overallRate = accuracy(stats.hitsCount, stats.evaluatedEpisodes, stats.hitRate30d);
 
+  const breadcrumbs = breadcrumbJsonLd([
+    { name: isZh ? '首页' : 'Home', path: '/' },
+    { name: isZh ? '可验证战绩' : 'Track Record', path: '/track-record' },
+  ]);
+
+  const datasetSchema = datasetJsonLd({
+    name: 'Emeradar Search Opportunity Decision Outcomes & Accuracy Ledger',
+    description: t('seo.trackRecord.description'),
+    path: '/track-record',
+  });
+
   return (
-    <PageFrame width="full">
-      <PageHeader
-        eyebrow="TRACK RECORD"
-        title={t('trackRecord.title')}
-        lede={t('trackRecord.desc')}
-        aside={
-          <Badge tone="signal" size="sm" dot>
-            {t('trackRecord.badge')}
-          </Badge>
-        }
-      />
+    <>
+      <JsonLd data={[breadcrumbs, datasetSchema]} />
+      <PageFrame width="full">
+        <PageHeader
+          eyebrow="TRACK RECORD"
+          title={t('trackRecord.title')}
+          lede={t('trackRecord.desc')}
+          aside={
+            <Badge tone="signal" size="sm" dot>
+              {t('trackRecord.badge')}
+            </Badge>
+          }
+        />
 
       {/* Headline readings. The hit rate is blanked rather than guessed whenever
           the evaluated set is one-sided — see `accuracy()`. */}
@@ -117,12 +131,12 @@ export default async function TrackRecordPage() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-line">
               <tr>
-                <th className={TH}>{t('trackRecord.colCohortMonth')}</th>
-                <th className={TH}>{t('trackRecord.colSampleSize')}</th>
-                <th className={TH}>{t('trackRecord.colT30')}</th>
-                <th className={TH}>{t('trackRecord.colT60')}</th>
-                <th className={TH}>{t('trackRecord.colT90')}</th>
-                <th className={TH}>{t('trackRecord.colMaturity')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colCohortMonth')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colSampleSize')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colT30')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colT60')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colT90')}</th>
+                <th scope="col" className={TH}>{t('trackRecord.colMaturity')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -174,13 +188,13 @@ export default async function TrackRecordPage() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-line">
                 <tr>
-                  <th className={TH}>{t('trackRecord.colOpportunity')}</th>
-                  <th className={TH}>{t('trackRecord.colVerdict')}</th>
-                  <th className={TH}>{t('trackRecord.colObsDate')}</th>
-                  <th className={TH}>{t('trackRecord.outcome30d')}</th>
-                  <th className={TH}>{t('trackRecord.outcome60d')}</th>
-                  <th className={TH}>{t('trackRecord.observedMetric')}</th>
-                  <th className={`${TH} text-right`}>{t('common.action')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.colOpportunity')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.colVerdict')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.colObsDate')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.outcome30d')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.outcome60d')}</th>
+                  <th scope="col" className={TH}>{t('trackRecord.observedMetric')}</th>
+                  <th scope="col" className={`${TH} text-right`}>{t('common.action')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -279,6 +293,7 @@ export default async function TrackRecordPage() {
         )}
       </Panel>
     </PageFrame>
+    </>
   );
 }
 

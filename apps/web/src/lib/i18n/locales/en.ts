@@ -100,6 +100,7 @@ export const en: TranslationDictionary = {
   footer: {
     tagline: 'Search Opportunity Intelligence & Commercial Signal Radar for Builders',
     trackRecord: 'Verifiable Track Record',
+    methodology: 'Methodology',
     liveFeed: 'Live Feed',
     pricing: 'Pricing',
     terms: 'Terms of Use',

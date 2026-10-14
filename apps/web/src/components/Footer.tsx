@@ -24,6 +24,9 @@ export function Footer() {
             <Link href="/track-record" className={linkClasses}>
               {t('footer.trackRecord')}
             </Link>
+            <Link href="/methodology" className={linkClasses}>
+              {t('footer.methodology')}
+            </Link>
             <Link href="/feed" className={linkClasses}>
               {t('footer.liveFeed')}
             </Link>
