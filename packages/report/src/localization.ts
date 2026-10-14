@@ -367,7 +367,7 @@ export function formatArchetype(
 ): string {
   if (locale === 'zh-CN') {
     switch (archetype) {
-      case 'LIGHTWEIGHT_TOOL':
+      case 'TOOL':
         return detailed
           ? '免登录单页轻量工具 (Lightweight Tool)'
           : '免登录单页轻量工具';
@@ -382,7 +382,7 @@ export function formatArchetype(
     }
   }
   switch (archetype) {
-    case 'LIGHTWEIGHT_TOOL':
+    case 'TOOL':
       return 'Lightweight Tool';
     case 'MICRO_SAAS':
       return 'Micro-SaaS';

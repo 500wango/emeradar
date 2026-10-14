@@ -89,7 +89,7 @@ describe('v3 prediction specification on report and opportunity detail projectio
            top_idea, first_observed_at
          ) VALUES (
            $1, $1, $1, $2, 'EARLY_WINDOW', 8500, 7700, 8100, 'HIGH', 'HIGH', 'HIGH',
-           'HIGH', 'LIGHTWEIGHT_TOOL', 'S', 'Observed evidence', 'Focused tool', $3::date
+           'HIGH', 'TOOL', 'S', 'Observed evidence', 'Focused tool', $3::date
          )`,
         [id, id === ids.none ? 'WATCH' : 'BUILD_NOW', DAY]
       );

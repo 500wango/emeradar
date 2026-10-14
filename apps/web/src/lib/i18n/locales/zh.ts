@@ -44,12 +44,11 @@ export const zh: TranslationDictionary = {
       PASS: '放弃跳过',
     },
     archetypes: {
-      LIGHTWEIGHT_TOOL: '轻量工具 (单任务Web应用)',
+      TOOL: '轻量工具 (单任务Web应用)',
       MICRO_SAAS: '微型SaaS (工作流与订阅制)',
       PSEO_SITE: 'pSEO 搜索流量站 / 内容引擎',
       DIRECTORY: '精选垂直目录 / 细分交易市场',
       CONTENT_SITE: '垂直权威内容站',
-      TOOL: '独立功能型工具',
     },
     executionClasses: {
       S: '单人 (S · 1周内)',

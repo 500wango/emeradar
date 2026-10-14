@@ -44,12 +44,11 @@ export const en: TranslationDictionary = {
       PASS: 'PASS',
     },
     archetypes: {
-      LIGHTWEIGHT_TOOL: 'Lightweight Tool (Single-purpose web app)',
+      TOOL: 'Lightweight Tool (Single-purpose web app)',
       MICRO_SAAS: 'Micro-SaaS (Workflow & Subscription)',
       PSEO_SITE: 'pSEO Directory / Content Engine',
       DIRECTORY: 'Curated Directory / Marketplace',
       CONTENT_SITE: 'Authority Content Site',
-      TOOL: 'Standalone Utility Tool',
     },
     executionClasses: {
       S: 'Solo (S · < 1 week)',

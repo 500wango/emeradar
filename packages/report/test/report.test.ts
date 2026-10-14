@@ -37,7 +37,7 @@ describe('Opportunity Report Unit Tests', () => {
         verdictReason: 'Strong D-M-W signals',
         rulesTriggered: ['RULE_BUILD_NOW'],
       },
-      recommendedArchetype: 'LIGHTWEIGHT_TOOL' as const,
+      recommendedArchetype: 'TOOL' as const,
       executionClass: 'S' as const,
     },
     obsDate: '2026-09-25',
@@ -56,7 +56,7 @@ describe('Opportunity Report Unit Tests', () => {
     assert.strictEqual(report.section3.top10Results.length, 0);
     assert.strictEqual(report.section4.paidCompetitors.length, 0);
     assert.strictEqual(report.section2.autocompleteSignals.length, 0);
-    assert.strictEqual(report.section5.archetype, 'LIGHTWEIGHT_TOOL');
+    assert.strictEqual(report.section5.archetype, 'TOOL');
     assert.strictEqual(report.section5.targetTimeframeDays, 14);
     assert.strictEqual(report.section5.executionBrief.initialPages.length, 3);
     assert.strictEqual(report.section6.activeRules.length, 0);
@@ -268,7 +268,7 @@ describe('Decision basis (why this verdict)', () => {
       verdictReason: 'Breakout demand compensates for developing commercial proof.',
       rulesTriggered: ['RULE_BUILD_NOW_COMPENSATED'],
     },
-    recommendedArchetype: 'LIGHTWEIGHT_TOOL' as const,
+    recommendedArchetype: 'TOOL' as const,
     executionClass: 'S' as const,
   };
 

@@ -52,14 +52,14 @@ export function evaluateRecommendations(input: RecommendationInput): {
 
   const archetypes: ArchetypeScore[] = [];
 
-  // 1. TOOL / LIGHTWEIGHT_TOOL
+  // 1. TOOL / TOOL
   let toolScore = 0;
   if (queryTypes.toolModifierRatio >= 0.3) toolScore += 30;
   if (specialistToolCountInSerp >= 2) toolScore += 20;
   if (serpWeakness >= 60) toolScore += 15;
   if (authoritativeInTop3) toolScore -= 20;
   archetypes.push({
-    archetype: 'LIGHTWEIGHT_TOOL',
+    archetype: 'TOOL',
     score: toolScore,
     executionClass: 'S',
     rationale:
@@ -132,7 +132,7 @@ export function evaluateRecommendations(input: RecommendationInput): {
   archetypes.sort((a, b) => b.score - a.score);
 
   const top = archetypes[0] || {
-    archetype: 'LIGHTWEIGHT_TOOL',
+    archetype: 'TOOL',
     score: 10,
     executionClass: 'S',
     rationale: 'Default agile lightweight utility implementation.',

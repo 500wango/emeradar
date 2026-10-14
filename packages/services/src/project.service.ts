@@ -1,8 +1,18 @@
 import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode, BuildArchetype, isPrivateAddress, readBodyWithLimit } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
+import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from './claim-policy';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
+
+/**
+ * 承诺质押窗口（03 §12、01 §1.7 第 5 条）。认领一个槽位后必须在这么多天内提交
+ * 一类有效上线凭证，否则槽位被自动释放，而**已扣的配额不退还**。
+ *
+ * 逾期释放需要这个值是唯一的：若某个读路径用 7、某个写路径用别的数，就会出现
+ * "作业认为已逾期、但项目自己不认为"的分裂。将来接配置中心时从这里改成注入。
+ */
+export const STAKE_WINDOW_DAYS = 7;
 
 export interface CreateProjectInput {
   opportunityId: string;
@@ -304,11 +314,11 @@ export class ProjectService {
     const projectId = `prj_${Date.now()}`;
     const domain = normalizeProjectDomain(input.domain);
     const res = await query<any>(
-      `INSERT INTO projects (id, user_id, project_kind, experiment_card_id, title, domain, build_type, status, target_keywords)
-       VALUES ($1, $2, 'EXPERIMENT', $3, $4, $5, $6, 'IN_DEVELOPMENT', $7)
+      `INSERT INTO projects (id, user_id, project_kind, experiment_card_id, title, domain, build_type, status, target_keywords, stake_deadline_at)
+       VALUES ($1, $2, 'EXPERIMENT', $3, $4, $5, $6, 'IN_DEVELOPMENT', $7, NOW() + make_interval(days => $8))
        ON CONFLICT (user_id, experiment_card_id) WHERE experiment_card_id IS NOT NULL DO NOTHING
        RETURNING *`,
-      [projectId, userId, input.experimentCardId, input.title, domain, input.buildType || 'LIGHTWEIGHT_TOOL', input.targetKeywords || []],
+      [projectId, userId, input.experimentCardId, input.title, domain, input.buildType || 'TOOL', input.targetKeywords || [], STAKE_WINDOW_DAYS],
     );
     if (!res.rows[0]) {
       throw new EmeradarError(ErrorCode.CONFLICT, 'You already have a project for this experiment card.', 409);
@@ -567,11 +577,10 @@ export class ProjectService {
         // Serialize the count and insert so concurrent GO clicks cannot bypass the limit.
         await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [input.opportunityId]);
         const claimsRes = await client.query<{ count: number }>(
-          `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ARCHIVED'`,
+          `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND ${activeClaimPredicate()}`,
           [input.opportunityId]
         );
         const claimsCount = claimsRes.rows[0]?.count ?? 0;
-        const MAX_CLAIMS_PER_OPPORTUNITY = 5;
         if (claimsCount >= MAX_CLAIMS_PER_OPPORTUNITY) {
           throw new EmeradarError(
             ErrorCode.PRECONDITION_FAILED,
@@ -582,10 +591,10 @@ export class ProjectService {
         const res = await client.query<any>(
           `INSERT INTO projects (
             id, user_id, opportunity_id, decision_id, report_id,
-            title, domain, build_type, status, launch_date, target_keywords
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9)
+            title, domain, build_type, status, launch_date, target_keywords, stake_deadline_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'IN_DEVELOPMENT', NULL, $9, NOW() + make_interval(days => $10))
           RETURNING *`,
-          [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'LIGHTWEIGHT_TOOL', input.targetKeywords || []]
+          [projectId, userId, input.opportunityId, decisionId, input.reportId || null, input.title, domain, input.buildType || 'TOOL', input.targetKeywords || [], STAKE_WINDOW_DAYS]
         );
         return res.rows[0];
       });

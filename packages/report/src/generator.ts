@@ -306,7 +306,7 @@ export function generateOpportunityReport(
     topIdea:
       rawTopIdea ||
       (isZh
-        ? (input.scoring.recommendedArchetype === 'LIGHTWEIGHT_TOOL'
+        ? (input.scoring.recommendedArchetype === 'TOOL'
             ? '打造无需登录、打开即用的极简单页工具，针对该核心搜索词提供免等待的一键处理体验。'
             : '打造轻量微型 SaaS，通过极简配置和自动化处理解决用户的单点痛点。')
         : 'Build a zero-friction, single-purpose web utility that solves the core search intent instantly without mandatory sign-up.'),
@@ -345,7 +345,7 @@ export function generateOpportunityReport(
     primaryQuery: input.primaryQuery,
     searchIntent:
       input.searchIntent ??
-      (input.scoring.recommendedArchetype === 'LIGHTWEIGHT_TOOL'
+      (input.scoring.recommendedArchetype === 'TOOL'
         ? 'TRANSACTIONAL'
         : 'INFORMATIONAL'),
     jobToBeDone:
@@ -367,7 +367,7 @@ export function generateOpportunityReport(
 
   // 4. Section 3: Competitive Landscape, SERP Weakness & Indie Competition Audit
   const archetype = input.scoring.recommendedArchetype;
-  const isLightTool = archetype === 'LIGHTWEIGHT_TOOL';
+  const isLightTool = archetype === 'TOOL';
 
   const defaultIndieAudit: import('./types').IndieCompetitionAudit = isZh
     ? {

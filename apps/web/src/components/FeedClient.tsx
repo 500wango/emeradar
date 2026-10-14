@@ -155,12 +155,11 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
                 className="w-auto bg-surface-2 px-2.5 py-1 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <option value="ALL">{t('feed.allArchetypes')}</option>
-                <option value="LIGHTWEIGHT_TOOL">{t('common.archetypes.LIGHTWEIGHT_TOOL')}</option>
+                <option value="TOOL">{t('common.archetypes.TOOL')}</option>
                 <option value="MICRO_SAAS">{t('common.archetypes.MICRO_SAAS')}</option>
                 <option value="PSEO_SITE">{t('common.archetypes.PSEO_SITE')}</option>
                 <option value="DIRECTORY">{t('common.archetypes.DIRECTORY')}</option>
                 <option value="CONTENT_SITE">{t('common.archetypes.CONTENT_SITE')}</option>
-                <option value="TOOL">{t('common.archetypes.TOOL')}</option>
               </Select>
             </div>
 

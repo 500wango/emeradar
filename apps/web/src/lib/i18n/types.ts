@@ -59,12 +59,11 @@ export interface TranslationDictionary {
       PASS: string;
     };
     archetypes: {
-      LIGHTWEIGHT_TOOL: string;
+      TOOL: string;
       MICRO_SAAS: string;
       PSEO_SITE: string;
       DIRECTORY: string;
       CONTENT_SITE: string;
-      TOOL: string;
     };
     executionClasses: {
       S: string;

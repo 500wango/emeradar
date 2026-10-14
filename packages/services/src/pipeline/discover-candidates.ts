@@ -86,7 +86,7 @@ export async function discoverAutocompleteCandidates(obsDate: string): Promise<n
          id, slug, title, status, market_country, research_language,
          first_observed_date, recommended_archetype, execution_class,
          discovery_source, discovered_at, candidate_reason
-       ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', $4, 'LIGHTWEIGHT_TOOL', 'S',
+       ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', $4, 'TOOL', 'S',
                  'AUTOCOMPLETE', NOW(), $5)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
@@ -115,7 +115,7 @@ export async function discoverAutocompleteCandidates(obsDate: string): Promise<n
          first_observed_at, query_velocity, featured_evidence_snippet
        ) VALUES ($1, $2, $3, 'WATCH', 'FORMING', 0, 0, 0,
                  'INSUFFICIENT', 'INSUFFICIENT', 'INSUFFICIENT', 'LOW',
-                 'LIGHTWEIGHT_TOOL', 'S', $4, $5, NOW(), 0, $6)
+                 'TOOL', 'S', $4, $5, NOW(), 0, $6)
        ON CONFLICT (opportunity_id) DO NOTHING`,
       [
         opportunityId,

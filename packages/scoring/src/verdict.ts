@@ -1,5 +1,53 @@
 import { Verdict, Confidence } from '@emeradar/core';
-import { AxisBand, CommercialSummary, PrevScoringState } from './types';
+import { AxisBand, CommercialSummary, DatedWBand, PrevScoringState } from './types';
+
+/**
+ * W 轴的档位高低序。`INSUFFICIENT` 刻意不在其中——见 `wDroppedWithin`。
+ */
+const W_BAND_RANK: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+
+/** 05 §5.1 的窗口关闭保鲜期，与 15 §3 的 `publication.window_closing_freshness_days` 同源。 */
+export const WINDOW_CLOSING_FRESHNESS_DAYS = 14;
+
+/**
+ * W 档是否在最近 `days` 天内下降过（05 §5.1 必要条件 2）。
+ *
+ * 判据必须带日期。无日期的档位数组只能把"第一格"当作过去，而它可能是任意久远的
+ * 读数——那样一次半年前的降档会在今天触发 `WINDOW_CLOSING`，把仍有抢跑价值的窗口
+ * 提前判成关闭（15 §3 把"空槽窗口被泄露"列为 0 容忍的 P0 事故）。
+ *
+ * `INSUFFICIENT` 不算降档：它表示"没有信号"，不是"信号变弱"。把数据缺失读成窗口
+ * 关闭，等于让采集失败伪装成市场结论——正是 05 §5.0 发布门槛要挡的那类错误。
+ *
+ * 只判定**最近一次**降档：更早的降档只会离今天更远，最近一次不在窗口内则更早的
+ * 必然也不在。
+ *
+ * `asOf` 缺省时取历史中最新一格的日期（即"以最近一次观测为今天"）。调用方应显式
+ * 传入当前 `obs_date`：本函数不读挂钟，同一输入必得同一结果。
+ */
+export function wDroppedWithin(
+  history: DatedWBand[] | undefined,
+  days: number,
+  asOf?: string
+): boolean {
+  if (!history || history.length < 2) return false;
+  const reference = asOf ?? history[history.length - 1]?.obsDate;
+  const referenceMs = Date.parse(`${reference}T00:00:00Z`);
+  if (Number.isNaN(referenceMs)) return false;
+  const cutoffMs = referenceMs - days * 86_400_000;
+
+  for (let i = history.length - 1; i > 0; i--) {
+    const newer = history[i];
+    const older = history[i - 1];
+    const newerRank = W_BAND_RANK[newer.band];
+    const olderRank = W_BAND_RANK[older.band];
+    if (newerRank === undefined || olderRank === undefined) continue;
+    if (newerRank >= olderRank) continue;
+    const atMs = Date.parse(`${newer.obsDate}T00:00:00Z`);
+    return !Number.isNaN(atMs) && atMs >= cutoffMs && atMs <= referenceMs;
+  }
+  return false;
+}
 
 export interface VerdictInput {
   dBand: AxisBand;
@@ -18,6 +66,8 @@ export interface VerdictInput {
   recentSerpSnapshotAvailable?: boolean;
   /** A critical collector failed for this batch while the caller carried on. */
   criticalSourceFailure?: boolean;
+  /** 本期观测日（`YYYY-MM-DD`），窗口判据的"今天"。 */
+  obsDate?: string;
 }
 
 export interface VerdictResult {
@@ -97,6 +147,18 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     }
   }
 
+  // 05 §5.1 必要条件 2 要的是"降档发生在 obs_date 前 14 天内"，而上面那个比较没
+  // 有日期：它把 `wBandHistory[0]` 当作过去，那可能是任意久远的读数。有带日期的
+  // 历史就以它为准，没有（不采集逐日历史的老调用方）才退回旧行为。
+  //
+  // 带日期的历史只从 `prev` 取，不另开一个同名的入参：两处入口意味着漏传一处就会
+  // 静默退回那个宽松判据，而这正是本判据要消灭的东西。
+  const datedHistory = prev?.datedWBandHistory;
+  const wDroppedInWindow =
+    datedHistory && datedHistory.length >= 2
+      ? wDroppedWithin(datedHistory, WINDOW_CLOSING_FRESHNESS_DAYS, input.obsDate)
+      : wDroppedRecently;
+
   // 1. Calculate raw verdict
   let raw: Verdict = 'WATCH';
   let reason = '';
@@ -153,7 +215,7 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     } else if (
       (prev &&
         (prev.verdict === 'BUILD_NOW' || prev.verdict === 'EARLY_BET') &&
-        wDroppedRecently) ||
+        wDroppedInWindow) ||
       (prev &&
         prev.verdict === 'WINDOW_CLOSING' &&
         wBand !== 'HIGH' &&

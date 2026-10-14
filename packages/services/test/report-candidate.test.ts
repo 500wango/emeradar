@@ -17,7 +17,7 @@ describe('Report Generation for Opportunities Across User Tiers', () => {
         id, slug, title, status, market_country, research_language,
         first_observed_date, recommended_archetype, execution_class,
         discovery_source, discovered_at, candidate_reason
-      ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', CURRENT_DATE, 'LIGHTWEIGHT_TOOL', 'S',
+      ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', CURRENT_DATE, 'TOOL', 'S',
                 'AUTOCOMPLETE', NOW(), 'Initial test signal')
       ON CONFLICT (id) DO UPDATE SET status = 'CANDIDATE'`,
       [oppId, oppSlug, 'Test Candidate Report Niche']
@@ -32,7 +32,7 @@ describe('Report Generation for Opportunities Across User Tiers', () => {
          first_observed_at, query_velocity
        ) VALUES ($1, $2, $3, 'WATCH', 'FORMING', 0, 0, 0,
                  'INSUFFICIENT', 'INSUFFICIENT', 'INSUFFICIENT', 'LOW',
-                 'LIGHTWEIGHT_TOOL', 'S', 'Pending observation', 'No shape yet',
+                 'TOOL', 'S', 'Pending observation', 'No shape yet',
                  NOW(), 0)
        ON CONFLICT (opportunity_id) DO UPDATE SET d_band = 'INSUFFICIENT', confidence = 'LOW', verdict = 'WATCH'`,
       [oppId, oppSlug, 'candidate report test tool']

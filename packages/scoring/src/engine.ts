@@ -31,6 +31,8 @@ export interface FullOpportunityScoreInput {
    * the lifecycle DEAD transition is unreachable (LC-ANY-TO-DEAD).
    */
   activityRatio90d?: number;
+  /** 本期观测日（`YYYY-MM-DD`）。05 §5.1 的"14 天内下降"判据以它为"今天"。 */
+  obsDate?: string;
 }
 
 export function calculateOpportunityScore(
@@ -78,6 +80,7 @@ export function calculateOpportunityScore(
     serpHistoryDays: input.window.serpHistoryDays,
     recentSerpSnapshotAvailable: input.window.recentSerpSnapshotAvailable,
     criticalSourceFailure: input.criticalSourceFailure,
+    obsDate: input.obsDate,
   });
 
   // 6. Lifecycle Evaluation

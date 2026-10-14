@@ -3,6 +3,7 @@ export * from './audit.service';
 export * from './opportunity.service';
 export * from './report.service';
 export * from './project.service';
+export * from './claim-policy';
 export * from './decision.service';
 export * from './alert.service';
 /**
@@ -10,11 +11,16 @@ export * from './alert.service';
  * 两个星号再导出同名成员会让该名字在包边界上变成歧义而整体消失。
  */
 export {
+  AUTHORITATIVE_RESULT_TYPES,
   EVALUATED_RULE_TYPES,
   UNIMPLEMENTED_RULE_TYPES,
+  detectNewAuthoritativeEntrant,
   isEvaluatedRuleType,
   evaluateAlertTrigger,
   type AlertFacts,
+  type AuthoritativeEntrant,
+  type SerpEntrantRow,
+  type SerpEntrantSnapshot,
 } from './alert-triggers';
 export * from './track-record.service';
 export * from './prediction-episode.service';

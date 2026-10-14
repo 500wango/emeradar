@@ -34,12 +34,11 @@ import { PageFrame } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 
 const BUILD_ARCHETYPES = [
-  { id: 'LIGHTWEIGHT_TOOL', label: 'Lightweight Tool (Single-purpose web app)', labelZh: '轻量工具 (单任务Web应用)' },
+  { id: 'TOOL', label: 'Lightweight Tool (Single-purpose web app)', labelZh: '轻量工具 (单任务Web应用)' },
   { id: 'MICRO_SAAS', label: 'Micro-SaaS (Workflow & Subscription)', labelZh: '微型SaaS (工作流与订阅制)' },
   { id: 'PSEO_SITE', label: 'pSEO Directory / Content Engine', labelZh: 'pSEO 搜索流量站 / 内容引擎' },
   { id: 'DIRECTORY', label: 'Curated Directory / Marketplace', labelZh: '精选垂直目录 / 细分交易市场' },
   { id: 'CONTENT_SITE', label: 'Authority Content Site', labelZh: '垂直权威内容站' },
-  { id: 'TOOL', label: 'Standalone Utility Tool', labelZh: '独立功能型工具' },
 ];
 
 const TARGET_MARKETS = [
@@ -72,7 +71,7 @@ function SettingsContent() {
   // Preferences form state
   const [locale, setLocale] = useState<Locale>(i18nLocale);
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>(['US']);
-  const [selectedArchetypes, setSelectedArchetypes] = useState<string[]>(['LIGHTWEIGHT_TOOL', 'MICRO_SAAS']);
+  const [selectedArchetypes, setSelectedArchetypes] = useState<string[]>(['TOOL', 'MICRO_SAAS']);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [prefsSaved, setPrefsSaved] = useState(false);
 
@@ -129,7 +128,7 @@ function SettingsContent() {
     if (preferences) {
       setLocale(preferences.uiLocale || i18nLocale);
       setSelectedMarkets(preferences.preferredMarkets || ['US']);
-      setSelectedArchetypes(preferences.preferredBuildTypes || ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS']);
+      setSelectedArchetypes(preferences.preferredBuildTypes || ['TOOL', 'MICRO_SAAS']);
     } else {
       setLocale(i18nLocale);
     }

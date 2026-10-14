@@ -37,7 +37,7 @@ export default async function FeedPage({
   const offsetParam = Number.parseInt(firstParam(params.offset) || '0', 10);
   const offset = Number.isFinite(offsetParam) ? Math.max(0, Math.floor(offsetParam / 10) * 10) : 0;
   const verdicts = ['BUILD_NOW', 'EARLY_BET', 'WATCH', 'WINDOW_CLOSING'];
-  const archetypes = ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS', 'PSEO_SITE', 'DIRECTORY', 'CONTENT_SITE', 'TOOL'];
+  const archetypes = ['TOOL', 'MICRO_SAAS', 'PSEO_SITE', 'DIRECTORY', 'CONTENT_SITE'];
   const executionClasses = ['S', 'M', 'L'];
   const selectedVerdict = verdicts.includes(verdictParam || '') ? verdictParam : undefined;
   const selectedArchetype = archetypes.includes(archetypeParam || '') ? archetypeParam : undefined;

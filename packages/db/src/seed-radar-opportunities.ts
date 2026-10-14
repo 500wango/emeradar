@@ -7,7 +7,7 @@ export interface SeedOpportunityDef {
   primaryQuery: string;
   verdict: 'BUILD_NOW' | 'EARLY_BET';
   lifecycle: 'EARLY_WINDOW' | 'FORMING';
-  recommendedArchetype: 'LIGHTWEIGHT_TOOL' | 'MICRO_SAAS' | 'DIRECTORY';
+  recommendedArchetype: 'TOOL' | 'MICRO_SAAS' | 'DIRECTORY';
   executionClass: 'S' | 'M';
   dScore: number;
   mScore: number;
@@ -77,7 +77,7 @@ const SEED_OPPORTUNITIES: SeedOpportunityDef[] = [
     primaryQuery: 'podcast transcript to seo article',
     verdict: 'BUILD_NOW',
     lifecycle: 'EARLY_WINDOW',
-    recommendedArchetype: 'LIGHTWEIGHT_TOOL',
+    recommendedArchetype: 'TOOL',
     executionClass: 'S',
     dScore: 8100,
     mScore: 7800,
@@ -112,7 +112,7 @@ const SEED_OPPORTUNITIES: SeedOpportunityDef[] = [
     primaryQuery: 'cron job dead man switch monitor',
     verdict: 'BUILD_NOW',
     lifecycle: 'EARLY_WINDOW',
-    recommendedArchetype: 'LIGHTWEIGHT_TOOL',
+    recommendedArchetype: 'TOOL',
     executionClass: 'S',
     dScore: 8400,
     mScore: 7600,
@@ -182,7 +182,7 @@ const SEED_OPPORTUNITIES: SeedOpportunityDef[] = [
     primaryQuery: 'client side pdf redaction tool',
     verdict: 'EARLY_BET',
     lifecycle: 'EARLY_WINDOW',
-    recommendedArchetype: 'LIGHTWEIGHT_TOOL',
+    recommendedArchetype: 'TOOL',
     executionClass: 'S',
     dScore: 8600,
     mScore: 6500,
@@ -216,7 +216,7 @@ const SEED_OPPORTUNITIES: SeedOpportunityDef[] = [
     primaryQuery: 'adsense rpm calculator by niche',
     verdict: 'BUILD_NOW',
     lifecycle: 'EARLY_WINDOW',
-    recommendedArchetype: 'LIGHTWEIGHT_TOOL',
+    recommendedArchetype: 'TOOL',
     executionClass: 'S',
     dScore: 8500,
     mScore: 7500,

@@ -36,7 +36,7 @@ function inferArchetype(title: string): string {
   if (/agent|saas|platform|workflow|engine|copilot|substrate|tool/i.test(lower)) {
     return 'MICRO_SAAS';
   }
-  return 'LIGHTWEIGHT_TOOL';
+  return 'TOOL';
 }
 
 export async function incubateCandidatesFromDiscovery(limit = 15): Promise<

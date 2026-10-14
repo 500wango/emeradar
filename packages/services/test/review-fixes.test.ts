@@ -35,8 +35,8 @@ describe('Review fixes (rate limit, audit, GSC batching, preferences, entitlemen
       [`sub_${userId}`, userId]
     );
     await query(
-      `INSERT INTO projects (id, user_id, project_kind, title, domain, build_type, status)
-       VALUES ($1, $2, 'EXPERIMENT', 'Fix Check', 'fixcheck.example', 'LIGHTWEIGHT_TOOL', 'IN_DEVELOPMENT')
+      `INSERT INTO projects (id, user_id, project_kind, title, domain, build_type, status, stake_deadline_at)
+       VALUES ($1, $2, 'EXPERIMENT', 'Fix Check', 'fixcheck.example', 'TOOL', 'IN_DEVELOPMENT', NOW() + INTERVAL '7 days')
        ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id`,
       [projectId, userId]
     );
@@ -145,7 +145,7 @@ describe('Review fixes (rate limit, audit, GSC batching, preferences, entitlemen
     await AuthService.updatePreferences(userId, {
       uiLocale: 'zh-CN',
       preferredMarkets: ['US', 'DE'],
-      preferredBuildTypes: ['LIGHTWEIGHT_TOOL'],
+      preferredBuildTypes: ['TOOL'],
       topics: ['seo'],
       onboardingCompleted: true,
     });
@@ -161,7 +161,7 @@ describe('Review fixes (rate limit, audit, GSC batching, preferences, entitlemen
     const pref = res.rows[0];
     assert.strictEqual(pref.ui_locale, 'en-US');
     assert.deepStrictEqual(pref.preferred_markets, ['US', 'DE']);
-    assert.deepStrictEqual(pref.preferred_build_types, ['LIGHTWEIGHT_TOOL']);
+    assert.deepStrictEqual(pref.preferred_build_types, ['TOOL']);
     assert.deepStrictEqual(pref.topics, ['seo']);
     assert.strictEqual(pref.onboarding_completed, true);
 

@@ -143,6 +143,12 @@ export interface EvidenceConfidenceInput {
   historyDays: number;
 }
 
+/** 逐日 W 档位及其观测日期（`YYYY-MM-DD`）。 */
+export interface DatedWBand {
+  obsDate: string;
+  band: AxisBand;
+}
+
 export interface PrevScoringState {
   verdict: Verdict;
   rawVerdict: Verdict;
@@ -150,6 +156,16 @@ export interface PrevScoringState {
   daysInCurrentVerdict: number;
   daysInCurrentLifecycle: number;
   wBandHistory: AxisBand[]; // recent W bands
+  /**
+   * 带日期的 W 档位序列，旧→新（05 §5.1 必要条件 2）。
+   *
+   * 缺了日期，"W 是否在 14 天内下降"就退化成"最后一格比第一格低"——而第一格
+   * 可能是任意久远的读数，于是一次半年前的降档会在今天触发 WINDOW_CLOSING，
+   * 把仍有价值的窗口提前判成关闭（连带影响免费层公开投影与告警）。
+   *
+   * 可选：仅为不采集逐日历史的老调用方保留退回路径。
+   */
+  datedWBandHistory?: DatedWBand[];
 }
 
 export interface ScoringOutput {

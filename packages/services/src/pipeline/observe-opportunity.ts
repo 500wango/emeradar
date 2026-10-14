@@ -1,11 +1,14 @@
 import { query, transaction } from '@emeradar/db';
 import {
+  AxisBand,
   bandM,
   buildPrevScoringState,
   calculateOpportunityScore,
   CommercialSummary,
+  DatedWBand,
 } from '@emeradar/scoring';
 import { Lifecycle, Verdict } from '@emeradar/core';
+import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from '../claim-policy';
 import {
   AutocompleteCollector,
   CostLedgerService,
@@ -429,8 +432,17 @@ export async function observeOpportunity(
   // 逐日档位取自账本自身，不再 JOIN opportunity_cards：后者是"当前"快照，
   // 每个历史行都会 JOIN 到同一个值，w_band 序列因此是一条水平线，
   // "窗口正在收窄"永远检测不出来。v1 行为 NULL，由下面的 filter 剔除。
-  const historyRes = await query<{ verdict: string; lifecycle: string; w_band: string | null }>(
-    `SELECT v.verdict, v.lifecycle, v.w_band
+  //
+  // obs_date 用 to_char 取成字符串：驱动没有自定义类型解析器，DATE 会被解析成
+  // **本地时区午夜**的 Date 对象，在 UTC+08:00 这类时区下再 toISOString() 会整体
+  // 退一天——而"14 天内"的判据正是建立在这个日期上。
+  const historyRes = await query<{
+    verdict: string;
+    lifecycle: string;
+    w_band: string | null;
+    obs_date: string;
+  }>(
+    `SELECT v.verdict, v.lifecycle, v.w_band, to_char(v.obs_date, 'YYYY-MM-DD') AS obs_date
      FROM verdicts v
      WHERE v.opportunity_id = $1 AND v.obs_date < $2
      ORDER BY v.obs_date DESC LIMIT 30`,
@@ -455,18 +467,27 @@ export async function observeOpportunity(
   const daysInCurrentLifecycle = prev ? streakLength((row) => row.lifecycle) : 0;
 
   // 最新在后（与 verdict.ts 的读取约定一致）。只有封存了真实档位的行才入选。
-  const wBandHistory = historyRows
-    .map((row) => row.w_band)
-    .filter((band): band is string => band !== null)
+  //
+  // 一次过滤、两个视图：带日期的序列是 05 §5.1 必要条件 2（"14 天内下降"）的依据，
+  // 无日期的那个只服务于 W_DROPPING 标志。两者必须来自同一份过滤结果——分别过滤
+  // 会让下标错位，"哪天降的档"与"降了几档"就对不上了。
+  const bandRows = historyRows
+    .filter((row): row is (typeof historyRows)[number] & { w_band: string } => row.w_band !== null)
     .reverse()
-    .slice(-10) as any[];
+    .slice(-10);
+
+  const wBandHistory = bandRows.map((row) => row.w_band as AxisBand);
+  const datedWBandHistory: DatedWBand[] = bandRows.map((row) => ({
+    obsDate: row.obs_date,
+    band: row.w_band as AxisBand,
+  }));
 
   const claimsRes = await query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND status != 'ABANDONED'`,
+    `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND ${activeClaimPredicate()}`,
     [opp.id]
   );
   const claimsCount = claimsRes.rows[0]?.count ?? 0;
-  const maxClaims = 5;
+  const maxClaims = MAX_CLAIMS_PER_OPPORTUNITY;
   const isCrowdedLocked = claimsCount >= maxClaims;
 
   const isFastTrack =
@@ -540,8 +561,10 @@ export async function observeOpportunity(
           daysInCurrentVerdict,
           daysInCurrentLifecycle,
           wBandHistory,
+          datedWBandHistory,
         })
       : undefined,
+    obsDate,
   });
 
   const minHistoryReq = isFastTrack ? 7 : 14;
@@ -557,8 +580,8 @@ export async function observeOpportunity(
   const searchIntent = toolModifierRatio > informationalRatio && toolModifierRatio > commercialRatio
     ? 'TRANSACTIONAL'
     : commercialRatio >= informationalRatio ? 'COMMERCIAL' : 'INFORMATIONAL';
-  const recommendedProductShape = opp.recommended_archetype === 'LIGHTWEIGHT_TOOL'
-    ? 'LIGHTWEIGHT_TOOL'
+  const recommendedProductShape = opp.recommended_archetype === 'TOOL'
+    ? 'TOOL'
     : opp.recommended_archetype;
   const siteStrategy = output.verdict === 'BUILD_NOW' ? 'INDEPENDENT_SITE' : 'WATCH';
 

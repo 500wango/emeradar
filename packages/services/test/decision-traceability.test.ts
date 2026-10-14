@@ -68,7 +68,7 @@ async function seedFixture() {
          top_idea, first_observed_at
        ) VALUES ($1, $2, 'decision test query', 'BUILD_NOW', 'EARLY_WINDOW',
          7000, 6000, 5000, 'HIGH', 'HIGH', 'HIGH',
-         'HIGH', 'LIGHTWEIGHT_TOOL', 'WEEKEND', 'fixture', 'fixture', NOW())`,
+         'HIGH', 'TOOL', 'WEEKEND', 'fixture', 'fixture', NOW())`,
       [opportunityId, slug]
     );
   }

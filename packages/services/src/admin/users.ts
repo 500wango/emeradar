@@ -393,7 +393,7 @@ export class AdminUserService {
       // 3. Insert default preferences
       await client.query(
         `INSERT INTO user_preferences (user_id, ui_locale, preferred_markets, preferred_build_types)
-         VALUES ($1, 'zh-CN', '{"US"}', '{"LIGHTWEIGHT_TOOL","MICRO_SAAS"}')`,
+         VALUES ($1, 'zh-CN', '{"US"}', '{"TOOL","MICRO_SAAS"}')`,
         [userId]
       );
 

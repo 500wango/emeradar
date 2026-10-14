@@ -22,7 +22,7 @@ describe('Admin Candidate Promotion & Moderation Tests', () => {
          id, slug, title, status, market_country, research_language,
          first_observed_date, recommended_archetype, execution_class,
          discovery_source, discovered_at, candidate_reason
-       ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', CURRENT_DATE, 'LIGHTWEIGHT_TOOL', 'S',
+       ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', CURRENT_DATE, 'TOOL', 'S',
                  'AUTOCOMPLETE', NOW(), 'Initial test signal')`,
       [testCandidateId, testSlug, testTitle]
     );
@@ -36,7 +36,7 @@ describe('Admin Candidate Promotion & Moderation Tests', () => {
          first_observed_at, query_velocity
        ) VALUES ($1, $2, $3, 'WATCH', 'FORMING', 0, 0, 0,
                  'INSUFFICIENT', 'INSUFFICIENT', 'INSUFFICIENT', 'LOW',
-                 'LIGHTWEIGHT_TOOL', 'S', 'Pending observation', 'No shape yet',
+                 'TOOL', 'S', 'Pending observation', 'No shape yet',
                  NOW(), 0)`,
       [testCandidateId, testSlug, testTitle]
     );

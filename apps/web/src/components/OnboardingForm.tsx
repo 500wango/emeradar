@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 
-const BUILD_TYPES = ['LIGHTWEIGHT_TOOL', 'MICRO_SAAS', 'CONTENT_SITE', 'DIRECTORY'];
+const BUILD_TYPES = ['TOOL', 'MICRO_SAAS', 'CONTENT_SITE', 'DIRECTORY'];
 const MARKETS = ['US'];
 const TOPICS = ['developer_tools', 'finance', 'marketing', 'operations', 'creator_tools'];
 

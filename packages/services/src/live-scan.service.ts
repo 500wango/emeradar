@@ -112,19 +112,19 @@ export class LiveScanService {
     const verdict: Verdict = 'WATCH';
 
     // Recommended Archetype
-    let recommendedArchetype: BuildArchetype = input.preferredArchetype || 'LIGHTWEIGHT_TOOL';
+    let recommendedArchetype: BuildArchetype = input.preferredArchetype || 'TOOL';
     if (!input.preferredArchetype) {
       if (qLower.includes('sync') || qLower.includes('backup') || qLower.includes('audit') || qLower.includes('monitor')) {
         recommendedArchetype = 'MICRO_SAAS';
       } else if (qLower.includes('directory') || qLower.includes('list') || qLower.includes('curated')) {
         recommendedArchetype = 'DIRECTORY';
       } else {
-        recommendedArchetype = 'LIGHTWEIGHT_TOOL';
+        recommendedArchetype = 'TOOL';
       }
     }
 
     const executionClass: ExecutionClass =
-      recommendedArchetype === 'LIGHTWEIGHT_TOOL' ? 'S' : recommendedArchetype === 'MICRO_SAAS' ? 'M' : 'S';
+      recommendedArchetype === 'TOOL' ? 'S' : recommendedArchetype === 'MICRO_SAAS' ? 'M' : 'S';
 
     // Title & Catalysts
     const title = rawQuery;

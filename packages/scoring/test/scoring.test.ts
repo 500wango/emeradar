@@ -9,6 +9,8 @@ import {
   evaluateLifecycle,
   calculateOpportunityScore,
   buildPrevScoringState,
+  wDroppedWithin,
+  WINDOW_CLOSING_FRESHNESS_DAYS,
   FullOpportunityScoreInput,
 } from '../src';
 
@@ -276,7 +278,7 @@ describe('Scoring Engine Unit Tests', () => {
 
     assert.deepStrictEqual(out1, out2);
     assert.strictEqual(out1.verdict, 'BUILD_NOW');
-    assert.strictEqual(out1.recommendedArchetype, 'LIGHTWEIGHT_TOOL');
+    assert.strictEqual(out1.recommendedArchetype, 'TOOL');
   });
 
   it('supports Fast-Track 7-day qualification for breakout pulse momentum', () => {
@@ -721,5 +723,138 @@ describe('Verdict debounce and ledger prev-state (05 §5)', () => {
     });
     assert.ok(res.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
     assert.strictEqual(res.verdict, 'BUILD_NOW');
+  });
+});
+
+/**
+ * 05 §5.1 必要条件 2：W 档必须在 obs_date 前 14 天内下降。
+ *
+ * 这条判据以前是"最后一格比第一格低"，而第一格可能是任意久远的读数——于是一次
+ * 半年前的降档会在今天把机会判成 WINDOW_CLOSING。它的代价不只是标签错了：窗口
+ * 关闭会改变公开投影与告警，等于把仍有抢跑价值的窗口提前泄露。
+ */
+describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
+  const TODAY = '2026-06-01';
+  const daysAgo = (n: number): string =>
+    new Date(Date.parse(`${TODAY}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+
+  it('降档落在 14 天内才算，落在窗口外不算', () => {
+    const fresh = [
+      { obsDate: daysAgo(40), band: 'HIGH' as const },
+      { obsDate: daysAgo(20), band: 'HIGH' as const },
+      { obsDate: daysAgo(3), band: 'MEDIUM' as const },
+    ];
+    const ancient = [
+      { obsDate: daysAgo(300), band: 'HIGH' as const },
+      { obsDate: daysAgo(200), band: 'MEDIUM' as const },
+      { obsDate: daysAgo(100), band: 'MEDIUM' as const },
+    ];
+    assert.strictEqual(wDroppedWithin(fresh, WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), true);
+    assert.strictEqual(wDroppedWithin(ancient, WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), false);
+  });
+
+  it('只判定最近一次降档：更早的降档不影响结果', () => {
+    const history = [
+      { obsDate: daysAgo(120), band: 'HIGH' as const },
+      { obsDate: daysAgo(100), band: 'LOW' as const },
+      { obsDate: daysAgo(30), band: 'MEDIUM' as const }, // 最近一次是升档
+    ];
+    assert.strictEqual(wDroppedWithin(history, WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), false);
+  });
+
+  it('降进 INSUFFICIENT 不算降档：那是数据缺失，不是市场结论', () => {
+    const history = [
+      { obsDate: daysAgo(10), band: 'HIGH' as const },
+      { obsDate: daysAgo(3), band: 'INSUFFICIENT' as const },
+    ];
+    assert.strictEqual(wDroppedWithin(history, WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), false);
+  });
+
+  it('历史不足两格或缺失时一律为假', () => {
+    assert.strictEqual(wDroppedWithin(undefined, WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), false);
+    assert.strictEqual(wDroppedWithin([], WINDOW_CLOSING_FRESHNESS_DAYS, TODAY), false);
+    assert.strictEqual(
+      wDroppedWithin([{ obsDate: daysAgo(1), band: 'HIGH' }], WINDOW_CLOSING_FRESHNESS_DAYS, TODAY),
+      false
+    );
+  });
+
+  it('不读挂钟：缺省 asOf 时以历史最新一格的日期为今天', () => {
+    const history = [
+      { obsDate: daysAgo(30), band: 'HIGH' as const },
+      { obsDate: daysAgo(2), band: 'MEDIUM' as const },
+    ];
+    // 同一输入重复调用必得同一结果，且与真实当前时间无关。
+    assert.strictEqual(wDroppedWithin(history, WINDOW_CLOSING_FRESHNESS_DAYS), true);
+    assert.strictEqual(wDroppedWithin(history, WINDOW_CLOSING_FRESHNESS_DAYS), true);
+  });
+
+  // ---- 端到端：判据如何改变裁决 -------------------------------------------
+  const windowClosingAxes = {
+    dBand: 'MEDIUM' as const,
+    mSummary: {
+      band: 'MEDIUM' as const,
+      independentDomainsCount: 1,
+      hasSubscriptionPlans: false,
+      hasOneTimePlans: false,
+      hasStrongNegative: false,
+      totalScore: 4000,
+    },
+    wBand: 'LOW' as const,
+    confidence: 'MEDIUM' as const,
+    historyDays: 45,
+  };
+
+  const prevFromBuildNow = (dated: { obsDate: string; band: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' }[]) =>
+    buildPrevScoringState({
+      verdict: 'BUILD_NOW',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 30,
+      daysInCurrentLifecycle: 30,
+      // 无日期的序列仍然写着"HIGH -> MEDIUM"，旧实现正是靠它判定降档。
+      wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+      datedWBandHistory: dated,
+    });
+
+  it('14 天外的降档不再把机会锁进 WINDOW_CLOSING（本次修复的缺陷）', () => {
+    const res = evaluateVerdict({
+      ...windowClosingAxes,
+      prev: prevFromBuildNow([
+        { obsDate: daysAgo(300), band: 'HIGH' },
+        { obsDate: daysAgo(200), band: 'MEDIUM' },
+        { obsDate: daysAgo(100), band: 'MEDIUM' },
+      ]),
+      obsDate: TODAY,
+    });
+    assert.strictEqual(res.rawVerdict, 'PASS');
+    assert.ok(!res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
+  });
+
+  it('14 天内的降档仍然触发 WINDOW_CLOSING', () => {
+    const res = evaluateVerdict({
+      ...windowClosingAxes,
+      prev: prevFromBuildNow([
+        { obsDate: daysAgo(40), band: 'HIGH' },
+        { obsDate: daysAgo(20), band: 'HIGH' },
+        { obsDate: daysAgo(3), band: 'MEDIUM' },
+      ]),
+      obsDate: TODAY,
+    });
+    assert.strictEqual(res.rawVerdict, 'WINDOW_CLOSING');
+    assert.ok(res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
+  });
+
+  it('缺少带日期的历史时退回旧的无日期比较（仅为老调用方保留）', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'BUILD_NOW',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 30,
+      daysInCurrentLifecycle: 30,
+      wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+    });
+    const res = evaluateVerdict({ ...windowClosingAxes, prev, obsDate: TODAY });
+    assert.strictEqual(res.rawVerdict, 'WINDOW_CLOSING');
   });
 });

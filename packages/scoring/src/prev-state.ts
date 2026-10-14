@@ -1,5 +1,5 @@
 import { Lifecycle, Verdict } from '@emeradar/core';
-import { AxisBand, PrevScoringState } from './types';
+import { AxisBand, DatedWBand, PrevScoringState } from './types';
 
 /** 上一期账本行中参与去抖的字段。 */
 export interface LedgerRowPrevInput {
@@ -17,6 +17,11 @@ export interface LedgerRowPrevInput {
   daysInCurrentLifecycle: number;
   /** 逐日窗口档位，旧→新排列；仅含封存了真实档位的行。 */
   wBandHistory: AxisBand[];
+  /**
+   * 与 `wBandHistory` 同源、但带观测日期的序列。05 §5.1 的"14 天内下降"判据只能
+   * 建立在它之上：`wBandHistory` 丢掉了日期，无法区分"昨天降档"与"半年前降档"。
+   */
+  datedWBandHistory?: DatedWBand[];
 }
 
 /**
@@ -36,5 +41,6 @@ export function buildPrevScoringState(row: LedgerRowPrevInput): PrevScoringState
     daysInCurrentVerdict: row.daysInCurrentVerdict,
     daysInCurrentLifecycle: row.daysInCurrentLifecycle,
     wBandHistory: row.wBandHistory,
+    datedWBandHistory: row.datedWBandHistory,
   };
 }
