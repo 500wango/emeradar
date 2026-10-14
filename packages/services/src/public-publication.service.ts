@@ -129,7 +129,7 @@ export class PublicPublicationService {
     const admissionNotEvaluated: string[] = [];
     let cannibalization: CannibalizationResult | null = null;
 
-    // 仍有空余槽位的 BUILD_NOW / EARLY_BET **一律不得公开**——15 §3.1 的硬阻断，
+    // 仍有空余槽位的 BUILD_NOW / EARLY_BET **一律不得公开**——15 §3 第 1 条 的硬阻断，
     // 也是 15 §8 那条 0 容忍指标的正面要求。
     if (!basis) blockedBy.push('OPEN_SLOTS');
 
@@ -157,7 +157,7 @@ export class PublicPublicationService {
     const eligible = blockedBy.length === 0;
 
     /**
-     * 资格凭据（03 §15 的 `public_pages.eligibility`、15 §3.1、06 §5）。
+     * 资格凭据（03 §15 的 `public_pages.eligibility`、15 §3 第 1 条、06 §5）。
      *
      * 这张快照存在的**唯一**目的是事后回答「为什么这条能被免费用户看到」。15 §8 把
      * 「空槽窗口泄露率」列为 0 容忍，而 0 容忍必须配一份可复核的凭据，否则复核只能靠
@@ -305,7 +305,7 @@ export class PublicPublicationService {
      * 同一轮运行内把自己追加进蚕食索引，让后面的机会能看见刚发布的这一页。
      *
      * 只在 `eligible && indexable` 时追加：蚕食比对的口径是"会被 Google 收录的页"
-     * （15 §3.3），而 `indexable = false` 的页不进 sitemap、不会被收录，把它算进去
+     * （15 §3 第 3 条），而 `indexable = false` 的页不进 sitemap、不会被收录，把它算进去
      * 等于凭空多出一个参照物。代价是这里多拉一次 Top10——但它只在这一页真的可收录
      * 时发生，今天几乎是零次。
      */

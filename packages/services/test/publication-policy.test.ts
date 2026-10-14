@@ -52,7 +52,7 @@ function partnerSharing(shared: number): string[] {
   return [...urlsFrom('a', shared), ...urlsFrom('b', SERP_TOP_N - shared)];
 }
 
-describe('槽位满额（15 §3.1）', () => {
+describe('槽位满额（15 §3 第 1 条）', () => {
   // 入参是**按机会汇总后**的计数（`loadSlotTotals` 的返回值），跨形态的求和在 SQL 的
   // `SUM` 里完成。所以这里的"多形态"用例直接给汇总值——被测的是"汇总值够不够判满额"，
   // 而不是再实现一遍求和。
@@ -97,7 +97,7 @@ describe('槽位满额（15 §3.1）', () => {
   });
 });
 
-describe('14 天内新进 WINDOW_CLOSING（15 §3.1）', () => {
+describe('14 天内新进 WINDOW_CLOSING（15 §3 第 1 条）', () => {
   /** 按倒序（最新在前）造账本尾部，与 observe-opportunity.ts:474-518 的读取约定一致。 */
   const run = (verdicts: Array<[string, string]>) =>
     verdicts.map(([obs_date, verdict]) => ({ obs_date, verdict }));
@@ -226,7 +226,7 @@ describe('14 天内新进 WINDOW_CLOSING（15 §3.1）', () => {
   });
 });
 
-describe('SERP URL 归一（15 §3.3）', () => {
+describe('SERP URL 归一（15 §3 第 3 条）', () => {
   it('去 scheme、去 www、去 fragment、去尾斜杠，主机名小写', () => {
     assert.equal(normalizeSerpUrl('https://WWW.Example.com/Pricing/'), 'example.com/Pricing');
     assert.equal(normalizeSerpUrl('http://example.com'), 'example.com');
@@ -274,7 +274,7 @@ describe('Jaccard', () => {
   });
 });
 
-describe('蚕食防护状态机（15 §3.3）', () => {
+describe('蚕食防护状态机（15 §3 第 3 条）', () => {
   const evaluate = (pages: Array<[string, string, string[]]>, exclude?: string) =>
     evaluateCannibalization(CANDIDATE, makeIndex(pages), exclude);
 

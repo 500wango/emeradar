@@ -176,7 +176,7 @@ after(async () => {
   await harness.teardown();
 });
 
-describe('条件① 抢跑价值已耗尽（15 §3.1）', () => {
+describe('条件① 抢跑价值已耗尽（15 §3 第 1 条）', () => {
   it('**硬阻断**：仍有空槽的 BUILD_NOW 不得公开（15 §8 的 0 容忍线）', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
@@ -299,7 +299,7 @@ describe('条件① 抢跑价值已耗尽（15 §3.1）', () => {
   });
 });
 
-describe('条件② 证据充足性（15 §3.2）', () => {
+describe('条件② 证据充足性（15 §3 第 2 条）', () => {
   it('满额但 M 轴 INSUFFICIENT → 不公开', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
@@ -312,7 +312,7 @@ describe('条件② 证据充足性（15 §3.2）', () => {
   });
 });
 
-describe('条件③ 蚕食防护（15 §3.3）', () => {
+describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
   /** 满额候选 + 一条已收录的参照页，两者的 PRIMARY 各有一份 SERP 快照。 */
   async function seedCannibalizationFixture(candidateId: string, neighbourId: string, overlap: number) {
     await seedCrowded(candidateId);
@@ -421,7 +421,7 @@ describe('资格凭据的形状（03 §15）', () => {
   });
 });
 
-describe('条件④ 买断封印优先（15 §3.1 第 6 条）', () => {
+describe('条件④ 买断封印优先（15 §3 第 4 条、§3.1 第 6 条）', () => {
   it('保护期内的机会走打码分支，不落入准入判定', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();

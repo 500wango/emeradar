@@ -3,7 +3,7 @@
 -- 纯新增、不改数据、不改约束。这张表从 0001 起就只有主键与 `UNIQUE (slug, locale)`，
 -- 而它的三条**每日**路径全都在全表扫：
 --
---   1. 蚕食防护（15 §3.3）要拿"当前会被 Google 收录的机会页"当参照，按
+--   1. 蚕食防护（15 §3 第 3 条）要拿"当前会被 Google 收录的机会页"当参照，按
 --      `(page_type, locale) WHERE status='PUBLISHED' AND indexable=true` 筛。这条查询
 --      每轮 S8 跑一次，返回的全是那小撮已发布且可收录的页。
 --   2. `clearMaskedProjection` 按 `opportunity_id` 删打码页，**每次非打码发布都会跑

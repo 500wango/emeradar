@@ -518,7 +518,7 @@ export async function runDailyPipeline(
     await deliverAlertEmail(email.to, email.subject, email.body, email.idempotencyKey);
   }
 
-  // 蚕食索引（15 §3.3）按**本轮**构建一次，透传给整批机会。按次自加载的话，N 条机会
+  // 蚕食索引（15 §3 第 3 条）按**本轮**构建一次，透传给整批机会。按次自加载的话，N 条机会
   // 每条都要拉一遍全量已收录集合，行数是 N × 10M 量级——透传不是优化而是必需。
   const cannibalizationIndex = await buildCannibalizationIndex('en-US');
   for (const item of observed) {

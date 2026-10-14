@@ -19,10 +19,10 @@ import { WINDOW_CLOSING_FRESHNESS_DAYS } from '@emeradar/scoring';
  * 紧挨消费者并引规格章节，与 `verdict.ts:10`、`claim-policy.ts:16` 同一种写法。
  */
 
-/** 15 §3.3 的 `publication.cannibalization_max_jaccard`，默认 0.7。 */
+/** 15 §3 第 3 条 的 `publication.cannibalization_max_jaccard`，默认 0.7。 */
 export const CANNIBALIZATION_MAX_JACCARD = 0.7;
 
-/** 15 §3.3 的「Top10 重叠度」——取 SERP 排名 1..10 的结果 URL 集合。 */
+/** 15 §3 第 3 条 的「Top10 重叠度」——取 SERP 排名 1..10 的结果 URL 集合。 */
 export const SERP_TOP_N = 10;
 
 /**
@@ -47,7 +47,7 @@ export interface SlotFullness extends SlotTotals {
 }
 
 /**
- * 「槽位已满额」= `Σclaimed >= Σcapacity`（15 §3.1、ADR-018、05 §5.3）。
+ * 「槽位已满额」= `Σclaimed >= Σcapacity`（15 §3 第 1 条、ADR-018、05 §5.3）。
  *
  * 入参是**按机会汇总后**的计数（`loadSlotTotals` 的返回值，跨形态的求和由 SQL 的
  * `SUM` 完成）——函数本身不再做第二次累加，那会让"跨形态求和"有两份实现。注意它是
@@ -87,7 +87,7 @@ export interface WindowClosingState {
 }
 
 /**
- * 「14 天内新进入 `WINDOW_CLOSING`」（15 §3.1）——从**账本**的连续同值段读进入时点。
+ * 「14 天内新进入 `WINDOW_CLOSING`」（15 §3 第 1 条）——从**账本**的连续同值段读进入时点。
  *
  * 规格的括注写的是 `wDroppedWithin(prev.datedWBandHistory, 14)`，但那是「W 档是否在
  * 14 天内下降过」的**代理**，不是「何时进入 `WINDOW_CLOSING`」。三处会读错，都是硬的：
@@ -188,7 +188,7 @@ export interface CannibalizationIndex {
 }
 
 /**
- * 15 §3.3 的蚕食防护。
+ * 15 §3 第 3 条 的蚕食防护。
  *
  * 「已收录」的口径是 `PUBLISHED AND indexable = true`，与 `sitemap.ts:20` 同一口径：
  * 蚕食说的是**在 Google 里争同一个词**，而打码页与未过质检的 `indexable = false` 页
