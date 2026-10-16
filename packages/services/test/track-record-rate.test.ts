@@ -85,6 +85,9 @@ describe('公开战绩的比率口径', () => {
       '夹具没有进入公开战绩：检查 45 天延迟、机会状态与 hash_version'
     );
     assert.strictEqual(record.stats.hitsCount, 1);
+    // Q11：只有 T+30 结果、未满额、未关窗、无买断的 Episode 计入汇总，但逐行明细暂不披露。
+    assert.strictEqual(record.stats.undisclosedEpisodes, 1);
+    assert.strictEqual(record.episodes.length, 0, '抢跑窗口仍在的 Episode 不该出现在逐行明细里');
     assert.strictEqual(
       record.stats.hitRate30d,
       null,

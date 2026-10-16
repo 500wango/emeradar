@@ -924,8 +924,8 @@ describe('买断：公开战报必须打码，但**一行都不许少**（06 §1
       ['eps_slk_open', OPP_TRACKED, 'HIT'],
     ] as const) {
       await query(
-        `INSERT INTO prediction_episodes (id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d)
-         VALUES ($1, $2, $3, 'BUILD_NOW', (NOW() - INTERVAL '120 days')::date, $4)`,
+        `INSERT INTO prediction_episodes (id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d, outcome_90d)
+         VALUES ($1, $2, $3, 'BUILD_NOW', (NOW() - INTERVAL '120 days')::date, $4, $4)`,
         [id, VERDICT_OF[opportunityId], opportunityId, outcome]
       );
     }

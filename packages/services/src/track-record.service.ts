@@ -71,16 +71,24 @@ export class TrackRecordService {
   /**
    * Get public track record summary, historical episodes, and checkpoints
    */
-  /** Public embargo before a prediction is disclosed on the marketing site. */
-  static readonly PUBLIC_DELAY_DAYS = 45;
-
   static async getPublicTrackRecord(): Promise<any> {
-    // 1. Overall stats from prediction_episodes.
-    //    Public disclosure is limited to published opportunities that have
-    //    cleared the same 45-day embargo used by public_pages, and is bounded
-    //    so an unauthenticated request can never scan the whole ledger.
+    // 1. 汇总纳入 v2 纪元内**全部**已发布 Episode，不再按天数延迟（PRD v2.2 Q11、06 §11）：
+    //    只统计已满额或已关窗的机会会系统性剔除无人认领的失误。逐行明细另行披露：
+    //    失去抢跑价值（槽位满额 / 当前为 WINDOW_CLOSING）、完成 T+90 评估、或买断已期满
+    //    三者先到者；买断保护期内以打码形式出现。有界，未登录请求扫不了整本账本。
     const episodesRes = await query<any>(
-      `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug
+      `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug,
+              (
+                e.outcome_90d IN ('HIT','MISS')
+                OR COALESCE((SELECT SUM(s.capacity) > 0 AND SUM(s.claimed) >= SUM(s.capacity)
+                               FROM opportunity_slots s WHERE s.opportunity_id = e.opportunity_id), false)
+                OR COALESCE((SELECT lv.verdict = 'WINDOW_CLOSING' FROM verdicts lv
+                              WHERE lv.opportunity_id = e.opportunity_id
+                              ORDER BY lv.obs_date DESC LIMIT 1), false)
+                OR EXISTS (SELECT 1 FROM stealth_locks sl
+                            WHERE sl.opportunity_id = e.opportunity_id
+                              AND sl.provider_payment_id IS NOT NULL)
+              ) AS disclosed
        FROM prediction_episodes e
        JOIN opportunities o ON o.id = e.opportunity_id
        JOIN verdicts v ON v.id = e.verdict_id
@@ -88,10 +96,8 @@ export class TrackRecordService {
          -- 账本纪元（06 §5、30 R3）：hash_version = 1 的存量行由 seed 伪造、不可复算，
          -- 不得进入任何公开统计，也不计入 Gate 1「账本运行 ≥ 60 天」。
          AND v.hash_version >= 2
-         AND e.predicted_at <= (NOW() - ($1 || ' days')::interval)::date
        ORDER BY e.predicted_at DESC
-       LIMIT 500`,
-      [String(TrackRecordService.PUBLIC_DELAY_DAYS)]
+       LIMIT 500`
     );
 
     const episodes = episodesRes.rows;
@@ -183,7 +189,7 @@ export class TrackRecordService {
      *     "这一条是被买断的"而不是显示成一条坏数据。
      */
     const masks = await getActiveMasks(episodes.map((e: any) => e.opportunity_id));
-    const publicEpisodes = episodes.map((episode: any) => {
+    const publicEpisodes = episodes.filter((e: any) => e.disclosed).map((episode: any) => {
       const mask = masks.get(episode.opportunity_id);
       const projected: Record<string, unknown> = {
         is_stealth_masked: Boolean(mask),
@@ -203,6 +209,7 @@ export class TrackRecordService {
         evaluatedEpisodes: evaluated.length,
         hitsCount: hits,
         hitRate30d,
+        undisclosedEpisodes: episodes.filter((e: any) => !e.disclosed).length,
         activeWatchlistCount: Number(watchlistRes.rows[0]?.count ?? 0),
       },
       episodes: publicEpisodes,
