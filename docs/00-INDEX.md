@@ -38,6 +38,7 @@
 | 28 | PRD-V2.1-ALIGNMENT | PRD v2.1 带来的差距、本次设计定论（D1–D14）与逐文档修订记录 | 产品、全员 |
 | 29 | GEO-OPTIMIZATION | GEO (生成式引擎优化) 落地规范与 Google AI Overviews 对齐报告 | 前端、增长 |
 | 30 | REVIEW-REMEDIATION-PLAN | 2026-10-17 设计审查的整改项（R1–R20）、裁决事项（Q1–Q15，已合入 PRD v2.2）与重排的开发计划 | 产品、全员 |
+| 31 | IMPLEMENTATION-PLAN | 30 的整改项落到代码：按里程碑拆分的任务、涉及文件、迁移与验收 | 后端、前端、全员 |
 
 ## 2. 依赖关系
 
