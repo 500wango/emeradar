@@ -1128,3 +1128,62 @@ describe('买断：作废与回填', () => {
     );
   });
 });
+
+describe('买断：30 天内 2 次未付款作废后取消下单资格（PRD v2.2 Q8）', () => {
+  const STRIKER = 'usr_slk_striker';
+  const OPP_STRIKE = 'opp_slk_strike';
+
+  async function voidedLock(id: string) {
+    await harness.db.query(
+      `INSERT INTO stealth_locks (id, opportunity_id, user_id, status, locked_at, unlock_at, amount_usd)
+       VALUES ($1, $2, $3, 'VOID', NOW() - INTERVAL '1 day', NOW() + INTERVAL '59 days', 199.00)`,
+      [id, OPP_STRIKE, STRIKER]
+    );
+  }
+
+  it('一次作废仍可下单，第二次作废后被拒绝且不留新锁', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+
+    await query(
+      `INSERT INTO users (id, email, display_name, role, tier, email_verified_at)
+       VALUES ($1, $2, $1, 'USER', 'PRO', NOW())`,
+      [STRIKER, `${STRIKER}@emeradar.test`]
+    );
+    await query(
+      `INSERT INTO subscriptions (id, user_id, plan_code, status, current_period_end)
+       VALUES ($1, $2, 'PRO', 'ACTIVE', NOW() + INTERVAL '30 days')`,
+      [`sub_${STRIKER}`, STRIKER]
+    );
+    await query(
+      `INSERT INTO opportunities (id, slug, title, status, first_observed_date)
+       VALUES ($1, 'opp-slk-strike', 'strike title', 'TRACKED', '2026-01-01')`,
+      [OPP_STRIKE]
+    );
+    await query(
+      `INSERT INTO opportunity_slots (opportunity_id, archetype, capacity) VALUES ($1, 'TOOL', 2)`,
+      [OPP_STRIKE]
+    );
+
+    await voidedLock(lockId('strike1'));
+    const first = await harness.services.StealthLockService.purchase(STRIKER, OPP_STRIKE);
+    assert.ok(first.lockId, '只有一次作废时不该被拦');
+    // 把这笔占位也变成作废，凑满第二次。
+    await query(`DELETE FROM stealth_lock_displays WHERE stealth_lock_id = $1`, [first.lockId]);
+    await query(`UPDATE stealth_locks SET status = 'VOID' WHERE id = $1`, [first.lockId]);
+
+    await assert.rejects(
+      () => harness.services.StealthLockService.purchase(STRIKER, OPP_STRIKE),
+      (error: any) => {
+        assert.strictEqual(error.code, 'STEALTH_BUYOUT_SUSPENDED');
+        assert.strictEqual(error.status, 403);
+        return true;
+      }
+    );
+    const active = await query(
+      `SELECT id FROM stealth_locks WHERE user_id = $1 AND status = 'ACTIVE'`,
+      [STRIKER]
+    );
+    assert.strictEqual(active.rows.length, 0);
+  });
+});

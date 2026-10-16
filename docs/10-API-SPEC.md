@@ -208,7 +208,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 
 - 待付窗口 **15** 分钟（`STEALTH_RESERVATION_GRACE_MINUTES`，`packages/services/src/stealth-lock-policy.ts`；PRD v2.2 Q8 由 45 缩为 15，代码常量待改）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
 - 窗口一过而钱仍未到，占位自动失效（`status='VOID'`）：机会重新对全网开放。**失效不依赖清理作业是否跑过**——隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），否则一次作业停摆就会变成一次无限期的全网遮蔽。
-- 结账会话的 `expires_at`（`STEALTH_CHECKOUT_SESSION_MINUTES`）必须**短于**待付窗口（预留 webhook 投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。这个大小关系是硬约束，不是两个各自可调的旋钮。窗口缩到 15 分钟后，会话时长须同步改为 **10 分钟**（现行代码为 35，与新窗口同轮修改；若 MoR 的最短会话时长大于 10 分钟，窗口不得低于"会话时长 + 5 分钟"）。
+- 结账会话的 `expires_at`（`STEALTH_CHECKOUT_SESSION_MINUTES`）必须**短于**待付窗口（预留 webhook 投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。这个大小关系是硬约束，不是两个各自可调的旋钮。PRD v2.2 Q8 原定窗口 15 分钟，但 Stripe Checkout 会话最短 30 分钟，窗口短于会话就会出现上述交错，所以落地为：会话 31 分钟（`STEALTH_CHECKOUT_SESSION_MINUTES`）、待付窗口 35 分钟（`STEALTH_RESERVATION_GRACE_MINUTES`），即"窗口不得低于会话时长 + 余量"。**未付款惩罚**：同一账号 30 天内累计 2 次未付款作废（含已超窗口但作业未扫到的占位）后，下单返回 `403 STEALTH_BUYOUT_SUSPENDED`；会话创建失败而被补偿删除的占位不计入。按规范化身份 / 设备归并计数待 T5.8 反滥用引擎落地后再做。
 - 同一用户**同时至多一笔待付占位**。没有这条闸时，一个付费账号可以对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，把整网反复遮黑。
 - **多账号轮流的闸（PRD v2.2 Q8）**：同一规范化身份（`email_identities`）或同一设备指纹在 30 天内累计 **2 次**未付作废（`VOID`）后，取消其买断下单资格：`POST` 返回 `422 STEALTH_LOCK_UNAVAILABLE`，`GET` 返回 `available = false` 并附 `reason = 'PURCHASE_SUSPENDED'`。判定在下单事务内现算，不依赖作业。
 - 窗口内已付款：webhook 回填 `provider_payment_id`，并**同步刷新该机会的公开投影**（不等 S8 批处理），否则从付款到下一次批处理之间有最长一整天的真实词根裸奔，按 15 §8 即 P0。

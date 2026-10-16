@@ -13,6 +13,8 @@ import {
   STEALTH_CHECKOUT_SESSION_MINUTES,
   STEALTH_LOCK_DURATION_DAYS,
   STEALTH_RESERVATION_GRACE_MINUTES,
+  STEALTH_UNPAID_STRIKE_LIMIT,
+  STEALTH_UNPAID_STRIKE_WINDOW_DAYS,
   hiddenFromViewer,
   maskedLabel,
   stealthHiddenPredicate,
@@ -296,6 +298,25 @@ export class StealthLockService {
      * 索引保留，负责它管得住的那种并发（同一秒的两个请求）。两者是"给人看的话"
      * 与"给并发看的闸"的关系，不是重复。
      */
+    // PRD v2.2 Q8：30 天内累计 2 次未付款作废（已作废，或已超窗口但作业还没扫到）后，
+    // 取消买断下单资格。按 user_id 计；补偿删除的行（会话建失败）不留痕，不会被计入。
+    const strikes = await client.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM stealth_locks
+        WHERE user_id = $1 AND provider_payment_id IS NULL
+          AND locked_at > NOW() - ($2 || ' days')::interval
+          AND (status = 'VOID'
+               OR (status = 'ACTIVE'
+                   AND locked_at < NOW() - INTERVAL '${STEALTH_RESERVATION_GRACE_MINUTES} minutes'))`,
+      [userId, String(STEALTH_UNPAID_STRIKE_WINDOW_DAYS)]
+    );
+    if ((strikes.rows[0]?.n ?? 0) >= STEALTH_UNPAID_STRIKE_LIMIT) {
+      throw new EmeradarError(
+        ErrorCode.STEALTH_BUYOUT_SUSPENDED,
+        'Stealth buyout is unavailable after repeated unpaid reservations.',
+        403
+      );
+    }
+
     const pendingElsewhere = await client.query<{
       id: string;
       provider_checkout_url: string | null;

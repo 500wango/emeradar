@@ -96,7 +96,9 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 |---|------|------|------|
 | T5.1 | 质押窗口分档 | `STAKE_WINDOW_DAYS` 改为按 `execution_class` 取 7/14/21；接受预发布页；首次逾期退配额（新迁移加记录列） | 18 §4.2 Q5 两条用例 |
 | T5.2 | 活跃 GO 口径 | `ACTIVE_SLOTS_EXCEEDED` 只计质押未核验的 GO（Q15） | 18 §4.2 Q15 用例 |
-| T5.3 | 待付窗口 | `STEALTH_RESERVATION_GRACE_MINUTES = 15`、`STEALTH_CHECKOUT_SESSION_MINUTES = 10`（必须短于前者）；30 天内 2 次未付作废后取消买断资格 | 现有 stealth 测试改值后全绿；新增资格取消用例 |
+| T5.3 | 待付窗口 | `STEALTH_RESERVATION_GRACE_MINUTES = 35`、`STEALTH_CHECKOUT_SESSION_MINUTES = 31`（必须短于前者）；30 天内 2 次未付作废后取消买断资格 | 现有 stealth 测试改值后全绿；新增资格取消用例 |
+
+**T5.3 已落地（偏离 PRD v2.2 Q8 的 15 分钟）**：Stripe Checkout 会话有效期下限是 30 分钟，待付窗口若短于会话，会出现"占位已作废、结账页仍可付款"（钱已收、交付物不在）。所以窗口取 35 分钟 = 30 + 5 分钟余量，会话 31 分钟。资格取消按账号计（`user_id`），错误码 `403 STEALTH_BUYOUT_SUSPENDED`；"同一设备"维度要等 T5.8 的设备指纹落地后再加。若要真正做到 15 分钟，需要在作废时主动调用 Stripe 的 expire session 接口，目前没有这条出站能力。
 | T5.4 | 告警 MVP | 保留 `rule_type` 单值模型；补齐 6 条首发触发器的求值（含 `evaluateKillPredicate`，按现存 `{metric, op, threshold}` 结构实现）；接入 `email.service.ts` 投递 | 12 §2 标「首发」的 6 条都有求值路径和 Email 投递 |
 | T5.5 | Free 精选 | 实现 `feed_selected_weekly`；7 天无新案例时回退历史案例并标注（Q10） | 13 §3.2 用例 |
 | T5.6 | Demo 词 | `GET /screener/demos` 与详情接口，只读冻结快照；Admin 维护 | 10 §4.3b；p95 < 200ms |

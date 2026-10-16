@@ -26,7 +26,11 @@ export const STEALTH_LOCK_DURATION_DAYS = 60;
  * 待付窗口。窗口内占位与已成交的买断对外**没有区别**（机会同样隐藏）；窗口一过
  * 而钱仍未到，占位作废，机会重新对全网开放（03 §17 I13）。
  */
-export const STEALTH_RESERVATION_GRACE_MINUTES = 45;
+export const STEALTH_RESERVATION_GRACE_MINUTES = 35;
+
+/** 30 天内未付款作废达到此次数，取消买断下单资格（PRD v2.2 Q8）。 */
+export const STEALTH_UNPAID_STRIKE_LIMIT = 2;
+export const STEALTH_UNPAID_STRIKE_WINDOW_DAYS = 30;
 
 /**
  * 结账会话的有效期，**必须短于待付窗口**。
@@ -35,10 +39,11 @@ export const STEALTH_RESERVATION_GRACE_MINUTES = 45;
  * 分钟付掉一笔，作业在第 45 分钟把占位判为作废——那正是"先占位"这个方案本来要避免
  * 的结局（钱已收、交付物不在）。留出的余量给 webhook 投递延迟。
  *
- * 不取 30（Stripe 允许的下限）：`now` 是发请求**之前**算的，Stripe 看到的时间总比
- * 它晚一点，卡在下限上会被判为不足 30 分钟而拒绝。
+ * 30 是 Stripe 允许的下限，所以待付窗口不能照 PRD v2.2 Q8 缩到 15 分钟：窗口一旦
+ * 短于会话，就会出现“占位已作废、结账页仍可付款”。取 35 = 30 + 5 分钟余量；`now`
+ * 是发请求**之前**算的，Stripe 看到的时间总比它晚一点，余量同时吸收这点偏差。
  */
-export const STEALTH_CHECKOUT_SESSION_MINUTES = 35;
+export const STEALTH_CHECKOUT_SESSION_MINUTES = 31;
 
 /**
  * 打码标签要覆盖的 locale 集合，与公开投影的产出范围同源。

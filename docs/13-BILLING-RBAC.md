@@ -172,7 +172,7 @@ type ReservationResult =
 - Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计；候选观察区对实时套餐开放，对 Free 只读。
 - **报告与 AI 点火包在 GO 之后才解锁**，两者同属一次原子立项；同一快照重复查看不重复扣额（09 §6）。
 - **季度 Builder Pass 不是独立 `plan_code`**，而是 PRO 权益在 `billing_interval = 'QUARTER'` 下的售卖方式（03 §3）。这样同一份权益只有一个真源，避免 `PRO` 与 `BUILDER_PASS` 两套配额各自漂移。
-- **Stealth Buyout 是单次增值商品**，不进 `plans`、不产生续费、不授予任何订阅权益；下单资格由数据决定（`已认领槽位 == 0`），落库为 `stealth_locks`（03 §12）。**待付窗口 15 分钟**；同一规范化身份（`email_identities`）或同一设备指纹 30 天内累计 2 次未付作废（`VOID`）后，取消其买断下单资格（`422 STEALTH_LOCK_UNAVAILABLE`），防止多账号轮流用待付窗口免费遮蔽机会（30 Q8，PRD v2.2；10 §4.5b）。
+- **Stealth Buyout 是单次增值商品**，不进 `plans`、不产生续费、不授予任何订阅权益；下单资格由数据决定（`已认领槽位 == 0`），落库为 `stealth_locks`（03 §12）。**待付窗口 35 分钟**（Stripe 会话下限 30 分钟）；同一账号 30 天内累计 2 次未付作废后，取消其买断下单资格（`403 STEALTH_BUYOUT_SUSPENDED`；按规范化身份 `email_identities` / 设备指纹归并待 T5.8），防止多账号轮流用待付窗口免费遮蔽机会（30 Q8，PRD v2.2；10 §4.5b）。
 - **兜底承诺（30 Q7，PRD v2.2 §8.1）**：只保留一条可计量的触发条件——连续 2 周全平台合格 `BUILD_NOW` + `EARLY_BET` 为 0 时，所有活跃 Pro 订阅自动延长 7 天。补偿只给时长或额度，**不退现金**；触发判定读账本 `verdicts`，不读任何团队可调的阈值。
 - **活跃 GO 的口径（30 Q15，PRD v2.2 §1.7 第 5 条）**：`active_go_slots_max = 2` 只计 `stake_status = 'PENDING'` 的 GO；质押核验通过（`VERIFIED`）后不再计入这条上限，但它占用的形态槽位不变。
 - Team 为历史兼容值，不在结账页出现，也不对应当前可用的 workspace 或多席位功能。
