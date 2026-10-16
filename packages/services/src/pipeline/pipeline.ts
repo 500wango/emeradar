@@ -16,7 +16,7 @@ import {
   RunContext,
   SerpCollector,
 } from '@emeradar/collectors';
-import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
+import { SCORING_CONFIG_VERSION, evaluateKillPredicate } from '@emeradar/scoring';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
@@ -435,6 +435,7 @@ export async function runDailyPipeline(
     // NEW_ENTRANT 要读 SERP 快照。同一机会可能挂着多条规则，按机会缓存 ——
     // 这几次查询在同一事务里重复跑没有意义。
     const entrantCache = new Map<string, SerpEntrantSnapshot | null>();
+    const killCache = new Map<string, boolean | null>();
 
     /**
      * 买断保护期内的机会：**只对持有者投递**（10 §7、16 §3.3）。
@@ -485,22 +486,65 @@ export async function runDailyPipeline(
         entrant = detectNewAuthoritativeEntrant(snapshot);
       }
 
+      // KILL_CRITERIA：任一 ACTIVE 谓词今天求值为真即触发；全部无法求值（指标缺失或
+      // 谓词畸形）则为 null，不当作"没触发"。触发的谓词落 TRIGGERED，避免次日重复响。
+      // 按机会缓存：谓词是机会级的，而首个订阅者的求值会把命中的行翻成 TRIGGERED，
+      // 第二个订阅者再查 ACTIVE 就查不到了——不缓存的话只有排第一的人收得到告警。
+      let killTriggered: boolean | null | undefined;
+      if (rule.rule_type === 'KILL_CRITERIA') {
+        if (!killCache.has(rule.opportunity_id)) {
+          const metrics = {
+            weak_result_ratio: match.weakResultRatio,
+            d_basis_points: match.output.dScore,
+            m_basis_points: match.output.mScore,
+            w_basis_points: match.output.wScore,
+          };
+          const kcRows = await client.query<{ id: string; predicate_dsl: unknown }>(
+            `SELECT id, predicate_dsl FROM kill_criteria
+              WHERE opportunity_id = $1 AND status = 'ACTIVE'`,
+            [rule.opportunity_id]
+          );
+          const results = kcRows.rows.map((kc) => ({
+            id: kc.id,
+            result: evaluateKillPredicate(kc.predicate_dsl, metrics),
+          }));
+          const hit = results.filter((r) => r.result === true);
+          if (hit.length > 0) {
+            await client.query(
+              `UPDATE kill_criteria SET status = 'TRIGGERED', triggered_at = NOW()
+                WHERE id = ANY($1::text[]) AND status = 'ACTIVE'`,
+              [hit.map((r) => r.id)]
+            );
+          }
+          killCache.set(
+            rule.opportunity_id,
+            hit.length > 0 ? true : results.some((r) => r.result === false) ? false : null
+          );
+        }
+        killTriggered = killCache.get(rule.opportunity_id);
+      }
+
       const fires = evaluateAlertTrigger(rule.rule_type, {
         verdict: match.output.verdict,
         previousVerdict: match.previousVerdict,
         serpEntrants,
+        killTriggered,
       });
       if (fires !== true) continue;
 
       const title =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `Entry window closing: ${match.title}`
+          : rule.rule_type === 'KILL_CRITERIA'
+          ? `Kill criterion triggered: ${match.title}`
           : rule.rule_type === 'NEW_ENTRANT'
           ? `Authoritative entrant in the Top 10: ${match.title}`
           : `Verdict changed: ${match.title}`;
       const body =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `${match.primaryQuery} entered WINDOW_CLOSING. ${match.whyNowSummary}`
+          : rule.rule_type === 'KILL_CRITERIA'
+          ? `${match.primaryQuery}: a stated stop condition was met today. Re-check the kill criteria on the report before building further.`
           : rule.rule_type === 'NEW_ENTRANT'
           ? `${match.primaryQuery}: ${entrant?.domain} entered the Top 10 at #${entrant?.rank} as ${entrant?.resultType}, and was absent from the top 10 seven days ago. ${match.whyNowSummary}`
           : `${match.primaryQuery} moved from ${match.previousVerdict} to ${match.output.verdict}. ${match.whyNowSummary}`;

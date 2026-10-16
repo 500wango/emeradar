@@ -37,6 +37,11 @@ export interface AlertFacts {
   previousVerdict: string | null;
   /** 仅 `NEW_ENTRANT` 需要。缺失时该类型返回 `null`（无法求值），而不是猜一个答案。 */
   serpEntrants?: SerpEntrantSnapshot;
+  /**
+   * 仅 `KILL_CRITERIA` 需要：该机会是否有任一 ACTIVE 的止损谓词今天求值为真。
+   * `null`/缺失表示今天没有可求值的谓词或指标，不是"没触发"。
+   */
+  killTriggered?: boolean | null;
 }
 
 export type AlertRuleType =
@@ -46,13 +51,10 @@ export type AlertRuleType =
   | 'KILL_CRITERIA';
 
 /** 目前真正会被求值的规则类型。其余在创建规则时就被拒绝。 */
-export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT'] as const;
+export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT', 'KILL_CRITERIA'] as const;
 
 /** 已被拒绝创建的类型 → 拒绝理由（给人看的中文说明，用于 400 detail）。 */
-export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {
-  KILL_CRITERIA:
-    'KILL_CRITERIA 尚未实现：kill_criteria 的谓词 DSL 与其求值函数都还没有落地（docs/12 §5 要求 evaluateKillPredicate 位于 @emeradar/scoring）。',
-};
+export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {};
 
 /**
  * 判为"权威"的结果类型（docs/12 §2 的 NEW_AUTHORITATIVE_ENTRANT）。
@@ -123,6 +125,10 @@ export function evaluateAlertTrigger(ruleType: string, facts: AlertFacts): boole
       // 后者会被用户读成"竞争格局没变"。
       if (!facts.serpEntrants) return null;
       return detectNewAuthoritativeEntrant(facts.serpEntrants) !== null;
+
+    case 'KILL_CRITERIA':
+      // 谓词由 `@emeradar/scoring` 的 `evaluateKillPredicate` 求值；这里只接收结论。
+      return facts.killTriggered ?? null;
 
     default:
       return null;

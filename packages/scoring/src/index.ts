@@ -10,3 +10,4 @@ export * from './lifecycle';
 export * from './recommendation';
 export * from './prev-state';
 export * from './engine';
+export * from './kill-predicate';

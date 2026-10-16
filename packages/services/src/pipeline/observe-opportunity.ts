@@ -57,6 +57,8 @@ export interface ObservedOpportunity {
   previousVerdict: string | null;
   /** 封存的特征快照，账本以其 JCS 指纹写入 features_hash（06 §3）。 */
   featureMetrics: Record<string, unknown>;
+  /** 今日 SERP 弱点占比；今日没有成功的 SERP 观测时为 null。 */
+  weakResultRatio: number | null;
 }
 
 export async function observeOpportunity(
@@ -239,6 +241,8 @@ export async function observeOpportunity(
   }
 
   let serpWeakness = 0;
+  // 今日 SERP 弱点占比，只供 Kill Criteria 求值；不进 featureMetrics，免得改动账本指纹。
+  let weakResultRatio: number | null = null;
   // `organicItems` 是**评分集**（rank 1–10）：它决定 `serp_results` 的内容与商业域抓取
   // 的目标。`rankIndex` 是同一次请求拿回的全部名次（rank 1–100），只用于在内存里比对
   // 已核验项目是否入榜（PRD F10）。
@@ -252,6 +256,7 @@ export async function observeOpportunity(
     const serpSnap = serpOutcome.snapshots[0];
     if (serpSnap) {
       serpWeakness = serpSnap.data.weaknessScore;
+      weakResultRatio = serpSnap.data.weakResultRatio;
       organicItems = serpSnap.data.items || [];
       rankIndex = serpSnap.data.rankIndex;
       const snapRes = await query<{ id: string }>(
@@ -745,6 +750,7 @@ export async function observeOpportunity(
     publishable,
     previousVerdict: prev?.verdict ?? null,
     featureMetrics,
+    weakResultRatio,
   };
 }
 

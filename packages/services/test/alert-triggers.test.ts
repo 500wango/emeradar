@@ -22,6 +22,7 @@ describe('告警触发器求值', () => {
   /** 一个能让 NEW_ENTRANT 真正求值的事实集：有新进入的权威域名。 */
   const entrantFacts = {
     ...baseFacts,
+    killTriggered: false,
     serpEntrants: {
       today: [{ rank: 1, domain: 'acme.com', resultType: 'OFFICIAL' }],
       prior: [{ rank: 4, domain: 'blog.example', resultType: 'SPECIALIST' }],
@@ -147,8 +148,11 @@ describe('告警触发器求值', () => {
   it('未实现的类型返回 null，而不是 false', () => {
     // 返回 false 会被调用方当成"今天不触发"悄悄吞掉，掩盖"根本没有求值路径"
     // 这个事实。null 逼调用方显式处理。
-    assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', baseFacts), null);
     assert.strictEqual(evaluateAlertTrigger('SOMETHING_NEW', baseFacts), null);
+    // KILL_CRITERIA 无可求值的谓词时同样是 null，而不是 false。
+    assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', baseFacts), null);
+    assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: true }), true);
+    assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: false }), false);
   });
 
   it('可订阅的类型集合与求值能力一致', () => {

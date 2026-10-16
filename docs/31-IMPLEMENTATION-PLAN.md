@@ -120,6 +120,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 **T5.5 部分落地**：`WeeklySelectionService.getWeeklySelectedCase` 已实现选取逻辑，复用 `publication-policy` 的满额与关窗判定：只选槽位满额或当前为 `WINDOW_CLOSING` 的机会，M 轴 INSUFFICIENT 与买断保护期内的不选，空槽 `BUILD_NOW` 永不入选；7 天内无新案例时回退最近一条历史案例并标 `historical: true`。**尚未切换 Free Feed**：`feed_delay_days` 仍是 Free 层实时性的开关，Feed 页与 API 还没改读这个选取结果，也没有按周配额计数。切换前免费用户仍走延迟 Feed，所以没有泄露空槽窗口的风险。
 
+**T5.4 部分落地**：`evaluateKillPredicate` 已在 `@emeradar/scoring` 按现存 `{metric, op, threshold}` 结构实现（指标限 `weak_result_ratio` 与三轴基点，畸形谓词或指标缺失返回 null，不当作未触发）；`KILL_CRITERIA` 已进入可订阅与可求值类型，每日流水线按机会求值一次并缓存，触发的谓词置 `TRIGGERED`，同一机会的多个订阅者都会收到。`SLOTS_LAST_ONE`、`CUSTOM_QUERY_PULSE_CONFIRMED`、`PROJECT_SERP_RANK_JUMP` 三条首发触发器仍未实现，`alert_rules.rule_type` 的 CHECK 约束也还未放宽，需要新迁移后才能订阅。
+
 ---
 
 ## 3. 依赖与顺序
