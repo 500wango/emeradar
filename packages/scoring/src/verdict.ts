@@ -107,7 +107,6 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     publicationFailures.push('SERP_HISTORY_BELOW_BASELINE');
   }
   if (input.recentSerpSnapshotAvailable === false) publicationFailures.push('NO_RECENT_ORGANIC_SERP');
-  if (mSummary.inferredOnly) publicationFailures.push('M_INFERRED_ONLY');
   if (input.criticalSourceFailure) publicationFailures.push('CRITICAL_SOURCE_FAILURE');
   const publicationEligible = publicationFailures.length === 0;
 
@@ -131,33 +130,17 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     flags.push('BASELINE_PERIOD');
   }
 
-  // Check if W dropped in recent history
-  let wDroppedRecently = false;
-  if (prev?.wBandHistory && prev.wBandHistory.length >= 2) {
-    const recent = prev.wBandHistory[prev.wBandHistory.length - 1];
-    const past = prev.wBandHistory[0];
-    if (
-      (past === 'HIGH' && (recent === 'MEDIUM' || recent === 'LOW')) ||
-      (past === 'MEDIUM' && recent === 'LOW')
-    ) {
-      wDroppedRecently = true;
-      if (prev.verdict === 'BUILD_NOW' || prev.verdict === 'EARLY_BET') {
-        flags.push('W_DROPPING');
-      }
-    }
+  // 05 §5.1 必要条件 2 / §5.3 `W_DROPPING`：只读**市场 W**（不含 crowding_index，
+  // PRD v2.2 Q2）。展示用 W 含拥挤项，2–3 个认领就能让它降一档；若让它触发窗口
+  // 关闭，"窗口关闭"就成了平台自己造成的。没有带日期的市场 W 历史时不判定降档。
+  const wDroppedInWindow = wDroppedWithin(
+    prev?.datedMarketWBandHistory,
+    WINDOW_CLOSING_FRESHNESS_DAYS,
+    input.obsDate
+  );
+  if (wDroppedInWindow && (prev?.verdict === 'BUILD_NOW' || prev?.verdict === 'EARLY_BET')) {
+    flags.push('W_DROPPING');
   }
-
-  // 05 §5.1 必要条件 2 要的是"降档发生在 obs_date 前 14 天内"，而上面那个比较没
-  // 有日期：它把 `wBandHistory[0]` 当作过去，那可能是任意久远的读数。有带日期的
-  // 历史就以它为准，没有（不采集逐日历史的老调用方）才退回旧行为。
-  //
-  // 带日期的历史只从 `prev` 取，不另开一个同名的入参：两处入口意味着漏传一处就会
-  // 静默退回那个宽松判据，而这正是本判据要消灭的东西。
-  const datedHistory = prev?.datedWBandHistory;
-  const wDroppedInWindow =
-    datedHistory && datedHistory.length >= 2
-      ? wDroppedWithin(datedHistory, WINDOW_CLOSING_FRESHNESS_DAYS, input.obsDate)
-      : wDroppedRecently;
 
   // 1. Calculate raw verdict
   let raw: Verdict = 'WATCH';
@@ -183,22 +166,26 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
         Boolean(mSummary.hasTransactionTraction) ||
         (mSummary.persistentPricedDomains ?? 0) >= 1);
 
+    // PRD v2.2 Q1：补偿要求 M=HIGH，或 M=MEDIUM 且含交易代理 / 定价持续 ≥ 90 天。
+    // 只凭独立定价站数量不再足够——那是多站静态 PRICING_DECORATION。
     const mCompensatedVerified =
       mVerifiedStandard ||
       mSummary.band === 'HIGH' ||
       (mSummary.band === 'MEDIUM' &&
-        (mSummary.independentDomainsCount >= 2 || Boolean(mSummary.hasTransactionTraction)));
+        (Boolean(mSummary.hasTransactionTraction) || (mSummary.persistentPricedDomains ?? 0) >= 1));
+    // PRD §5.7：M 仅靠 INFERRED 支撑时不得 BUILD_NOW，但允许 EARLY_BET。
+    const buildNowAllowed = !mSummary.inferredOnly;
 
     const isEarlyBet =
       (dBand === 'HIGH' && wGeMedium) ||
       (isFastTrack && dGeMedium && wBand === 'HIGH');
 
-    if (dGeMedium && mVerifiedStandard && wGeMedium && confGeMedium && !negativeM) {
+    if (buildNowAllowed && dGeMedium && mVerifiedStandard && wGeMedium && confGeMedium && !negativeM) {
       raw = 'BUILD_NOW';
       rulesTriggered.push('RULE_BUILD_NOW');
       reason =
         'All signals aligned: verified commercial monetization, high/medium demand, open window, and strong evidence.';
-    } else if (dBand === 'HIGH' && wBand === 'HIGH' && mCompensatedVerified && confGeMedium && !negativeM) {
+    } else if (buildNowAllowed && dBand === 'HIGH' && wBand === 'HIGH' && mCompensatedVerified && confGeMedium && !negativeM) {
       raw = 'BUILD_NOW';
       rulesTriggered.push('RULE_BUILD_NOW_COMPENSATED');
       reason =

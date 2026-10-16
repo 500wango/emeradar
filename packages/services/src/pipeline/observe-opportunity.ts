@@ -8,7 +8,6 @@ import {
   DatedWBand,
 } from '@emeradar/scoring';
 import { Lifecycle, Verdict } from '@emeradar/core';
-import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from '../claim-policy';
 import { RankingService } from '../ranking.service';
 import {
   AutocompleteCollector,
@@ -78,8 +77,8 @@ export async function observeOpportunity(
     crawl: CrawlCollector;
   }
 ): Promise<ObservedOpportunity | null> {
-  const qryRes = await query<{ id: string; query_text: string }>(
-    `SELECT q.id, q.query_text FROM opportunity_queries oq
+  const qryRes = await query<{ id: string; query_text: string; tier: 'A' | 'B' | 'C' }>(
+    `SELECT q.id, q.query_text, q.tier FROM opportunity_queries oq
      JOIN queries q ON q.id = oq.query_id
      WHERE oq.opportunity_id = $1 AND oq.role = 'PRIMARY'`,
     [opp.id]
@@ -293,15 +292,19 @@ export async function observeOpportunity(
     }
   }
 
-  const serpHistoryRes = await query<{ days: number; recent: boolean }>(
+  const serpHistoryRes = await query<{ days: number; recent: boolean; days_since_last: number | null }>(
     `SELECT COUNT(DISTINCT obs_date)::int AS days,
-            BOOL_OR(obs_date = $2::date) AS recent
+            BOOL_OR(obs_date = $2::date) AS recent,
+            ($2::date - MAX(obs_date))::int AS days_since_last
      FROM serp_snapshots
      WHERE query_id = $1 AND obs_date <= $2::date`,
     [primary.id, obsDate]
   );
   const serpHistoryDays = serpHistoryRes.rows[0]?.days ?? 0;
   const recentSerp = Boolean(serpHistoryRes.rows[0]?.recent);
+  // 05 §4.2：新鲜度按追踪层级判（A 3 天 / B 8 天），不再要求"当天"有快照。
+  const daysSinceLastSerp = serpHistoryRes.rows[0]?.days_since_last ?? undefined;
+  const serpTier = primary.tier;
 
   await crawlCommercialDomains(
     organicItems,
@@ -517,13 +520,31 @@ export async function observeOpportunity(
     band: row.w_band as AxisBand,
   }));
 
-  const claimsRes = await query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM projects WHERE opportunity_id = $1 AND ${activeClaimPredicate()}`,
+  // 槽位真源是 opportunity_slots（D1/D2）：Σclaimed == Σcapacity 才熔断。尚未物化
+  // 槽位的机会（首次发布前）没有可认领的队，按 0/0 处理，不触发熔断。
+  const slotsRes = await query<{ claimed: number; capacity: number }>(
+    `SELECT COALESCE(SUM(claimed), 0)::int AS claimed, COALESCE(SUM(capacity), 0)::int AS capacity
+     FROM opportunity_slots WHERE opportunity_id = $1`,
     [opp.id]
   );
-  const claimsCount = claimsRes.rows[0]?.count ?? 0;
-  const maxClaims = MAX_CLAIMS_PER_OPPORTUNITY;
-  const isCrowdedLocked = claimsCount >= maxClaims;
+  const claimsCount = slotsRes.rows[0]?.claimed ?? 0;
+  const maxClaims = slotsRes.rows[0]?.capacity ?? 0;
+  const isCrowdedLocked = maxClaims > 0 && claimsCount >= maxClaims;
+
+  // 市场 W 的带日期历史（05 §4.2）。verdicts 没有这一列且 schema.sql 冻结，
+  // 故取自同日封存的特征快照；缺失的日期不入列，宁可漏报降档。
+  const marketRes = await query<{ obs_date: string; market_w_band: string | null }>(
+    `SELECT to_char(obs_date, 'YYYY-MM-DD') AS obs_date, metrics->>'market_w_band' AS market_w_band
+     FROM opportunity_snapshots
+     WHERE opportunity_id = $1 AND obs_date < $2
+     ORDER BY obs_date DESC LIMIT 30`,
+    [opp.id, obsDate]
+  );
+  const datedMarketWBandHistory: DatedWBand[] = marketRes.rows
+    .filter((r) => r.market_w_band !== null)
+    .reverse()
+    .slice(-10)
+    .map((r) => ({ obsDate: r.obs_date, band: r.market_w_band as AxisBand }));
 
   const isFastTrack =
     historyDays >= 7 &&
@@ -550,6 +571,8 @@ export async function observeOpportunity(
       crowdingIndex: windowFeatures?.crowding ?? 0,
       serpHistoryDays,
       recentSerpSnapshotAvailable: recentSerp,
+      tier: serpTier,
+      daysSinceLastSerp,
       claimsCount,
       maxClaims,
       isCrowdedLocked,
@@ -597,6 +620,7 @@ export async function observeOpportunity(
           daysInCurrentLifecycle,
           wBandHistory,
           datedWBandHistory,
+          datedMarketWBandHistory,
         })
       : undefined,
     obsDate,
@@ -609,8 +633,7 @@ export async function observeOpportunity(
     recentSerp &&
     output.dBand !== 'INSUFFICIENT' &&
     output.wBand !== 'INSUFFICIENT' &&
-    output.confidence !== 'LOW' &&
-    !commercial.inferredOnly;
+    output.confidence !== 'LOW';
 
   const searchIntent = toolModifierRatio > informationalRatio && toolModifierRatio > commercialRatio
     ? 'TRANSACTIONAL'
@@ -638,6 +661,7 @@ export async function observeOpportunity(
     d_band: output.dBand,
     m_band: output.mBand,
     w_band: output.wBand,
+    market_w_band: output.marketWBand,
     confidence: output.confidence,
     history_days: historyDays,
     serp_history_days: serpHistoryDays,

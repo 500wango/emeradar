@@ -89,6 +89,10 @@ export interface WindowFeatures {
   crowdingIndex: number;
   serpHistoryDays: number;
   recentSerpSnapshotAvailable: boolean;
+  /** 追踪层级（05 §4.2 的 `serp_freshness_days[tier]`）。缺省按 A 层处理。 */
+  tier?: 'A' | 'B' | 'C';
+  /** 距最近一份 SERP 快照的天数；缺省时退回 `recentSerpSnapshotAvailable`。 */
+  daysSinceLastSerp?: number;
   claimsCount?: number;
   maxClaims?: number;
   isCrowdedLocked?: boolean;
@@ -169,6 +173,12 @@ export interface PrevScoringState {
    * 可选：仅为不采集逐日历史的老调用方保留退回路径。
    */
   datedWBandHistory?: DatedWBand[];
+  /**
+   * 带日期的**市场 W** 档位序列（不含 crowding_index，05 §4.2、PRD v2.2 Q2）。
+   * `WINDOW_CLOSING` 的降档判定与 `W_DROPPING` 只读它：否则 2–3 个认领就能让展示用
+   * W 降一档，窗口关闭成了平台自己造成的。缺失时不判定降档（宁可漏报，不误报）。
+   */
+  datedMarketWBandHistory?: DatedWBand[];
 }
 
 export interface ScoringOutput {
@@ -183,6 +193,8 @@ export interface ScoringOutput {
   dBand: AxisBand;
   mBand: AxisBand;
   wBand: AxisBand;
+  /** 不含拥挤项的市场 W 档（05 §4.2），写入快照 metrics 供后续 14 天降档判定。 */
+  marketWBand?: AxisBand;
   flags: string[];
   explanation: {
     dReason: string;

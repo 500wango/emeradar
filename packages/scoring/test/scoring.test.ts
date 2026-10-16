@@ -144,7 +144,7 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 
-  it('routes two decoration-priced domains through the compensated rule, not standard BUILD_NOW', () => {
+  it('caps two decoration-priced domains at EARLY_BET: no compensation without traction or persistence (PRD v2.2 Q1)', () => {
     const res = evaluateVerdict({
       dBand: 'HIGH',
       mSummary: {
@@ -160,9 +160,29 @@ describe('Scoring Engine Unit Tests', () => {
       confidence: 'HIGH',
       historyDays: 30,
     });
+    assert.strictEqual(res.rawVerdict, 'EARLY_BET');
+    assert.ok(!res.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
+    assert.ok(!res.rulesTriggered.includes('RULE_BUILD_NOW'));
+  });
+
+  it('compensates a MEDIUM M that carries persistent pricing (>= 90 days) even without traction (Q1)', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'MEDIUM',
+        independentDomainsCount: 2,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        persistentPricedDomains: 1,
+        totalScore: 6500,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 30,
+    });
     assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
     assert.ok(res.rulesTriggered.includes('RULE_BUILD_NOW_COMPENSATED'));
-    assert.ok(!res.rulesTriggered.includes('RULE_BUILD_NOW'));
   });
 
   it('does not publish BUILD_NOW for decoration pricing without a breakout signal', () => {
@@ -459,7 +479,7 @@ describe('Scoring Engine Unit Tests', () => {
     assert.ok(res.rulesTriggered.includes('PUBLICATION_GATE_BLOCKED'));
   });
 
-  it('forces WATCH when the commercial axis is inferred-only', () => {
+  it('publishes EARLY_BET, never BUILD_NOW, when the commercial axis is inferred-only (PRD §5.7, 30 R6)', () => {
     const res = evaluateVerdict({
       dBand: 'HIGH',
       mSummary: {
@@ -475,8 +495,29 @@ describe('Scoring Engine Unit Tests', () => {
       confidence: 'HIGH',
       historyDays: 45,
     });
-    assert.strictEqual(res.verdict, 'WATCH');
-    assert.ok(res.flags.includes('M_INFERRED_ONLY'));
+    assert.strictEqual(res.publicationEligible, true);
+    assert.strictEqual(res.verdict, 'EARLY_BET');
+    assert.ok(!res.flags.includes('M_INFERRED_ONLY'));
+    assert.ok(!res.rulesTriggered.some((r) => r.startsWith('RULE_BUILD_NOW')));
+  });
+
+  it('keeps inferred-only out of BUILD_NOW even when the other axes are maximal', () => {
+    const res = evaluateVerdict({
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        inferredOnly: true,
+        totalScore: 7800,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 45,
+    });
+    assert.notStrictEqual(res.rawVerdict, 'BUILD_NOW');
   });
 
   it('forces WATCH when the SERP history or latest snapshot is not usable', () => {
@@ -717,6 +758,7 @@ describe('Verdict debounce and ledger prev-state (05 §5)', () => {
         hasSubscriptionPlans: true,
         hasOneTimePlans: false,
         hasStrongNegative: false,
+        hasTransactionTraction: true,
         totalScore: 6500,
       },
       prev,
@@ -812,9 +854,10 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
       lifecycle: 'EARLY_WINDOW',
       daysInCurrentVerdict: 30,
       daysInCurrentLifecycle: 30,
-      // 无日期的序列仍然写着"HIGH -> MEDIUM"，旧实现正是靠它判定降档。
       wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
       datedWBandHistory: dated,
+      // 窗口关闭只读市场 W（不含拥挤项，PRD v2.2 Q2）。
+      datedMarketWBandHistory: dated,
     });
 
   it('14 天外的降档不再把机会锁进 WINDOW_CLOSING（本次修复的缺陷）', () => {
@@ -845,7 +888,7 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
     assert.ok(res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
   });
 
-  it('缺少带日期的历史时退回旧的无日期比较（仅为老调用方保留）', () => {
+  it('没有带日期的市场 W 历史时不判定降档：宁可漏报，不误报（Q2）', () => {
     const prev = buildPrevScoringState({
       verdict: 'BUILD_NOW',
       rawVerdict: 'BUILD_NOW',
@@ -855,6 +898,47 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
       wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
     });
     const res = evaluateVerdict({ ...windowClosingAxes, prev, obsDate: TODAY });
-    assert.strictEqual(res.rawVerdict, 'WINDOW_CLOSING');
+    assert.notStrictEqual(res.rawVerdict, 'WINDOW_CLOSING');
+  });
+
+  it('认领拥挤只压低展示用 W，不触发 WINDOW_CLOSING 也不打 W_DROPPING（Q2）', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'BUILD_NOW',
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 30,
+      daysInCurrentLifecycle: 30,
+      // 展示用 W 在 3 天前因认领降了一档……
+      wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+      datedWBandHistory: [
+        { obsDate: daysAgo(10), band: 'HIGH' },
+        { obsDate: daysAgo(3), band: 'MEDIUM' },
+      ],
+      // ……但市场 W 始终是 HIGH。
+      datedMarketWBandHistory: [
+        { obsDate: daysAgo(10), band: 'HIGH' },
+        { obsDate: daysAgo(3), band: 'HIGH' },
+      ],
+    });
+    const res = evaluateVerdict({
+      ...windowClosingAxes,
+      wBand: 'MEDIUM',
+      prev,
+      obsDate: TODAY,
+    });
+    assert.ok(!res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
+    assert.ok(!res.flags.includes('W_DROPPING'));
+  });
+
+  it('市场 W 在 14 天内降档会打 W_DROPPING', () => {
+    const res = evaluateVerdict({
+      ...windowClosingAxes,
+      prev: prevFromBuildNow([
+        { obsDate: daysAgo(10), band: 'HIGH' },
+        { obsDate: daysAgo(2), band: 'MEDIUM' },
+      ]),
+      obsDate: TODAY,
+    });
+    assert.ok(res.flags.includes('W_DROPPING'));
   });
 });

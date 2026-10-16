@@ -12,9 +12,6 @@
  * 只有这一个文件需要改。
  */
 
-/** 单条机会的认领上限。P1 起由 opportunity_slots 的按形态容量取代（默认每形态 2、合计 ≤ 6）。 */
-export const MAX_CLAIMS_PER_OPPORTUNITY = 5;
-
 /**
  * 生成"该项目仍占用槽位"的 SQL 谓词。
  * `alias` 是调用方自己的表别名（代码常量，不接受外部输入）。

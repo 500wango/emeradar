@@ -111,6 +111,7 @@ export function calculateOpportunityScore(
     dBand: dResult.band,
     mBand,
     wBand: wResult.band,
+    marketWBand: wResult.marketBand,
     flags: verdictResult.flags,
     explanation: {
       dReason: dResult.reason,

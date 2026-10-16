@@ -2,7 +2,6 @@ import { query } from '@emeradar/db';
 import { hiddenFromEveryone, hiddenFromViewer } from './stealth-lock-policy';
 import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
 import { deriveBasisState } from '@emeradar/report';
-import { activeClaimPredicate, MAX_CLAIMS_PER_OPPORTUNITY } from './claim-policy';
 
 export interface FeedCardFilterOptions {
   verdict?: Verdict;
@@ -297,7 +296,8 @@ export class OpportunityService {
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
         COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
-        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND ${activeClaimPredicate('pr')}), 0)::int AS claims_count,
+        COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
+        COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims,
         lv.raw_verdict,
         lv.flags,
         lv.hash_version,
@@ -346,8 +346,8 @@ export class OpportunityService {
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
       claimsCount: r.claims_count ?? 0,
-      maxClaims: MAX_CLAIMS_PER_OPPORTUNITY,
-      isCrowdedLocked: (r.claims_count ?? 0) >= 5,
+      maxClaims: r.max_claims ?? 0,
+      isCrowdedLocked: (r.max_claims ?? 0) > 0 && (r.claims_count ?? 0) >= (r.max_claims ?? 0),
       // 判定依据：与报告共用同一套留存口径，避免两处对"什么算留存"各执一词。
       basisRetained: deriveBasisState(r) !== 'NOT_RETAINED',
       rawVerdict: (r.raw_verdict as Verdict | null) ?? undefined,
@@ -411,7 +411,8 @@ export class OpportunityService {
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
         COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
-        COALESCE((SELECT COUNT(*) FROM projects pr WHERE pr.opportunity_id = o.id AND ${activeClaimPredicate('pr')}), 0)::int AS claims_count
+        COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
+        COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE o.status = 'CANDIDATE'
@@ -450,8 +451,8 @@ export class OpportunityService {
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
       claimsCount: r.claims_count ?? 0,
-      maxClaims: MAX_CLAIMS_PER_OPPORTUNITY,
-      isCrowdedLocked: (r.claims_count ?? 0) >= 5,
+      maxClaims: r.max_claims ?? 0,
+      isCrowdedLocked: (r.max_claims ?? 0) > 0 && (r.claims_count ?? 0) >= (r.max_claims ?? 0),
     }));
   }
 
@@ -487,8 +488,8 @@ export class OpportunityService {
       `SELECT o.id AS opportunity_id, o.slug, o.title, o.market_country, o.research_language,
               c.primary_query, c.verdict, c.d_band, c.m_band, c.w_band,
               c.confidence, c.execution_class,
-              COALESCE((SELECT COUNT(*) FROM projects p
-                        WHERE p.opportunity_id = o.id AND ${activeClaimPredicate('p')}), 0)::int AS claims_count,
+              COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
+              COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims,
               COALESCE((SELECT COUNT(*) FROM kill_criteria k WHERE k.opportunity_id = o.id), 0)::int AS kill_criteria_total,
               COALESCE((SELECT COUNT(*) FROM kill_criteria k
                         WHERE k.opportunity_id = o.id AND k.status = 'TRIGGERED'), 0)::int AS kill_criteria_triggered
@@ -519,7 +520,7 @@ export class OpportunityService {
       confidence: row.confidence,
       executionClass: row.execution_class,
       claimsCount: row.claims_count ?? 0,
-      maxClaims: MAX_CLAIMS_PER_OPPORTUNITY,
+      maxClaims: row.max_claims ?? 0,
       killCriteriaTotal: row.kill_criteria_total ?? 0,
       killCriteriaTriggered: row.kill_criteria_triggered ?? 0,
       marketCountry: row.market_country,
