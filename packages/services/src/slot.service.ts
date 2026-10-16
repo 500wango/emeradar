@@ -161,7 +161,10 @@ export class SlotService {
   /** 该用户当前活跃的 GO 数（D2：唯一判据是 `slot_claims.state = 'CLAIMED'`）。 */
   static async countActiveClaims(userId: string): Promise<number> {
     const res = await query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM slot_claims WHERE user_id = $1 AND state = 'CLAIMED'`,
+      `SELECT COUNT(*)::int AS count
+         FROM slot_claims sc
+         JOIN projects p ON p.id = sc.project_id
+        WHERE sc.user_id = $1 AND sc.state = 'CLAIMED' AND p.stake_status = 'PENDING'`,
       [userId]
     );
     return res.rows[0]?.count ?? 0;
@@ -342,7 +345,10 @@ export class SlotService {
 
   private static async countActiveClaimsWithin(client: PoolClient, userId: string): Promise<number> {
     const res = await client.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM slot_claims WHERE user_id = $1 AND state = 'CLAIMED'`,
+      `SELECT COUNT(*)::int AS count
+         FROM slot_claims sc
+         JOIN projects p ON p.id = sc.project_id
+        WHERE sc.user_id = $1 AND sc.state = 'CLAIMED' AND p.stake_status = 'PENDING'`,
       [userId]
     );
     return res.rows[0]?.count ?? 0;

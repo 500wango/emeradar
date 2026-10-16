@@ -105,6 +105,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 | T5.9 | 公开战绩全量 | 删除 `PUBLIC_DELAY_DAYS`；汇总纳入全部 v2 Episode；逐行明细按 Q11 三条件披露 | 15 §8 三项指标有采集点 |
 | T5.10 | 兜底与席位 | 连续 2 周 0 产出自动延长 7 天；Pro 席位上限 30、Founding 50 席售罄即止 | 13 用例 |
 
+**T5.2 实施状态**：已落地。`SlotService.countActiveClaims` 与 GO 闸门里的计数都改为只数 `projects.stake_status = 'PENDING'` 的认领；质押核验通过后不再占活跃名额，但形态槽位不释放。
+
 **T5.1 实施状态**：已落地。GO 按 `opportunities.execution_class` 取 7/14/21 天（`StakeService.windowDaysFor`）；首次逾期退 1 次配额，由新迁移 `0009`（`projects.go_quota_period_start` 与 `stake_overdue_refunds`，user_id 主键保证只退一次）支撑，退回 GO 当时计费的周期。预发布着陆页作为凭证：探针已接受 `PUBLIC_PAGE_URL`，未另改。
 
 **T5.3 已落地（偏离 PRD v2.2 Q8 的 15 分钟）**：Stripe Checkout 会话有效期下限是 30 分钟，待付窗口若短于会话，会出现"占位已作废、结账页仍可付款"（钱已收、交付物不在）。所以窗口取 35 分钟 = 30 + 5 分钟余量，会话 31 分钟。资格取消按账号计（`user_id`），错误码 `403 STEALTH_BUYOUT_SUSPENDED`；"同一设备"维度要等 T5.8 的设备指纹落地后再加。若要真正做到 15 分钟，需要在作废时主动调用 Stripe 的 expire session 接口，目前没有这条出站能力。

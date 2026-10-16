@@ -367,6 +367,32 @@ describe('原子 GO：并发与配额', () => {
     assert.strictEqual((await SlotService.getSlots(OPP_ARCHIVE)).totalClaimed, 0);
   });
 
+  it('核验通过的 GO 不再计入活跃席位上限，但仍占着形态槽位（PRD v2.2 Q15）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { SlotService } = harness.services;
+    const { query } = harness.db;
+
+    // 上一例之后 SLOTS_USER 已有 2 个质押未核验的 GO，正好顶到上限。
+    assert.strictEqual(await SlotService.countActiveClaims(SLOTS_USER), 2);
+
+    // 其中一个质押核验通过：它不再算"活跃"，但槽位本身不释放。
+    await query(
+      `UPDATE projects SET stake_status = 'VERIFIED' WHERE user_id = $1 AND opportunity_id = $2`,
+      [SLOTS_USER, OPP_SLOTS_A]
+    );
+    assert.strictEqual(await SlotService.countActiveClaims(SLOTS_USER), 1);
+    assert.strictEqual(
+      (await SlotService.getSlots(OPP_SLOTS_A)).totalClaimed,
+      1,
+      '核验通过不该释放形态槽位'
+    );
+
+    // 腾出了一个活跃名额，第 3 个 GO 因此放行。
+    const third = await go(SLOTS_USER, OPP_PROBE);
+    assert.ok(third.projectId);
+    assert.strictEqual(await SlotService.countActiveClaims(SLOTS_USER), 2);
+  });
+
   it('缺省席位上限失败关闭：目录里读不到 active_go_slots_max 就不给席位', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
 
