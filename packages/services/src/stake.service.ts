@@ -6,6 +6,8 @@ import { normalizeCredentialHost } from './credential-host';
 import { SlotService } from './slot.service';
 import { STAKE_WINDOW_DAYS } from './project.service';
 
+export const STAKE_WINDOW_DAYS_BY_CLASS = { S: 7, M: 14, L: 21 } as const;
+
 /**
  * 承诺质押（PRD F10、01 §1.7 第 5 条、09 §8、19 Epic 1.13）。
  *
@@ -364,6 +366,21 @@ export class StakeService {
           [row.id]
         );
         if (claimed.rows.length === 0) return false;
+        // PRD v2.2 Q5：每位用户**首次**逾期退还 1 次配额，之后不退。
+        // user_id 主键保证只有第一次插入成功；退到 GO 当时计费的那个周期。
+        const first = await client.query(
+          `INSERT INTO stake_overdue_refunds (user_id, project_id)
+           VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING RETURNING user_id`,
+          [row.user_id, row.id]
+        );
+        if (first.rows.length > 0) {
+          await client.query(
+            `UPDATE usage_counters SET used = used - 1
+              WHERE user_id = $1 AND feature = 'atomic_go_export_monthly' AND used > 0
+                AND period_start = (SELECT go_quota_period_start FROM projects WHERE id = $2)`,
+            [row.user_id, row.id]
+          );
+        }
         // 走 SlotService.release 而不是在这里再写一遍递减：那是槽位汇总缓存唯一的
         // 写入点，第二次实现迟早会漏掉幂等判断，把别人的占用从缓存里减掉。
         const slot = await client.query<{ id: string }>(
@@ -378,6 +395,11 @@ export class StakeService {
       if (ok) released.push({ projectId: row.id, userId: row.user_id, opportunityId: row.opportunity_id });
     }
     return released;
+  }
+
+  /** 按执行规模取质押窗口天数（PRD v2.2 Q5：S 7 / M 14 / L 21）；未知规模按 S。 */
+  static windowDaysFor(executionClass: string | null | undefined): number {
+    return STAKE_WINDOW_DAYS_BY_CLASS[executionClass as keyof typeof STAKE_WINDOW_DAYS_BY_CLASS] ?? STAKE_WINDOW_DAYS;
   }
 
   /** 质押窗口的截止时间，供 GO 在建项目时一并写入。 */

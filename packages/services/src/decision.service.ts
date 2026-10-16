@@ -124,8 +124,8 @@ export class DecisionService {
   ): Promise<GoAndExportResult> {
     const now = options.now ?? new Date();
 
-    const opportunityRes = await query<{ id: string; title: string; status: string }>(
-      `SELECT o.id, o.title, o.status
+    const opportunityRes = await query<{ id: string; title: string; status: string; execution_class: string }>(
+      `SELECT o.id, o.title, o.status, o.execution_class
          FROM opportunities o
          JOIN opportunity_cards c ON c.opportunity_id = o.id
         WHERE o.id = $1 AND ${hiddenFromViewer('o.id', '$2')}`,
@@ -169,7 +169,7 @@ export class DecisionService {
     if ((overdue.rows[0]?.count ?? 0) > 0) {
       throw new EmeradarError(
         ErrorCode.STAKE_REQUIRED,
-        'You have a project whose 7-day stake window has passed without a verified credential. Its slot is released at the next sweep; submit a credential to keep it.',
+        'You have a project whose stake window (7/14/21 days by execution class) has passed without a verified credential. Its slot is released at the next sweep; submit a credential to keep it.',
         422,
         { details: { overdueProjects: overdue.rows[0].count } }
       );
@@ -209,7 +209,7 @@ export class DecisionService {
       // 1) 扣配额。放第一位：免费层在这里拿到 PLAN_REQUIRED，额度用尽拿到
       //    QUOTA_EXCEEDED，两者都不该被"槽位刚好也满了"的 409 盖过去——别人占满了
       //    是换条机会的事，自己没额度是换套餐的事，前端给的是完全不同的引导。
-      await EntitlementService.reserveAtomicGoQuota(client, userId);
+      const quota = await EntitlementService.reserveAtomicGoQuota(client, userId);
 
       // 2) 决策。与项目同事务：一条决策至多一个项目（I6），而"有项目没决策"会让
       //    这条项目的来源无法被审计。
@@ -227,12 +227,15 @@ export class DecisionService {
       // 项目行存在。10 §4.3 描述的"占槽 → 建 Project"是**概念顺序**（先判定有没有
       // 位置、再落地），不是语句顺序；两者在同一个事务里等价，而逆着外键写只会得到
       // 一个 23503。占槽失败时整个事务回滚，不会留下一个没有槽位的项目。
-      const stakeDeadlineAt = StakeService.deadlineFrom(now);
+      const stakeDeadlineAt = StakeService.deadlineFrom(
+        now,
+        StakeService.windowDaysFor(opportunity.execution_class)
+      );
       await client.query(
         `INSERT INTO projects
            (id, user_id, opportunity_id, decision_id, report_id, title, domain, build_type,
-            status, launch_date, target_keywords, stake_status, stake_deadline_at)
-         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','PENDING',$8)`,
+            status, launch_date, target_keywords, stake_status, stake_deadline_at, go_quota_period_start)
+         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','PENDING',$8,$9)`,
         [
           projectId,
           userId,
@@ -242,6 +245,7 @@ export class DecisionService {
           opportunity.title,
           input.archetype,
           stakeDeadlineAt,
+          quota.periodStart,
         ]
       );
 

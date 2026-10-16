@@ -30,6 +30,8 @@ const QUOTA_USER = 'usr_go_quota';
 const SLOTS_USER = 'usr_go_slots';
 const ARCHIVE_USER = 'usr_go_archive';
 const STAKE_USER = 'usr_go_stake';
+/** 质押窗口分档与"首次逾期退额度"专用：自己的用户，不与别的用例共享额度计数。 */
+const WINDOW_USER = 'usr_go_window';
 /** 免费层：**没有** subscriptions 行，entitlementPlanJoin 会把它落到 FREE。 */
 const FREE_USER = 'usr_go_free';
 /** 配额充裕、但目录里**没有** active_go_slots_max 键的套餐。 */
@@ -46,6 +48,9 @@ const OPP_SLOTS_A = 'opp_go_slots_a';
 const OPP_SLOTS_B = 'opp_go_slots_b';
 const OPP_ARCHIVE = 'opp_go_archive';
 const OPP_STAKE = 'opp_go_stake';
+/** 执行规模 M / L 的机会，用来验质押窗口按规模取 14 / 21 天。 */
+const OPP_WINDOW_M = 'opp_go_window_m';
+const OPP_WINDOW_L = 'opp_go_window_l';
 /** 期限还在未来的一条机会：用来把"提交失败"与"逾期"分开验。 */
 const OPP_VERIFY = 'opp_go_verify';
 const OPP_PROBE = 'opp_go_probe';
@@ -107,6 +112,8 @@ const SLOT_FIXTURES: Array<[string, string]> = [
   [OPP_STAKE, 'vdt_go_stake'],
   [OPP_VERIFY, 'vdt_go_verify'],
   [OPP_PROBE, 'vdt_go_probe'],
+  [OPP_WINDOW_M, 'vdt_go_window_m'],
+  [OPP_WINDOW_L, 'vdt_go_window_l'],
 ];
 
 function verdictOf(opportunityId: string): string {
@@ -137,6 +144,7 @@ async function seedFixture() {
     [SLOTS_USER, PLAN_TWO_SLOTS],
     [ARCHIVE_USER, PLAN_TWO_SLOTS],
     [STAKE_USER, PLAN_TWO_SLOTS],
+    [WINDOW_USER, PLAN_TWO_SLOTS],
     [NO_KEY_USER, PLAN_NO_SLOTS_KEY],
   ];
   for (const [id, plan] of subscribers) {
@@ -521,12 +529,12 @@ describe('槽位释放：归档与质押逾期', () => {
     assert.strictEqual(claim.rows[0].state, 'EXPIRED');
     assert.strictEqual(claim.rows[0].release_reason, 'STAKE_EXPIRED');
 
-    // 这条是整块设计的支点：退还配额会把"每月 5 次"变成无限次——占坑、不做事、
-    // 拿回额度、再占一次。所以逾期只收槽位。
+    // PRD v2.2 Q5：每位用户**首次**逾期退还 1 次配额，之后不退（退还会把"每月 5 次"
+    // 变成无限次，所以只给一次）。这是该用户的第一次逾期，恰好退 1。
     assert.strictEqual(
       await quotaUsed(STAKE_USER),
-      usedBeforeSweep,
-      '逾期释放把配额也退了'
+      usedBeforeSweep - 1,
+      '首次逾期应当退还 1 次配额'
     );
 
     // 逾期之后不能再补交凭证：席位已经给了别人，收下一张凭证只会让项目看起来
@@ -567,6 +575,52 @@ describe('槽位释放：归档与质押逾期', () => {
     );
     assert.strictEqual(after.rows[0].state, 'EXPIRED', '二次扫描改动了已释放的认领');
     assert.strictEqual((await SlotService.getSlots(OPP_STAKE)).totalClaimed, 0);
+  });
+
+  it('质押窗口按执行规模取：M 为 14 天、L 为 21 天（PRD v2.2 Q5）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+    await query(`UPDATE opportunities SET execution_class = 'M' WHERE id = $1`, [OPP_WINDOW_M]);
+    await query(`UPDATE opportunities SET execution_class = 'L' WHERE id = $1`, [OPP_WINDOW_L]);
+
+    // 同一个 now 造两条项目；now 落在 40 天前，两条都已逾期，供下一个用例直接扫描。
+    const now = new Date(Date.now() - 40 * 86_400_000);
+    const m = await go(WINDOW_USER, OPP_WINDOW_M, { now });
+    const l = await go(WINDOW_USER, OPP_WINDOW_L, { now });
+
+    for (const [projectId, days] of [
+      [m.projectId, 14],
+      [l.projectId, 21],
+    ] as const) {
+      const row = await query<{ stake_deadline_at: Date }>(
+        `SELECT stake_deadline_at FROM projects WHERE id = $1`,
+        [projectId]
+      );
+      const actualDays = (row.rows[0].stake_deadline_at.getTime() - now.getTime()) / 86_400_000;
+      assert.strictEqual(actualDays, days, `质押窗口应为 ${days} 天，实得 ${actualDays}`);
+    }
+  });
+
+  it('首次逾期退还 1 次配额，之后的逾期不退（PRD v2.2 Q5）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { StakeService } = harness.services;
+    const { query } = harness.db;
+
+    const usedBefore = await quotaUsed(WINDOW_USER);
+    assert.strictEqual(usedBefore, 2, '前一个用例应当扣了两次额度');
+
+    // 上一个用例造的两条项目（14 / 21 天窗口）在 now 之前 40 天开始，此刻都已逾期。
+    const swept = await StakeService.releaseExpiredStakes(new Date());
+    const mine = swept.filter((row) => row.userId === WINDOW_USER);
+    assert.strictEqual(mine.length, 2, '两条逾期项目都应被释放');
+
+    assert.strictEqual(
+      await quotaUsed(WINDOW_USER),
+      usedBefore - 1,
+      '两次逾期合计只应退还 1 次配额'
+    );
+    const refunds = await query(`SELECT 1 FROM stake_overdue_refunds WHERE user_id = $1`, [WINDOW_USER]);
+    assert.strictEqual(refunds.rows.length, 1);
   });
 });
 
