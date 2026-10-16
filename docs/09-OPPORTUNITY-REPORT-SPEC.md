@@ -132,7 +132,9 @@ flowchart TD
 - **约束**：必须基于 `[D]` 提供的真实数据，严禁凭空产生无证据支撑的宏大商业叙事。
 
 ### 4.2 §2 Demand Intelligence（需求图谱与搜索意图）[D]
-- **数据源**：`autocomplete_observations` 与 `query_clusters`。
+- **数据源**：`autocomplete_observations` 与 `opportunity_queries`（机会簇 query 集合，05 §3）。`query_clusters` 表不存在，不得引用（30 R8）。
+- **意图**：每个 query 的 `intent` 由 U1 在入库时分类并冻结（ADR-020），报告只读冻结值，不在生成时重新分类。
+- **`volume_tier`**：当前没有词量数据源（04 §2），该字段**不输出**；接入经 04 §7 准入的词量源后再启用。
 - **字段**：
   ```json
   {
@@ -144,14 +146,12 @@ flowchart TD
         "query": "shopify tax calculator free",
         "intent": "TRANSACTIONAL",
         "priority": "P0",
-        "volume_tier": "HIGH",
         "first_observed": "2026-08-15"
       },
       {
         "query": "how to calculate shopify sales tax by state",
         "intent": "INFORMATIONAL",
         "priority": "P1",
-        "volume_tier": "MEDIUM",
         "first_observed": "2026-09-02"
       }
     ],
@@ -340,7 +340,7 @@ flowchart TD
 | 产物 | 文件名 | 内容来源 | 说明 |
 | :--- | :--- | :--- | :--- |
 | **① 工程规范** | `CLAUDE.md` / `.cursorrules` | 形态模板 + 报告 §5 + 07 商业证据 | 项目定位、目标客群、技术栈约束、命名约定、SEO 硬要求、"不要做什么"清单（含 Kill Criteria）。供用户**自带**的 Cursor / Claude Code 读取 |
-| **② PSEO 路由词表** | `routes.yaml` / `keywords.csv` | `query_clusters` 冻结快照 + 04 采集证据 | 每个路由的 `path` / 主词 / 意图 / 优先级 / 观测日期 / 证据 `evidence_id`；只包含**已观测到**的词，不得外推生成"可能相关的词" |
+| **② PSEO 路由词表** | `routes.yaml` / `keywords.csv`（同字段 JSON 可选） | `opportunity_queries` 冻结快照 + U1 入库冻结的意图 + 04 采集证据 | 每行字段（与 PRD F8、08 §6.4 统一，30 R9）：`slug` / `target_keyword` / `intent` / `title` / `h1` / `meta_description`，另附 `first_observed` 与 `evidence_id` 供溯源；`title` / `h1` / `meta_description` 由形态模板从关键词与意图确定性装配，不经 LLM。只包含**已观测到**的词，不得外推生成"可能相关的词" |
 | **③ 着陆页骨架** | `landing-skeleton.html` + `sections.yaml` | 形态模板 + 报告 §4 SERP 弱点审计 | 区块顺序与文案占位符（`{{F2.price_median}}` 等）；占位符必须在导出时全部解析，残留即刻阻断（R3） |
 
 **硬约束**：
@@ -348,7 +348,8 @@ flowchart TD
 2. **绑定 GO**：点火包**只能**通过原子 GO 事务解锁，不存在单独的下载端点（ADR-018、10 §4）。未锁槽即无点火包，这是产品定价的前提，不是前端约定。
 3. **形态专属**：不同 `archetype`（05 §11.2）装配不同模板；用户 GO 时选择的形态决定解锁哪一套。同一机会的不同形态点火包互不替代。
 4. **不含虚构事实**：词表与骨架里出现的每个数字与 URL 都必须能指回 `evidence_id` 或 `snapshot_id`；无法指回的字段留空并标注"—"，**不得由 LLM 补齐**（与 R2 同源）。
-5. **本地化边界**：点火包以用户 `ui_locale` 生成叙述文本，但**词表、路由 `path`、查询词本身保持 `research_language` 原文不译**（14 §点火包本地化边界）。
+5. **本地化边界**：点火包以用户 `ui_locale` 生成叙述文本，但**词表、路由 `slug`、查询词本身保持 `research_language` 原文不译**（14 §点火包本地化边界）。
+6. **词表来源与空集处理（30 R8）**：词表**只**从 `opportunity_queries` 读取，由服务层显式传入装配器，不得以"缺省为 `[]`"静默通过（现状代码 `report.section2.clusterQueries` 无人传入，导致词表恒空）。若该机会确实没有观测词，不输出空的 `keywords.csv` / `routes.yaml`，改为输出 `KEYWORDS_UNAVAILABLE.md`，写明原因（如"簇内尚无基线期后的观测词"）与观测起始日；导出页同步提示。`volume_tier` 无来源时不输出。
 
 ### 5.4 报告与点火包的关系
 
@@ -395,7 +396,7 @@ flowchart TD
 | **R6** | **止损红线明确度** | **核心** | 必须包含至少 1 条可执行的 Kill Criteria 预警。 |
 | **R7** | **多语言契约** | **核心** | 报告分析文案必须与用户 `ui_locale` 一致，专业术语与搜索词保持原文。 |
 | **R8** | **免责与时效标注** | **合规** | 必须明确包含生成时间基准日与免责声明。 |
-| **R9** | **点火包确定性** | **阻断** | 同一 `(opportunity_id, snapshot_id, archetype, template_version)` 重算必须得到相同点火包；包内不得出现未指回 `evidence_id` / `snapshot_id` 的数字或 URL，不得含虚构代码正文；词表与路由 `path` 保持 `research_language` 原文（§5.3）。 |
+| **R9** | **点火包确定性** | **阻断** | 同一 `(opportunity_id, snapshot_id, archetype, template_version)` 重算必须得到相同点火包；包内不得出现未指回 `evidence_id` / `snapshot_id` 的数字或 URL，不得含虚构代码正文；词表与路由 `slug` 保持 `research_language` 原文（§5.3）。 |
 
 ---
 

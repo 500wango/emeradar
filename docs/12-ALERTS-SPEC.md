@@ -24,14 +24,21 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 > （订阅一个永远不会响的规则比不提供更糟），并有一条幂等语句把库里既有的这类
 > 活跃规则置为停用；面向用户的"自动叫停"文案改成"需人工对照"。
 >
-> **待裁决**：本规格是**目标态**（那就要按它重建，`rule_type` 单值模型整体废弃）还是
-> **过度设计**（那就要按实现现状重写 §2–§6，删掉 `alert_thresholds` 之类的空头承诺）。
-> 在裁决之前，任何按本规格实现的代码都会与线上表结构打架 —— 请先选一边。
 > 另外 `en.ts` 的套餐文案 `webhookDelivery: 'In-app notifications & email digests'`
-> 承诺了 Email 摘要与 Webhook，二者都没有实现，属于同一处的对外失实。
+> 承诺了 Email 摘要与 Webhook，二者都没有实现，属于同一处的对外失实；首发前须改为
+> 只承诺 Email 与站内通知。
+>
+> **已裁决（2026-10-17，30 Q4，PRD v2.2 F9）**：收敛为 MVP，不按目标态重建。
+> - **保留 `rule_type` 单值模型**；§3 的 `params` 组合模型、`alert_thresholds` 表不实现。
+> - **首发 6 条触发器**：`VERDICT_CHANGE`、`WINDOW_CLOSING`、`SLOTS_LAST_ONE`、
+>   `KILL_CRITERIA`、`PROJECT_SERP_RANK_JUMP`、`CUSTOM_QUERY_PULSE_CONFIRMED`。
+> - **首发渠道**：Email + 站内通知。Webhook（含 Slack / Discord / Telegram 模板）在 Gate 1 之后交付。
+> - **其余触发器**（`LIFECYCLE_CHANGED`、`SERP_WEAKNESS_DROP`、`AUTOCOMPLETE_SPIKE`、
+>   `NEW_AUTHORITATIVE_ENTRANT`、`PROVEN_NEW_ENTRANT`、`PROJECT_GSC_TRACTION`）进 Phase 2，
+>   创建时继续 400 拒绝。§2 表的「交付」列按此标注；§2–§6 中超出上述范围的描述是 Phase 2 目标态。
 
 ## 1. 目的与范围
-定义 Watchlist 的变化如何被检测、Kill criteria 如何表达与求值、告警如何去重 / 限流 / 投递。首发渠道：Email + 通用 Webhook（01 F9）。
+定义 Watchlist 的变化如何被检测、Kill criteria 如何表达与求值、告警如何去重 / 限流 / 投递。首发渠道：Email + 站内通知；通用 Webhook 在 Gate 1 之后交付（01 F9，v2.2 Q4）。
 
 **DSL 复杂度原则**：Kill criteria 与告警触发条件使用**简单 JSON 谓词**（字段 / 操作符 / 值，可用 `and`/`or` 浅层组合），不做完整 AST 表达式引擎、不支持用户自定义公式或跨字段运算。理由：首发用户需要的是"这几条明确信号出现就提醒我"，不是构建自己的评分系统；简单谓词可静态校验、可确定性求值、可直接映射到已有的 `axis_features` / `verdicts` 字段，复杂度增加的收益不足以覆盖工程与心智成本。
 
@@ -41,18 +48,18 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 
 | 触发器 | 检测时机 | 条件 | 实现状态 |
 |--------|----------|------|----------|
-| `VERDICT_CHANGED` | S7（每日） | 当日 `verdict` ≠ 前一日 `verdict`（读账本，非 `raw_verdict`） | 已实现求值路径 |
-| `LIFECYCLE_CHANGED` | S7 | `lifecycle_transitions` 新增一条 | 无求值路径 |
-| `WINDOW_CLOSING_ENTERED` | S7 | 当日 `verdict = WINDOW_CLOSING` 且前一日不是 | 已实现求值路径 |
-| `SERP_WEAKNESS_DROP` | S7 | `serp_weakness` 较 7 天前下降 ≥ `serp_weakness_drop_threshold`（默认 20 分） | 无求值路径 |
-| `AUTOCOMPLETE_SPIKE` | S7 | `new_queries_7d` 较其 30 天移动平均 ≥ `autocomplete_spike_multiplier`（默认 3×） | 无求值路径 |
-| `NEW_AUTHORITATIVE_ENTRANT` | S7 | 当日 Top10 新出现 `result_type` 为 `OFFICIAL` 或 `EDITORIAL_MEDIA` 的域名，且该域名在 7 天前的 Top10 快照中完全未出现 | 已实现求值路径（代码中名为 `NEW_ENTRANT`） |
-| `PROVEN_NEW_ENTRANT` | S7 / F6 | 新**独立站**（上线不满 6 个月、闯入 SERP Top 5、且具备 `COMMERCIAL_TRACTION`）出现；识别规则见 07 §6.4 | 无求值路径 |
-| `KILL_CRITERIA_TRIGGERED` | S7（评估用户 / 系统定义的 Kill criteria，见 §5） | 任一 `ACTIVE` 的 kill criteria 谓词求值为真 | 无求值路径（`evaluateKillPredicate` 未落地，见 §5.3） |
-| `CUSTOM_QUERY_PULSE_CONFIRMED` | S7（对进入 7 天脉冲雷达的自定义初筛词） | 自定义初筛词的 7 天时序脉冲确认，且该词由 `CANDIDATE` 晋升为 `BUILD_NOW` 时推送抢跑通知（PRD F3 第 2 阶段、F9） | 无求值路径 |
-| `SLOTS_LAST_ONE` | S7 | 该机会某一形态剩余可认领槽位恰为 **1**（`opportunity_slots.capacity − claimed == 1`，ADR-018） | 无求值路径 |
-| `PROJECT_SERP_RANK_JUMP` | 每周（F1 Top 100 快照内存匹配后，PRD F10） | 已核验项目凭证的域名 / 商店链接**首次**进入 Top 100 / Top 30 / Top 10，或较上周排名跃升 ≥ `rank_jump_threshold`。**数据来自自身 SERP 管线（F1 一鱼多吃），不依赖 GSC** | 无求值路径 |
-| `PROJECT_GSC_TRACTION`（**可选增强**） | GSC 周同步后（**仅对自愿连接 GSC 的用户**） | 关联 Project 的曝光量较上周环比 ≥ `traction_spike_multiplier`（默认 2×）且绝对曝光 ≥ `traction_min_impressions`（默认 100） | 无求值路径 |
+| `VERDICT_CHANGED` | S7（每日） | 当日 `verdict` ≠ 前一日 `verdict`（读账本，非 `raw_verdict`） | **首发**；已实现求值路径 |
+| `LIFECYCLE_CHANGED` | S7 | `lifecycle_transitions` 新增一条 | Phase 2；无求值路径 |
+| `WINDOW_CLOSING_ENTERED` | S7 | 当日 `verdict = WINDOW_CLOSING` 且前一日不是 | **首发**；已实现求值路径 |
+| `SERP_WEAKNESS_DROP` | S7 | `serp_weakness` 较 7 天前下降 ≥ `serp_weakness_drop_threshold`（默认 20 分） | Phase 2；无求值路径 |
+| `AUTOCOMPLETE_SPIKE` | S7 | `new_queries_7d` 较其 30 天移动平均 ≥ `autocomplete_spike_multiplier`（默认 3×） | Phase 2；无求值路径 |
+| `NEW_AUTHORITATIVE_ENTRANT` | S7 | 当日 Top10 新出现 `result_type` 为 `OFFICIAL` 或 `EDITORIAL_MEDIA` 的域名，且该域名在 7 天前的 Top10 快照中完全未出现 | Phase 2（求值路径已存在，代码中名为 `NEW_ENTRANT`，首发不开放订阅） |
+| `PROVEN_NEW_ENTRANT` | S7 / F6 | 新**独立站**（上线不满 6 个月、闯入 SERP Top 5、且具备 `COMMERCIAL_TRACTION`）出现；识别规则见 07 §6.4 | Phase 2；无求值路径 |
+| `KILL_CRITERIA_TRIGGERED` | S7（评估用户 / 系统定义的 Kill criteria，见 §5） | 任一 `ACTIVE` 的 kill criteria 谓词求值为真 | **首发**；待实现（`evaluateKillPredicate` 未落地，见 §5.3） |
+| `CUSTOM_QUERY_PULSE_CONFIRMED` | S7（对进入 7 天脉冲雷达的自定义初筛词） | 自定义初筛词的 7 天时序脉冲确认，且该词由 `CANDIDATE` 晋升为 `BUILD_NOW` 时推送抢跑通知（PRD F3 第 2 阶段、F9） | **首发**；待实现 |
+| `SLOTS_LAST_ONE` | S7 | 该机会某一形态剩余可认领槽位恰为 **1**（`opportunity_slots.capacity − claimed == 1`，ADR-018） | **首发**；待实现 |
+| `PROJECT_SERP_RANK_JUMP` | 每周（F1 Top 100 快照内存匹配后，PRD F10） | 已核验项目凭证的域名 / 商店链接**首次**进入 Top 100 / Top 30 / Top 10，或较上周排名跃升 ≥ `rank_jump_threshold`。**数据来自自身 SERP 管线（F1 一鱼多吃），不依赖 GSC** | **首发**；待实现 |
+| `PROJECT_GSC_TRACTION`（**可选增强**） | GSC 周同步后（**仅对自愿连接 GSC 的用户**） | 关联 Project 的曝光量较上周环比 ≥ `traction_spike_multiplier`（默认 2×）且绝对曝光 ≥ `traction_min_impressions`（默认 100） | Phase 2；无求值路径 |
 
 **`NEW_ENTRANT` 与"新晋赢家"是两个概念（务必区分）**：
 
@@ -185,7 +192,7 @@ type KillPredicate = Comparison | CompoundPredicate;
 ### 6.2 去重、频控
 - 幂等：`deliveries` 的重试（网络失败）复用同一 `alert_event_id` + `channel_id`，不产生新事件。
 - **频控**：同一用户同一渠道，`IMMEDIATE` 规则的投递间隔下限 `min_delivery_interval`（默认 5 分钟）；间隔内的多个事件合并为一条"批量"通知（列出多个机会 / 触发器，而非逐条发送）。
-- **Quiet hours**：用户可设置免打扰时段（基于 `ui_locale` 推断默认时区，可手动调整）；`IMMEDIATE` 事件在免打扰时段内暂存，时段结束后作为一条合并通知发出；`KILL_CRITERIA_TRIGGERED` 不受 quiet hours 限制（用户主动定义的放弃信号，视为高优先级）。
+- **Quiet hours**：用户可设置免打扰时段（默认时区为 UTC，用户可显式设置；**不得**由 `ui_locale` 推断时区——语言与地域互不推导，00 §4.4，R16）；`IMMEDIATE` 事件在免打扰时段内暂存，时段结束后作为一条合并通知发出；`KILL_CRITERIA_TRIGGERED` 不受 quiet hours 限制（用户主动定义的放弃信号，视为高优先级）。
 
 ### 6.3 摘要（Digest）
 - `DAILY`：每日固定时间（默认 13:00 UTC，即多数目标市场的早晨到中午）按用户时区就近对齐，汇总前 24 小时内的事件，一条邮件 / Webhook。
@@ -212,7 +219,7 @@ type KillPredicate = Comparison | CompoundPredicate;
 - `EntitlementService`（13）决定：Free 套餐是否可配置告警渠道、`alert_rules` 数量上限、`kill_criteria` 数量上限是否与套餐挂钩。
 - 触发器读取的字段来自 05（`axis_features`、`verdicts`）与 07（`commercial_stage`），Kill Criteria DSL 的字段白名单必须与这两份文档的字段命名保持同步——新增评分字段时若需开放给 Kill Criteria，同一 PR 内更新 §5.1 的 `FieldRef`。
 - REST API（10）与 Web 控制台的关注与告警规则共用同一 `AlertService`。
-- **套餐联动（PRD §1.7 第 6 条、§8.1）**：`CUSTOM_QUERY_PULSE_CONFIRMED` 建立在"自定义词即时初筛"配额之上——Free 层**终身仅 1 次**、Pro 层**每月 15 次**（Pro 未用完的月度初筛配额支持跨月累计 Rollover）。只有已消耗配额、且被加入 7 天脉冲雷达的初筛词才会产生该触发器；Free 层不支持 7 天雷达，故不会触发它。配额与可用触发器集合的裁决统一由 `EntitlementService`（13）负责，本规格不重复定义。
+- **套餐联动（PRD §1.7 第 6 条、§8.1）**：`CUSTOM_QUERY_PULSE_CONFIRMED` 建立在"自定义词即时初筛"配额之上——Free 层**终身仅 1 次**、Pro 层**每月 15 次**（初筛配额**不**跨月累计；PRD §8.1 只给立项导出配额 Rollover，R16）。只有已消耗配额、且被加入 7 天脉冲雷达的初筛词才会产生该触发器；Free 层不支持 7 天雷达，故不会触发它。配额与可用触发器集合的裁决统一由 `EntitlementService`（13）负责，本规格不重复定义。
 
 ## 8. 测试要求（18 §3）
 | 用例 | 期望 |

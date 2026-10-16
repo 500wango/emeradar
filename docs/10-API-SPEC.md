@@ -42,7 +42,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | 404 | `NOT_FOUND` | 资源不存在或不可见（买断保护期内的机会对未买断者一律返回 404，**不返回 403**，避免暴露"这个词存在且被人买走了"） |
 | 409 | `CONFLICT` | 状态冲突（如重复创建 Project、重复绑定的质押凭证） |
 | 409 | `SLOT_TAKEN` | 该形态槽位已被占满，GO 失败。响应体必须附 `alternatives[]`：同一机会**仍有空余**的其他 `archetype`（可能是空数组） |
-| 409 | `ACTIVE_SLOTS_EXCEEDED` | 用户同时活跃 GO 已达 `active_go_slots_max`（默认 2） |
+| 409 | `ACTIVE_SLOTS_EXCEEDED` | 用户质押尚未核验通过（`stake_status = 'PENDING'`）的 GO 已达 `active_go_slots_max`（默认 2）；已 `VERIFIED` 的 GO 不计入（PRD v2.2 Q15） |
 | 422 | `PRECONDITION_FAILED` | 业务前置条件不满足（如未 GO 就请求点火包、质押窗口已过） |
 | 422 | `STAKE_REQUIRED` | 该用户存在逾期未质押的项目，须先处理才能发起新的 GO |
 | 422 | `STEALTH_LOCK_UNAVAILABLE` | 买断下单时 `Σclaimed > 0`（已有他人认领，处女地已被破坏） |
@@ -147,7 +147,7 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | PUT / DELETE | `/opportunities/{id}/watch` | 关注 / 取消（幂等） |
 | GET | `/watchlist` | 我的关注及自上次查看的变化 |
 | POST | `/opportunities/{id}/decisions` | 体：`{ decision: GO\|PASS, verdict_id, reason_code, note? }`；`verdict_id` **必填**，由客户端给出它当下渲染的那一条裁决。**这是"记录意见"，不是"认领"。** 要占用槽位并解锁点火包必须走下面的 `POST /go` |
-| POST | `/opportunities/{id}/go` | **原子 GO（ADR-018）**。体：`{ archetype, verdict_id, report_id?, credential?: { type, url }, note? }`。单事务内完成：`reserve` 1 次 `atomic_go_export_monthly` → 锁定 `(opportunity_id, archetype)` 行并校验 `claimed < capacity` → `claimed += 1` → 建 `projects`（`status='IN_DEVELOPMENT'`、`stake_status='PENDING'`、`stake_deadline_at = now() + stake_window_days`）→ 解锁该形态点火包。响应 `201 { project_id, slot_claim_id, stake_deadline_at, launch_kit_url }`。失败：`409 SLOT_TAKEN`（附 `alternatives[]`）、`409 ACTIVE_SLOTS_EXCEEDED`、`403 QUOTA_EXCEEDED`、`403 PLAN_REQUIRED`（Free）、`422 STAKE_REQUIRED`（有逾期未处理的项目） |
+| POST | `/opportunities/{id}/go` | **原子 GO（ADR-018）**。体：`{ archetype, verdict_id, report_id?, credential?: { type, url }, note? }`。单事务内完成：`reserve` 1 次 `atomic_go_export_monthly` → 锁定 `(opportunity_id, archetype)` 行并校验 `claimed < capacity` → `claimed += 1` → 建 `projects`（`status='IN_DEVELOPMENT'`、`stake_status='PENDING'`、`stake_deadline_at = now() + stake_window_days`，窗口按所选形态的执行规模 S 7 / M 14 / L 21 天，PRD v2.2 Q5）→ 解锁该形态点火包。响应 `201 { project_id, slot_claim_id, stake_deadline_at, launch_kit_url }`。失败：`409 SLOT_TAKEN`（附 `alternatives[]`）、`409 ACTIVE_SLOTS_EXCEEDED`、`403 QUOTA_EXCEEDED`、`403 PLAN_REQUIRED`（Free）、`422 STAKE_REQUIRED`（有逾期未处理的项目） |
 | GET | `/opportunities/{id}/kill-criteria` / POST / PATCH / DELETE | 见 12 §5 |
 
 **并发语义（必须实现，不可依赖前端）**：`POST /go` 对 `opportunity_slots` 的目标行先 `SELECT … FOR UPDATE`（或 `UPDATE … WHERE claimed < capacity` 条件递增）再判断，**四人同时抢同一形态的最后一个槽位时只有一个返回 201，其余返回 `409 SLOT_TAKEN`**。这条并发保证写在契约里而不是实现里，因为它是产品定价的前提（18 §4.1 有对应并发测试用例）。
@@ -160,6 +160,12 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 | POST | `/screener/scans` | 体：`{ query, market_country, research_language, preferred_archetype? }` → `202 { scan_id }`。**第一阶段**为全量数据查询，命中已追踪机会则返回该机会的完整结果；未命中则进入**第二阶段**的按需采集（受全局令牌桶与 7 天去重约束，ADR-017 / 02 §5.2）。配额：Free `live_scan_lifetime`（**终身 1 次**）、Pro `live_scan_monthly`（每月 15 次）（13 §3.2） |
 | GET | `/screener/scans/{id}` | 查询状态与结果。**结果按套餐半遮罩**（见 §6）：Free 保留"N 个弱结果 / M 个收钱独立站 / 静态切入难度"等判断性结论，具体弱结果 URL、竞品域名与 15 个长尾词以 `restricted: true` + `null` 返回 |
 | POST | `/screener/scans/{id}/promote` | 将初筛结果转为 Watchlist 条目或（Pro）直接进入该机会的详情页。**不创建 Project**——立项必须走 `POST /go` |
+| GET | `/screener/demos` | **3 个官方 Demo 词**（PRD F3、§4.1、§7.2）。匿名可读。返回 `[{ demo_id, query, market_country, research_language, snapshot_date }]`，由 Admin 维护、固定为 3 条（R15） |
+| GET | `/screener/demos/{demo_id}` | Demo 词的完整初筛结果，结构与 `GET /screener/scans/{id}` 相同但**不打码**（Demo 词是公开样本，不含付费底牌价值）。**只读预先冻结的缓存快照**：零配额、零外部请求、不经令牌桶；快照缺失时返回 `503 DEMO_UNAVAILABLE`，**不得**回退为实时采集（否则匿名接口就成了免费初筛） |
+
+**初筛性能目标（PRD §9.3，R15）**：7 天去重命中（复用 `serp_snapshots`，ADR-017）时，`POST /screener/scans` 直接返回 `200` 与完整结果，服务端 p95 **< 200ms**；未命中走实时采集，从受理到 `status = DONE` p95 **< 8s**。Demo 词接口同属缓存命中档（< 200ms）。
+
+**进度反馈**：沿用本规格的异步风格（`202` + 轮询，§5），不引入 SSE。`GET /screener/scans/{id}` 返回 `status`（`QUEUED` `FETCHING_SERP` `PROBING_COMMERCIAL` `CLASSIFYING` `DONE` `FAILED`）与 `phase_started_at`，前端据此渲染阶段进度（16 §3.2c）；响应带 `Retry-After`（建议 1 秒）。排队超出全局令牌桶时 `status = QUEUED` 并给出预估等待，不计入 8s 目标但必须如实显示。
 
 初筛结果**永不**产生公开投影：一个由用户自定义词触发的查询可能命中处女地，若把它写进公开页就等于把别人刚发现的空地挂上牌子（15 §3、PRD §1.7 第 6 条）。
 
@@ -200,10 +206,11 @@ Web 前端与第三方脚本共用同一组应用服务（02 §8）。本文定�
 
 **占位先于付款（`provider_payment_id IS NULL` 的 `ACTIVE` 行）**：托管结账页面意味着付款完成时锁还不存在，若等到付款才建锁，付完款与建锁之间别人可以点 GO 占槽，于是钱已收、无物可交。所以**先占位、后付款**，并把风险从"钱"搬到"时间"：
 
-- 待付窗口 **45** 分钟（`STEALTH_RESERVATION_GRACE_MINUTES`，`packages/services/src/stealth-lock-policy.ts`）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
+- 待付窗口 **15** 分钟（`STEALTH_RESERVATION_GRACE_MINUTES`，`packages/services/src/stealth-lock-policy.ts`；PRD v2.2 Q8 由 45 缩为 15，代码常量待改）内，占位与已成交的买断对外**没有区别**（机会同样隐藏）。
 - 窗口一过而钱仍未到，占位自动失效（`status='VOID'`）：机会重新对全网开放。**失效不依赖清理作业是否跑过**——隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），否则一次作业停摆就会变成一次无限期的全网遮蔽。
-- 结账会话的 `expires_at`（`STEALTH_CHECKOUT_SESSION_MINUTES` = 35 分钟）必须**短于**待付窗口（预留 webhook 投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。这个大小关系是硬约束，不是两个各自可调的旋钮：把窗口调到 35 以下就等于开出一条"钱已收、交付物不在"的通道。
-- 同一用户**同时至多一笔待付占位**。没有这条闸时，一个付费账号可以对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，把整网反复遮黑 45 分钟。
+- 结账会话的 `expires_at`（`STEALTH_CHECKOUT_SESSION_MINUTES`）必须**短于**待付窗口（预留 webhook 投递延迟的余量），否则会出现"占位已作废而会话仍可付款"。这个大小关系是硬约束，不是两个各自可调的旋钮。窗口缩到 15 分钟后，会话时长须同步改为 **10 分钟**（现行代码为 35，与新窗口同轮修改；若 MoR 的最短会话时长大于 10 分钟，窗口不得低于"会话时长 + 5 分钟"）。
+- 同一用户**同时至多一笔待付占位**。没有这条闸时，一个付费账号可以对 Feed 里每条处女地免费提交一次"下单"再关掉标签页，把整网反复遮黑。
+- **多账号轮流的闸（PRD v2.2 Q8）**：同一规范化身份（`email_identities`）或同一设备指纹在 30 天内累计 **2 次**未付作废（`VOID`）后，取消其买断下单资格：`POST` 返回 `422 STEALTH_LOCK_UNAVAILABLE`，`GET` 返回 `available = false` 并附 `reason = 'PURCHASE_SUSPENDED'`。判定在下单事务内现算，不依赖作业。
 - 窗口内已付款：webhook 回填 `provider_payment_id`，并**同步刷新该机会的公开投影**（不等 S8 批处理），否则从付款到下一次批处理之间有最长一整天的真实词根裸奔，按 15 §8 即 P0。
 
 **买断者保留 GO 的权利**：`Σclaimed == 0` 约束的是**下单那一刻**。下单之后买断者自己可以在这条机会上 GO——PRD 第 72 行与第 364 行把它写成「由买断者**一人独享窗口期**」，若买断者连立项都不行，这个商品就什么也没交付。于是 `Σclaimed` 会从 0 变成 1，而 60 天打码继续到 `unlock_at`：被打码的是**账本投影**，不是买断者自己的项目。

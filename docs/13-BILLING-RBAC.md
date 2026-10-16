@@ -128,12 +128,14 @@ type ReservationResult =
 - **预占与补偿机制（Hold & Release Pattern）**：
   - 为防止异步任务在排队与执行窗口期（30–90 秒）遭高并发调用绕过配额产生严重超卖，对 `quota` 周期型配额实行**入队即原子预占**（`reserve`）；
   - `reserve` 利用 PostgreSQL 行锁与条件更新：`UPDATE usage_counters SET used = used + :units WHERE user_id = :uid AND feature = :f AND period_start = :p AND used + :units <= :limit`；若受影响行数为 0 则直接返回 `QUOTA_EXCEEDED` 快速拒绝；
-  - 若异步任务最终彻底失败（如骨架生成崩溃、未达到 `PARTIAL` 状态且无有效章节产生），Worker 在错误处理分支调用 `refund` 原子补偿回滚已扣减的配额；若达到 `READY` 或 `PARTIAL`，则配额已被合规消费，无需后续处理。
+  - **报告生成不扣额**（09 §6）：额度只在原子 GO（`atomic_go_export_monthly`）时扣减一次，报告与点火包是这次 GO 的产出，生成失败时重试生成，**不释放、不退还配额**。旧版"报告彻底失败时 `refund`"属于 Hold & Release 口径的残留，已删除（30 R16）。`refund` 仅保留给 GO 事务本身回滚（事务未提交则配额从未被扣，无需显式退还）与 Q5 裁决后可能出现的"首次逾期退还"。
 
 ### 4.2 周期计算
 - `quota` 类型的 `period_start`：`MONTH` 按用户所在订阅的计费周期起始日（`subscriptions.current_period_start`）对齐，而非自然月，避免"月中订阅当月配额被稀释"的观感问题；`WEEK` 按该周期起始日对齐的 7 天窗口；`FREE` 套餐（无订阅）按账户创建日对齐的自然月滚动。
 - **`LIFETIME` 用固定哨兵日期 `1970-01-01`** 作为 `period_start`。这不是把终身额度塞进周期模型凑数——而是让终身额度与周期额度共享同一套 `reserve` / `refund` 原子预占与并发控制（§4.1），否则一个 feature 要维护第二份"只此一次"的判定逻辑，而两份逻辑迟早会不一致。
 - ****跨月累计（Rollover）** 只在 `entitlements` 标注了 `"rollover": true` 的 feature 上生效**（首发仅 `atomic_go_export_monthly`）。周期切换到下一期时，把上一期 `limit - used` 的剩余额度以一行写入 `usage_carryovers`（03 §3），本期可用额度 = `limit + Σ 未被消费的结转`。只结转**一期**：不无限累积，否则用户攒够额度后可以在一个月内把整套 Feed 立项完，槽位机制会被自己的配额绕开。结转行逐笔留存，使"额度去哪了"可被回答，而不是靠一个会漂移的余额数字。
+  - **已裁决（30 Q3，PRD v2.2 §8.1）**：只结转一期，结转后可用余额上限 **10 次**（`limit + 结转 ≤ 10`，超出部分不结转）。
+  - **供给约束（30 Q6，PRD v2.2 §8.1）**：Phase 1 期间 Pro 席位上限 **30**（结账前校验活跃 Pro 订阅数，满额后结账页显示候补）；Gate 1 后按实测的月均可认领槽位数重算配额与席位。
 - `usage_counters` 按 `(user_id, feature, period_start)` 累加，读取路径优先查计数器（O(1)），仅在计数器缺失时回溯 `usage_events` 重建（用于处理时区 / 周期边界的异常情况）。
 
 ### 4.3 各服务的调用点
@@ -148,7 +150,7 @@ type ReservationResult =
 | `DecisionService.watch` | `watchlist_max_items` | `check` | 检查当前 Watchlist 行数 < 上限 |
 | `AlertService.createRule` | `alert_rules_max` | `check` | 同上，行数上限检查 |
 | `OpportunityService.compare` | `compare_max_items` | `check` | 请求体 `ids.length` ≤ 上限，非消耗型 |
-| `ProjectService.submitCredential` | 不单独扣额 | `check` | 质押凭证提交只做归属与格式校验；额度已在 GO 时扣减，**逾期释放槽位时不退还**（PRD §1.7 第 5 条） |
+| `ProjectService.submitCredential` | 不单独扣额 | `check` | 质押凭证提交只做归属与格式校验；额度已在 GO 时扣减，**逾期释放槽位时不退还**（PRD §1.7 第 5 条），**例外：每位用户首次逾期退还 1 次配额**（`refund`，按 `users.first_stake_refund_used_at` 判定只退一次）。质押窗口按所选形态的执行规模：S 7 天 / M 14 天 / L 21 天；接受应用商店审核期间的预发布着陆页（30 Q5，PRD v2.2） |
 | `StealthLockService.purchase` | `stealth_buyout` | `check` + 下单事务内校验 `Σclaimed == 0` | 一次性商品，不走 quota；资格由数据决定而不是套餐。另有"同一用户同时至多一笔待付占位"的闸（10 §4.5b）——它不是额度，是防止用免费占位遮蔽全网 |
 | REST API Key 调用 | `api_access` | `check` | 布尔前置检查 |
 
@@ -165,14 +167,16 @@ type ReservationResult =
 
 - 「申请追踪」创建 `CANDIDATE`，不视为 `feed_realtime`，也不扣任何配额。
 - `opportunity_detail_full` 对 `CANDIDATE` 关闭：调用方看到观察状态、缺了哪一类证据、预计何时可复评。已发布裁决的完整详情才按套餐打开。
-- **Free 的实时体验由 `feed_selected_weekly` 承担，而不是延迟**：每周 1 条**刚满足 `CROWDED_LOCKED` 或刚进入 `WINDOW_CLOSING`** 的已发布机会。**仍有空余槽位的黄金 `BUILD_NOW` 严禁进入免费可见范围**——这是"准实时样本防背刺"（PRD §7.1），免费层看到的是真实且足够震撼的案例，但抢跑价值 100% 留给付费用户。资格判据见 15 §3。
+- **Free 的实时体验由 `feed_selected_weekly` 承担，而不是延迟**：每周 1 条**刚满足 `CROWDED_LOCKED` 或刚进入 `WINDOW_CLOSING`** 的已发布机会。**仍有空余槽位的黄金 `BUILD_NOW` 严禁进入免费可见范围**——这是"准实时样本防背刺"（PRD §7.1），免费层看到的是真实且足够震撼的案例，但抢跑价值 100% 留给付费用户。资格判据见 15 §3。**冷启动回退（30 Q10，PRD v2.2）**：7 天内没有新的合格案例时，回退展示最近一条曾满足准实时资格的历史案例，并标注「历史案例」；回退永远不放宽资格判据本身（空槽 `BUILD_NOW` 仍严禁出现）。
 - **Free 没有 GO 权限**（`active_go_slots_max = 0`）：不能认领槽位，也就不能创建 Project、不能导出报告或点火包。免费层能读到的报告只有每月 1 份历史案例预览，且不可导出。
 - Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计；候选观察区对实时套餐开放，对 Free 只读。
 - **报告与 AI 点火包在 GO 之后才解锁**，两者同属一次原子立项；同一快照重复查看不重复扣额（09 §6）。
 - **季度 Builder Pass 不是独立 `plan_code`**，而是 PRO 权益在 `billing_interval = 'QUARTER'` 下的售卖方式（03 §3）。这样同一份权益只有一个真源，避免 `PRO` 与 `BUILDER_PASS` 两套配额各自漂移。
-- **Stealth Buyout 是单次增值商品**，不进 `plans`、不产生续费、不授予任何订阅权益；下单资格由数据决定（`已认领槽位 == 0`），落库为 `stealth_locks`（03 §12）。
+- **Stealth Buyout 是单次增值商品**，不进 `plans`、不产生续费、不授予任何订阅权益；下单资格由数据决定（`已认领槽位 == 0`），落库为 `stealth_locks`（03 §12）。**待付窗口 15 分钟**；同一规范化身份（`email_identities`）或同一设备指纹 30 天内累计 2 次未付作废（`VOID`）后，取消其买断下单资格（`422 STEALTH_LOCK_UNAVAILABLE`），防止多账号轮流用待付窗口免费遮蔽机会（30 Q8，PRD v2.2；10 §4.5b）。
+- **兜底承诺（30 Q7，PRD v2.2 §8.1）**：只保留一条可计量的触发条件——连续 2 周全平台合格 `BUILD_NOW` + `EARLY_BET` 为 0 时，所有活跃 Pro 订阅自动延长 7 天。补偿只给时长或额度，**不退现金**；触发判定读账本 `verdicts`，不读任何团队可调的阈值。
+- **活跃 GO 的口径（30 Q15，PRD v2.2 §1.7 第 5 条）**：`active_go_slots_max = 2` 只计 `stake_status = 'PENDING'` 的 GO；质押核验通过（`VERIFIED`）后不再计入这条上限，但它占用的形态槽位不变。
 - Team 为历史兼容值，不在结账页出现，也不对应当前可用的 workspace 或多席位功能。
-- Founding Pro Lifetime 为一次性 `$399` 付款，复用当前 Pro 权益与月度配额，以 `purchase_kind = 'FOUNDING_LIFETIME'` 标记，不产生续费事件。付款后不提供退款。终身版不承诺无限报告、无限抓取或未来高成本模块，当前仅作为首发早鸟方案。
+- Founding Pro Lifetime 为一次性 `$399` 付款，复用当前 Pro 权益与月度配额，以 `purchase_kind = 'FOUNDING_LIFETIME'` 标记，不产生续费事件。付款后不提供退款。终身版不承诺无限报告、无限抓取或未来高成本模块，当前仅作为首发早鸟方案。**限额 50 席，售罄即止**（30 Q12，PRD v2.2 §8.1）：结账前在同一事务内校验 `purchase_kind = 'FOUNDING_LIFETIME'` 的已付行数 < 50。
 
 ## 5. 配额耗尽与降级 UX
 - REST：见 10 §1.1 错误格式，`QUOTA_EXCEEDED` / `PLAN_REQUIRED`，响应体含 `upgrade.url`。
@@ -201,7 +205,7 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 - 降级 / 取消：`cancel_at_period_end = true`，当前计费周期内维持原权益，周期结束后降级。
 - **降级时的数据上限处理与规则停用**：
   - Watchlist / Project：既有数据超出新套餐上限部分（如 Free 上限 5 条但用户有 50 条关注）**不物理删除**，允许只读查看超出部分，但不可新增关注或项目，直至清理到上限以下或重新升级；
-  - 告警规则停用（`alert_rules`）：Free 套餐仅允许 1 条告警规则（且仅限 `DAILY` digest）。用户降级为 Free 时，系统按 `created_at ASC` **自动保留最早创建的 1 条有效规则，其余规则批量置为 `status = 'DISABLED_DUE_TO_DOWNGRADE'` 并停止投递**，避免持续消耗邮件服务商额度；用户重新升级为 Pro 时，可在设置页一键恢复全部历史规则。
+  - 告警规则停用（`alert_rules`）：Free 套餐**不支持告警**（§3.2 `alert_rules_max = 0`、`alert_channels = []`，PRD §8.1）。用户降级为 Free 时，系统把**全部**有效规则批量置为 `status = 'DISABLED_DUE_TO_DOWNGRADE'` 并停止投递，不再保留任何一条；用户重新升级为 Pro 时，可在设置页一键恢复全部历史规则。（旧版"保留最早 1 条 DAILY 规则"与 §3.2 矛盾，已删除，30 R16。）
 
 ## 7. 防白嫖与滥用检测（首发最小集）
 
@@ -216,11 +220,11 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 | **G1 邮箱 Canonical 归一化** | 剥离 Gmail 的 `+别名` 与 `.`，小写归一；归一化结果在 `email_identities.canonical_email` 上唯一 | 03 §2。同一自然人的 Gmail 变体只能注册一个账号。非 Gmail 域只做小写归一——点号在多数邮箱服务里是有意义的字符 |
 | **G2 一次性邮箱黑名单** | 注册时比对 `disposable_email_domains`，命中即拒绝注册 | 03 §2 |
 | **G3 OAuth 强绑定** | 领取终身额度**必须**通过 GitHub 或 Google OAuth 登录（纯邮箱密码账号不发放） | 社交身份的注册成本远高于填一个邮箱；`accounts` 表已具备承载能力（ADR-015 的 Auth.js 自带 provider 机制，不引入外部托管 Auth 服务） |
-| **G4 设备/IP 30 天限流** | 同一设备指纹或同一 IP 在 30 天内至多触发 1 次；判定依据是 `lifetime_scan_grants` 而非账号计数 | 03 §2。`usage_counters` 只防同一账号重复领取，防不住换号重领 |
+| **G4 设备指纹 30 天限流** | 同一设备指纹在 30 天内至多触发 1 次；判定依据是 `lifetime_scan_grants` 而非账号计数。**IP 只作风险信号**（计入 §7.2 检测），不单独拒绝 | 03 §2。`usage_counters` 只防同一账号重复领取，防不住换号重领；IP 单独拒绝会批量误伤共用代理出口的华语 Builder（30 Q9） |
 
 - 额度状态机：`reserve` 扣减 `live_scan_lifetime`（LIFETIME 哨兵周期）**与**写入一行 `lifetime_scan_grants` 必须在**同一事务**内完成。只写其中一边，都会留下一条可被利用的路径——只扣配额则换号即可绕过，只写指纹则同号可重复领取。
 - **不退还**：初筛额度一旦消耗即不可退（PRD §1.7 第 5 条 对配额退还的一贯口径）。这里与报告生成的 Hold & Release 不同：报告是异步任务，失败时用户没有拿到任何产出，理应退还；初筛是同步返回结果的动作，"失败"本身就是一次有效产出。
-- 拿不到指纹或 IP 时**放行但不记录**：宁可让一个真实用户领到，也不要因为客户端不配合指纹采集而永久拒绝他。这类放行会被计数并在管理后台暴露，用于观察绕过规模。
+- **拿不到指纹时**：要求该 OAuth 账号注册满 **30 天**才发放免费初筛，否则拒绝并提示原因（30 Q9，PRD v2.2 F14）。旧口径"放行但不记录"已废除——屏蔽指纹脚本即可绕过。这类拒绝与放行都计数并在管理后台暴露。
 
 ### 7.2 检测信号
 
@@ -232,7 +236,7 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 | Webhook 目标地址指向内网 / 保留地址段（SSRF 防护） | 创建时校验 | 拒绝创建，返回 `VALIDATION_ERROR` |
 | GSC OAuth 异常（短时间内连接大量不同 Property） | 1 小时内 ≥ 10 个 Property | 标记待审核（GSC 已降为可选增强项，此信号优先级随之下降） |
 | 同一机会在 24 小时内被同一账户反复重新生成报告 | ≥ 5 次 | 计入 quota 消耗，天然被 `atomic_go_export_monthly` 约束；仅记录用于产品分析 |
-| GO 后 7 天质押逾期率异常 | 单账户累计逾期 ≥ 2 次 | 标记待审核；额度不退还已由 §4.3 保证，此处只做人工评估是否限制其后续认领 |
+| GO 后质押逾期率异常 | 单账户累计逾期 ≥ 2 次 | 标记待审核；额度不退还已由 §4.3 保证，此处只做人工评估是否限制其后续认领 |
 
 - 检测结果进入 `/admin/review-queue`（10 §4.9），由 `ADMIN` / `SUPPORT` 处理，首发不做自动封号。
 
@@ -257,10 +261,14 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 | 实时初筛请求失败（上游超时） | **不退还** `live_scan_lifetime`（同步动作的失败仍是一次有效产出） |
 | 同快照重复查看已就绪报告 | 零额外配额消耗，直接返回缓存结果 |
 | 四人并发对同一机会同一形态点 GO，该形态仅剩 1 个槽位 | 只有 1 人成功；其余返回槽位已满，且**无人的配额被扣减** |
-| GO 后 7 天未提交凭证 | 槽位释放、`stake_status = 'EXPIRED_RELEASED'`、**已扣配额不退还** |
+| GO 后质押窗口（S 7 / M 14 / L 21 天）内未提交凭证，用户此前已逾期过 | 槽位释放、`stake_status = 'EXPIRED_RELEASED'`、**已扣配额不退还** |
+| 同上，但这是该用户首次逾期 | 槽位释放，且退还 1 次配额；`users.first_stake_refund_used_at` 被写入，第二次逾期不再退 |
+| 同一规范化身份 30 天内第 2 次待付买断作废后再次下单 | `422 STEALTH_LOCK_UNAVAILABLE` |
+| 无设备指纹、OAuth 账号注册不满 30 天，领取免费初筛 | 拒绝；不扣额度、不写 `lifetime_scan_grants` |
+| 用户有 2 个 `PENDING` 质押 + 1 个 `VERIFIED`，再次 GO | 拒绝 `409 ACTIVE_SLOTS_EXCEEDED`；若其中 1 个转为 `VERIFIED`，再次 GO 成功 |
 | 对 `Σclaimed > 0` 的机会发起 Stealth Buyout | 下单被拒（非处女地） |
 | Pro 上月 5 次立项只用了 3 次，本月查看可用额度 | 显示 5 + 2 = 7（Rollover），且 `usage_carryovers` 有对应行 |
 | 订阅从 `PRO` 降级为 `FREE`，Watchlist 超限 | 超出部分只读可见，无法新增关注 |
-| 订阅从 `PRO` 降级为 `FREE`，既有 Project 仍在 | 只读可见、不删除；`stake_status = 'PENDING'` 的质押仍按 7 天期限结算 |
+| 订阅从 `PRO` 降级为 `FREE`，既有 Project 仍在 | 只读可见、不删除；`stake_status = 'PENDING'` 的质押仍按原定 `stake_deadline_at` 结算 |
 | Webhook 目标为 `127.0.0.1` | 创建请求被拒绝 |
 | `invoice.payment_failed` 后 8 天未恢复 | 权益自动降级为 `FREE` 对应值 |

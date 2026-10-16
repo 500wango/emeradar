@@ -1,6 +1,6 @@
 # 23 — 竞品对标演进与实施计划 (Competitive Evolution & Execution Plan)
 
-**文档状态**：Approved for Implementation  
+**文档状态**：Suspended（2026-10-17，见 30 §5.1 冻结清单；原 Approved for Implementation）  
 **版本**：1.0.0  
 **日期**：2026-10-05  
 **对标基准**：`seo.web.cafe`（哥飞的 SEO 工具箱）深度逆向分析  
@@ -101,6 +101,8 @@ flowchart TD
 
 ### 4.1 Sprint 1：研报升维与落地测算内嵌（当前优先实施）
 
+> **冲突标注（2026-10-17，30 R16）**：KD 与 ROI 测算器偏向 PRD §1.6 排除项「以 Keyword Difficulty / 反链库为核心」。随本文一并暂停；恢复前须说明它如何不成为核心。
+
 #### Task 1.1：`packages/scoring` 算法升级
 1. **页面强度折扣**：
    - 首页权重：1.0；
@@ -144,6 +146,8 @@ flowchart TD
 
 ### 4.2 Sprint 2：收银台商业证据雷达（Checkout Referral Radar）
 
+> **冲突标注（2026-10-17，30 R16）**：收银台引荐流量采集须先完成 04 §7 准入（含 ToS 条款审阅）并登记 04 §2，才能入库（PRD §9.2）。
+
 #### Task 2.1：采集器开发（`packages/collectors`）
 1. 创建 `packages/collectors/src/checkout-referrals-collector.ts`；
 2. 抓取 `checkout.stripe.com`、`app.lemonsqueezy.com/checkout`、`checkout.paddle.com` 的引荐域名单、月度流量与环比趋势；
@@ -167,6 +171,8 @@ flowchart TD
 > 命名口径以 PRD F13 / §7.2 为准：前台主打「公开 Cohort 战绩大盘（Hit Rate & Accuracy Matrix）」，路由为 `/track-record`；`/ledger` 不再作为公开战绩页入口。
 
 #### Task 3.2：社区陪审团众包组件（Community Jury）
+
+> **冲突标注（2026-10-17）**：与 PRD §1.6 首发非目标（团队协作、开放 API）及 ADR-019 冲突。**已裁决（30 Q13，PRD v2.2 §1.6）：从首发撤回**；Phase 2 前如要做，先修订 PRD。
 1. 研报与账本条目底部嵌入打标组件：
    - `🎯 判定精准，已立项开工`
    - `⬆️ 竞争评估偏保守`
@@ -176,6 +182,8 @@ flowchart TD
 ---
 
 ### 4.4 Sprint 4：开发者 AI Native 生态（MCP Server）
+
+> **冲突标注（2026-10-17）**：MCP Server 与 PRD §1.6 首发非目标「开放 API、对话式助手」及 ADR-019「点火包不调用 MCP 能力」冲突。**已裁决（30 Q13，PRD v2.2 §1.6）：从首发撤回**；Phase 2 前如要做，先修订 PRD。
 
 #### Task 4.1：原生 MCP Server 构建（`apps/web/src/app/api/mcp`）
 1. 实现符合 Model Context Protocol 规范的 Streamable HTTP 接口；

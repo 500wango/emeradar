@@ -127,6 +127,12 @@ checkpoint_hash = SHA-256( prev_checkpoint_hash ‖ obs_date ‖ row_count ‖ m
 
 **公开验证工具**：提供脚本与文档，任何人可下载某日全部 Verdict 的公开摘要，重算 Merkle 根并与已公开值对比。
 
+**账本纪元（30 R3）**：可复验、可计入统计的账本从**第一条由每日管线写入的 `hash_version ≥ 2` 行**开始，称为 v2 纪元。此前由 seed 写入的 `hash_version = 1` 行（38 行）不可复算，规则如下：
+
+- 不进入任何 Episode、Cohort 汇总、命中率、提升倍数与 Builder-outcome 统计；
+- Gate 1「账本运行 ≥ 60 天」（19 §4）与公开页的「观测起始日」从 v2 纪元首行的 `obs_date` 起算；
+- 这些行保留在表里（账本 append-only，不删除），公开验证工具对它们输出「纪元前，不可复验」，而不是报链断裂。
+
 **公开投影的资格判据（准实时精选，PRD §7.1）**：旧的「45 天延迟公开」方案已**彻底废除**。一条机会进入公开投影的唯一途径，是它**已经失去抢跑价值**：
 
 1. **刚刚满足 `CROWDED_LOCKED`**——全部形态槽位（`Σ opportunity_slots.claimed == Σ capacity`，ADR-018）被认领满额；或
@@ -193,14 +199,31 @@ Episode = (opportunity_id, verdict_class, start_date)
 
 评估地平线 `h ∈ {30, 60, 90}`。Builder 结果类事件只在**存在已核验 Project** 的 Episode 上评估；`market_formed` / `window_closed` 等需求与竞争事件不要求用户授权任何外部数据。
 
+### 7.1a `ev-1.1`：去循环的主结果事件（30 R2，Status: Proposed）
+
+**问题**：`ev-1.0` 的 `market_formed` = `cluster_expansion` ∧ `sustained_new_queries`，而这两项正是 D 轴的输入（05 §3.1）。高 D 的机会本来就在扩簇、在新增 query，用同一组指标判定「市场形成了」，命中率高只说明特征有自相关，不说明信号能预测市场。H1 因此无法被证伪。
+
+**`ev-1.1` 的主结果事件**必须来自**不参与 D 轴计算**的数据：
+
+| 事件 | 定义（初始值，冻结前可调） |
+|------|---------------------------|
+| **`external_demand_formed`**（主） | 第 h 天，以下至少两项成立：① 第三方搜索量估计（`src_volume`，04 §2，须过 04 §7 准入）对主 query 的月搜索量 ≥ 预测日值 × 2 且 ≥ `min_volume`（默认 100）；② Google Trends 相对兴趣（`src_trends`）在 `(start, start+h]` 的均值 ≥ 预测日前 28 天均值 × 1.5；③ 预测日 Top 10 中**未出现**的独立域名在第 h 天占据 ≥ 2 个 Top 10 位置，且这些域名在 07 §6 有 observed 商业证据 |
+| `market_formed`（次要，保留） | 同 `ev-1.0`。只作为内部诊断，不得作为 H1 的通过依据，公开页不得单独报告其提升倍数 |
+
+约束：
+
+- `external_demand_formed` 的三个输入都**不得**进入 `ScoringInput` 的 D 轴特征。若日后要把 `src_volume` 或 `src_trends` 加进 D 轴，必须同时发布新的 `eval_spec` 并更换主结果事件，否则重新形成循环。
+- 某 Episode 缺少 ①② 两项的数据源时，该 Episode 对此事件记为 `unevaluable`，**不计入分母**，并单独报告 `unevaluable` 比例。比例 > 30% 时，H1 结论不得引用。
+- `ev-1.1` 必须在 v2 纪元首批 Episode 到达 T+30 **之前**冻结（30 §2 第 4 条）。冻结后进入 `criteria_snapshot`，受 `prevent_episode_rewrite()` 保护。
+
 ### 7.2 基线
 | 基线 | 构造 |
 |------|------|
 | B0 随机 | 同宇宙、同 `start_date` 队列（cohort）、同数量的随机 TRACKED 机会 |
-| B1 趋势榜 | 同宇宙内 `trends_slope_90d` 最高的同数量机会（趋势数据可用时） |
+| B1 趋势榜 | 同宇宙内 `trends_slope_90d` 最高的同数量机会。**`ev-1.1` 起为必备基线**：PRD §3.2 把 Trends 上升榜列为 H1 的对照，缺 B1 时 H1 不得判定通过 |
 | B2 朴素启发式 | 同宇宙内仅按 `new_queries_7d` 排序取同数量 |
 
-B2 用于证明复合评分比"简单启发式"确有增益。
+B2 用于证明复合评分比"简单启发式"确有增益。B1 用于证明系统比「直接看 Trends 上升榜」更早或更准，这是 PRD H1 的原意。H1 通过要求对 B0 ≥ 3× **且**对 B1 有显著增益（§7.4 的 95% CI 下界 > 1）。
 
 ### 7.3 指标
 - `precision@K`（`K = 10`，按日 Top-K Episode）：`market_formed` 命中率。
@@ -242,16 +265,22 @@ compare(candidate outputs vs. ACTIVE ledger outputs) on §7 指标
 
 | 周 | 动作 |
 |----|------|
-| 1–2 | 采集管线与账本上线；冻结 `sc-1.0.0` 与 `ev-1.0` |
-| 2–8 | 每日预测写账本；同期若有历史可重建的数据（如 Trends 历史）做代理回测 |
-| 6–8 | 首批 Episode 到达 T+30，产出首份评估报告 |
-| Gate 0 | H1 通过线：Top-decile 的 `market_formed` 命中率 ≥ 基线 3×（且 B2 上有显著增益），或给出信号修正方案 |
+| 1–2 | 采集管线在生产环境稳定写入，v2 纪元开始（§5）；冻结 `sc-1.0.0`；**冻结 `ev-1.1`**（§7.1a），`src_trends` 与 `src_volume` 完成 04 §7 准入 |
+| 2–8 | 每日预测写账本；用 Trends 历史与第三方词量历史做代理回测（这两项有可追溯历史，不受冷启动限制） |
+| 6–8 | v2 纪元首批 Episode 到达 T+30，产出首份评估报告 |
+| Gate 0 | H1 通过线：Top-decile 的 `external_demand_formed` 命中率 ≥ B0 的 3×，且对 B1、B2 均有显著增益；`unevaluable` 比例 ≤ 30%。否则给出信号修正方案。`market_formed` 的结果随报告附上，但不参与判定 |
 
 **冷启动说明**：真正的 T+60/T+90 评估必须等待时间流逝，Phase 0 周期只覆盖 T+30。Gate 0 判定以 T+30 数据 + 代理回测为依据，T+60/T+90 结果在 Phase 1 期间补齐并在 Gate 1 复核。
 
 ## 11. Track Record 数据契约（供 15 使用）
 
-`public.track_record_episodes`（public projection，只含**满足准实时精选资格**（`CROWDED_LOCKED` 或 `WINDOW_CLOSING`，§5）或**已进入买断打码**（§6.1）的机会）：
+**汇总与明细分开（30 R10）**：旧口径只把满足准实时精选资格或买断打码的机会放进公开投影，结果是没人认领、悄悄失误的 `BUILD_NOW` 永远不会出现在战绩页上，命中率被系统性抬高。这与 PRD §7.2「失误复盘」和 §6.1「不得只挑好的公开」相悖。现规定：
+
+- **`public.track_record_summary` 的分子分母纳入 v2 纪元内全部已发布 Episode**（§5），不按是否公开过滤。
+- **`public.track_record_episodes` 的逐行明细**只在 Episode 已不会泄露抢跑窗口时出现，即下列三者**先到**的那一刻（PRD v2.2 §1.7 第 7 条，Q11 已裁决）：① 失去抢跑价值（满足准实时精选资格，§5）；② 完成 T+90 评估；③ 买断打码期满（`stealth_locks.unlock_at`）。买断保护期内该 Episode 以打码形式（`[Stealth Locked #ID]`）出现，按 §6.1 不算泄露。
+- 汇总处同时公开「已计入但尚未逐行公开」的 Episode 数，让读者知道明细是子集。
+
+`public.track_record_episodes` 字段：
 
 | 字段 | 说明 |
 |------|------|

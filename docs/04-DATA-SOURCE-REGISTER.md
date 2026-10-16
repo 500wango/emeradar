@@ -16,7 +16,8 @@ Status: Draft ｜ 依赖：02、03 ｜ 被依赖：05、06、07、08
 | ID | 名称 | 类别 | 方式 | ToS 风险 | 频率 | 角色 | 72h 降级方案 | 备注 |
 |----|------|------|------|----------|------|------|--------------|------|
 | `src_ac` | Google Autocomplete | AUTOCOMPLETE | 授权 API（首选）/ 无官方接口 | **HIGH**（自采）→ MEDIUM（授权供应商） | 每日 | D 轴核心输入；`first_observed` 来源 | 72h 内沿用最近成功联想快照并打 `STALE_DATA`（D 轴不降档、不告警）；超 72h D 轴 → `INSUFFICIENT` | 无官方 API；见 §8 |
-| `src_serp` | Google SERP Top100 | SERP | 授权 API | MEDIUM | A 层每日 / B 层每周 | W 轴核心输入 | 同上；超 72h W 轴 → `INSUFFICIENT` | 直接抓取需豁免；`num=100` 一鱼多吃（§4） |
+| `src_serp` | Google SERP（深度分层，ADR-022） | SERP | 授权 API | MEDIUM | A 层每日 / B 层每周 | W 轴核心输入 | 同上；超 72h W 轴 → `INSUFFICIENT` | 直接抓取需豁免。`num=100` 自 2025-09 失效，Top 100 按 10 页计费；默认取 Top 10，仅映射到已核验 Project 的 query 每周取 Top 100（§9.2） |
+| `src_volume` | 第三方关键词词量（月度搜索量序列） | ATTENTION | 授权 API | MEDIUM | 每月（按 query 拉取月度序列） | **仅供 `ev-1.1` 外部结果事件**（06 §7.1）与报告展示；**不得进入 D 轴特征**，否则 H1 再次自证 | 评估用源，无 72h 语义；缺失时该 Episode 的 `external_demand_formed` 记 `pending`，不判失败 | Proposed，须过 §7 准入（R2）；单价计入 §6.1 的 `C_vol` |
 | `src_trends` | Google Trends | ATTENTION | 官方接口（如可用）/ 第三方 | MEDIUM | 每周 | D 轴辅助（权重 ≤ 0.10）；**不得成为单点依赖** | 本就可缺失（D 轴自动重归一）；超 72h 视同缺失 | 缺失时 D 轴自动重归一 |
 | `src_hn` | Hacker News | ATTENTION | 官方 API | LOW | 每日 | Why Now / D 轴辅助 | 注意力源缺失仅降低 D 覆盖率，不影响轴分档；72h 内沿用 | |
 | `src_github` | GitHub（搜索、Trending） | ATTENTION | 官方 API | LOW | 每日 | Why Now | 同上 | 遵守速率限制 |
@@ -79,7 +80,7 @@ interface RunContext {
 | 熔断 | 单源连续失败率 > 50%（窗口 5 分钟、≥ 20 次）→ 熔断 15 分钟；自动半开探测 |
 | 速率 | 按 `limits` 与供应商配额；全局令牌桶 |
 | 通道 | **Fast Lane / Slow Lane 双通道**（ADR-017、PRD F1.2）：Fast Lane 只服务前端主动触发的「即时初筛」（全局令牌桶 ≤ 5 req/s，缓存命中 < 200ms、实时采集 < 8s）；Slow Lane 服务每日例行观测与每周回测（走供应商低价异步队列，全天任务均匀打散在 24h 窗口）。两者共用同一采集器契约与快照表，调度与速率上限各自独立（02 §5.2） |
-| 一鱼多吃 | 每次 SERP 统一请求 **Top 100（`num=100`）**：rank 1–10 参与 F6 弱点计算（05 §3.3）；rank 11–100 只在内存中匹配已核验项目的域名 / 商店链接（`project_serp_rankings`）。**严禁为追踪项目单独发起重复的 SERP 请求**（PRD F1.1） |
+| 一鱼多吃（深度分层，ADR-022） | 默认采 **Top 10**（`depth = 10`），供 F6 弱点计算（05 §3.3）；只对映射到已核验 Project 的 query 每周采一次 **Top 100**（`depth = 100`），同一份快照既更新 W 轴、又在内存中匹配项目域名 / 商店链接（`project_serp_rankings`）。**严禁为追踪项目对同一 query 另发一次 SERP 请求**（PRD F1.1）。`num=100` 自 2025 年 9 月失效，Top 100 按 10 页计费（§6.1） |
 | 7 天全局去重 | Fast Lane 命中 `serp_snapshots` 中 7 天内同 `(query, market_country, research_language)` 的最近一份快照即直接复用，API 成本为 0；**不建 Redis 缓存层**（ADR-017：快照不可变，额外缓存会造出第二份可能与账本不一致的事实源） |
 | 隔离 | 作业按 `(source, batch)` 划分；故障不跨源传播 |
 | 载荷 | 原始响应 gzip 存对象存储，记 `sha256`；快照表存标准化行 |
@@ -164,17 +165,27 @@ Tier 2（按需升级）
 
 ### 6.1 公式
 ```text
-C_day = N_A · c_serp
-      + (N_B / 7) · c_serp
+-- Slow Lane（与用户数无关）
+C_day = N_A · p_A · c_page                             -- p_A：A 层每次采集页数，默认 1（Top 10）
+      + (N_B / 7) · p_B · c_page                       -- p_B 默认 1
+      + (N_proj_q / 7) · (10 − p_A) · c_page           -- 映射到已核验 Project 的 query 每周补齐 Top 100
       + N_ac · c_ac                                    -- N_ac 由 §4.4 早停规则动态产生，非固定预算
       + N_dom · c_crawl / f_crawl
-      + N_dom · r_headless · c_headless / f_crawl        -- 新增：Tier 2 无头浏览器成本
-      + C_attn + C_llm
-C_month ≈ 30 · C_day
-单机会月成本 = C_month / N_TRACKED
-毛利率 = 1 − (C_month + 固定成本) / 月收入
+      + N_dom · r_headless · c_headless / f_crawl      -- Tier 2 无头浏览器成本
+      + C_attn + C_llm + C_vol / 30
+C_month_slow ≈ 30 · C_day
+
+-- Fast Lane（随用户数线性增长）
+C_month_fast = U_active · s_per_user · (1 − r_dedup) · c_scan
+  s_per_user：每活跃用户月均初筛次数（Free 终身 1 次摊入，Pro ≤ 15）
+  r_dedup：7 天全局去重命中率（Gate 0 实测）
+  c_scan：单次初筛成本 = p_scan · c_page_live + c_crawl_live
+
+单机会月成本      = C_month_slow / N_TRACKED
+单付费用户边际成本 = (C_month_fast_pro + Δ C_month_slow 因该用户新增的 Project query) / U_pro
+毛利率 = 1 − (C_month_slow + C_month_fast + 固定成本) / 月收入
 ```
-`c_*` 为供应商单价（由 §8 评估后填入 `sources.config`）；`f_crawl` 为爬取间隔天数；`r_headless` 为触发 Tier 2 的目标域名占比（初始假设 20%–40%，需在 Gate 0 期间用真实抽样校准，见 §4.2/§4.3）；`c_headless` 为托管无头浏览器单次渲染单价。
+`c_*` 为供应商单价（由 §8 评估后填入 `sources.config`）；**`c_page` 按 10 条结果一页计价**——`num=100` 自 2025 年 9 月失效后，供应商基础价只覆盖前 10 条（见 30 §8 来源），旧公式把一次 Top 100 记作一个 `c_serp`，会把 SERP 成本低估约 10 倍。`f_crawl` 为爬取间隔天数；`r_headless` 为触发 Tier 2 的目标域名占比（初始假设 20%–40%，需在 Gate 0 期间用真实抽样校准，见 §4.2/§4.3）；`c_headless` 为托管无头浏览器单次渲染单价；`N_proj_q` 为映射到已核验 Project 的不同 query 数（ADR-022）；`C_vol` 为 `src_volume` 月度费用。
 
 ### 6.2 预算护栏
 - `daily_budget_usd`、`monthly_budget_usd` 配置于 `sources.config` / 全局配置。
@@ -193,9 +204,10 @@ C_month ≈ 30 · C_day
 - 若上限 < 产品所需最低追踪池规模，Gate 0 不通过。
 
 ### 6.4 单位经济目标（对齐 PRD F1 §8.2）
-- **单付费用户月度边际采集成本 < $1.00**：由 §4 的"Top 100 一鱼多吃"、"7 天全局去重"（复用 `serp_snapshots`，无 Redis）与"Slow Lane 24h 低价异步队列"共同压降。
+- **单付费用户月度边际采集成本 < $1.00**：由 ADR-022 深度分层、"7 天全局去重"（复用 `serp_snapshots`，无 Redis）与"Slow Lane 24h 低价异步队列"共同压降。
 - **500 活跃用户规模下，月度新增边际 SERP API 成本 < $20**（PRD F1 验收项）。
-- Gate 0 的成本表（§6.3）必须能反推验证上述两条；任一条不满足则不得进入 Phase 1。
+- **两条目标均待重算（R7）**：它们是在"一次请求拿 Top 100"的前提下写的，这个前提已失效。Gate 0 的成本表（§6.3）必须用 §6.1 新公式代入实测单价与 `r_dedup`，给出两条目标能否达标的结论；采集策略已按 ADR-022（Accepted，PRD v2.2 F1 第 1 条，Q14）定为深度分层；若代入实测单价后仍不能达标，Gate 0 不通过，须先调整追踪池规模或分层频次，**不得**沿用旧数字进入 Phase 1。
+- 单付费用户成本的主要变量是 `s_per_user × (1 − r_dedup)` 与该用户新增的 Project query。Pro 每月 15 次初筛若去重率很低，单项就可能逼近 $1，成本表必须单列这一项。
 
 ## 7. 数据源准入清单
 新源上线前必须全部完成：
@@ -233,7 +245,10 @@ C_month ≈ 30 · C_day
 - **语义声明**：`first_observed` 仅代表本系统观测；Methodology 页公开观测起始日期。
 
 ### 9.2 SERP（`src_serp`）
-- 每次保存 **Top 100**（`num=100`，`serp_snapshots.depth`）：URL、标题、摘要、排名、SERP features；域名解析到 eTLD+1（使用公共后缀列表）。rank 1–10 供 F6 弱点计算，11–100 仅供内存匹配已核验项目（§4 一鱼多吃）。
+- **深度分层（ADR-022）**：默认每次保存 **Top 10**（`serp_snapshots.depth = 10`）：URL、标题、摘要、排名、SERP features；域名解析到 eTLD+1（使用公共后缀列表）。rank 1–10 供 F6 弱点计算。
+- 只对**映射到已核验 Project 的 query** 每周一次取 **Top 100**（`depth = 100`，分 10 页请求、同一快照落库），11–100 名只供内存匹配项目排名（F10）。一鱼多吃仍然成立：同一次 Top 100 既更新 W 轴、也更新项目排名，**不为项目追踪发起第二次同 query 请求**。
+- 未映射到任何 Project 的 query 不取 11–100 名。旧规则（每次 `num=100`）在 2025 年 9 月 Google 停用该参数后已无法以单次请求实现。
+- W 轴与 §3.3 的 SERP 弱度只读 rank 1–10，因此深度分层不改变任何轴的计算口径。
 - `market_country`、`research_language` 作为请求参数显式传入，不推导。
 - 分类（结果类型、域名权威类别、相关性）由 S3 完成（08 §4）；结果类型标签在入库时冻结（ADR-020）。
 

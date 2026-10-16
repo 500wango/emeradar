@@ -505,7 +505,7 @@ create table slot_claims (
   project_id text not null references projects(id),
   state text not null check (state in ('OPEN','CLAIMED','RELEASED','EXPIRED')),
   claimed_at timestamptz not null default now(),
-  deadline_at timestamptz not null,            -- claimed_at + stake_window_days（默认 7 天）
+  deadline_at timestamptz not null,            -- claimed_at + stake_window_days（按执行规模 S 7 / M 14 / L 21 天，PRD v2.2 Q5）
   released_at timestamptz,
   release_reason text check (release_reason in ('STAKE_EXPIRED','STAKE_INVALID','USER_ARCHIVED','OPPORTUNITY_ARCHIVED')),
   foreign key (opportunity_id, archetype) references opportunity_slots(opportunity_id, archetype)
@@ -707,11 +707,15 @@ create table projects (
   target_keywords text[] not null default '{}',
   status text not null default 'IN_DEVELOPMENT'
     check (status in ('IN_DEVELOPMENT','LAUNCHED','ARCHIVED')),
-  -- 承诺质押（PRD §1.7 第 5 条、F10）。7 天内未提交有效凭证即置 EXPIRED_RELEASED 并释放槽位；
-  -- 已扣的月度导出配额**不退还**——这是让"占坑"有成本的那一半设计。
+  -- 承诺质押（PRD §1.7 第 5 条、F10）。质押窗口内（按执行规模 S 7 / M 14 / L 21 天，PRD v2.2 Q5）
+  -- 未提交有效凭证即置 EXPIRED_RELEASED 并释放槽位；已扣的月度导出配额**不退还**——这是让"占坑"
+  -- 有成本的那一半设计。例外：每位用户**首次**逾期退还 1 次配额（v2.2 Q5）。判定"是否首次"需要
+  -- 一个持久标记，拟新增 users.first_stake_refund_used_at timestamptz（为空 = 未用过）。
+  -- 该列须走 migrations/ 新迁移，不改 schema.sql（schema.sql 是冻结 baseline）。
+  -- 活跃 GO 上限（active_go_slots_max）只计 stake_status = 'PENDING' 的行（v2.2 Q15）。
   stake_status text not null default 'PENDING'
     check (stake_status in ('PENDING','VERIFIED','EXPIRED_RELEASED')),
-  stake_deadline_at timestamptz not null,      -- GO 时刻 + stake_window_days（默认 7 天）
+  stake_deadline_at timestamptz not null,      -- GO 时刻 + stake_window_days（S 7 / M 14 / L 21 天，v2.2 Q5）
   outcome_status text not null default 'UNKNOWN'
     check (outcome_status in ('UNKNOWN','NO_TRACTION','EARLY_TRACTION','TRACTION'))
 );
@@ -994,7 +998,7 @@ create table audit_log (
 | I10 | 同一机会的 `Σ opportunity_slots.capacity ≤ max_capacity_total`（默认 6），且 `claimed ≤ capacity` | check 约束 + 创建槽位时的事务校验 |
 | I11 | `slot_claims.state = 'CLAIMED'` 的行数与 `opportunity_slots.claimed` 一致；同一用户在同一机会至多一条 `CLAIMED` | `slot_claims_one_active_per_user_opportunity` 部分唯一索引 + 夜间一致性检查（防汇总缓存漂移） |
 | I12 | 每个 `projects` 行的 `stake_status = 'PENDING'` 必须在 `stake_deadline_at` 前被终结（`VERIFIED` 或 `EXPIRED_RELEASED`） | 每日逾期待办任务（释放槽位）+ 监控：存在超期仍 `PENDING` 的行即告警 |
-| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0`。**追加**：每条 `status='ACTIVE'` 的行必须满足 `provider_payment_id IS NOT NULL`（已成交）**或** `locked_at` 落在待付窗口内（待付窗口，默认 45 分钟；语义与常量归属见 10 §4.5b）。窗口一过，该行既不再隐藏机会、也不再算 ACTIVE，无论清理作业跑没跑 | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地）+ **判据自愈**：隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算，不依赖作业成败（多一道"只有作业跑过才算数"的门，就等于把正确性挂在调度器上） |
+| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0`。**追加**：每条 `status='ACTIVE'` 的行必须满足 `provider_payment_id IS NOT NULL`（已成交）**或** `locked_at` 落在待付窗口内（待付窗口，默认 15 分钟，PRD v2.2 Q8；语义与常量归属见 10 §4.5b）。窗口一过，该行既不再隐藏机会、也不再算 ACTIVE，无论清理作业跑没跑 | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地）+ **判据自愈**：隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算，不依赖作业成败（多一道"只有作业跑过才算数"的门，就等于把正确性挂在调度器上） |
 | I14 | 每条 `stealth_locks` 在**每个已发布的 locale** 各有且仅有一条 `stealth_lock_displays`，且 `unmasked_at` 与 `unlock_at` 逐字一致 | 下单事务内一并写入 + 夜间一致性检查 |
 | I15 | `VOID` 行永不与 `provider_payment_id IS NOT NULL` 并存——钱到了就不可能作废 | 作废作业翻状态前先向供应商确认该会话未付款（一次查询，只对超窗口的行做）；webhook 落到 `VOID` 行即记 P0 告警（这是"钱已收、交付物不在"的唯一剩余入口，必须有人看到而不是静默 200） |
 

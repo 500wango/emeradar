@@ -93,7 +93,7 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
 | `19-DELIVERY-PLAN.md` | ✅ | §1 运维策略改写（不引入独立缓存 / 中间件，令牌桶与去重走 Postgres）；Epic 1.5 / 1.7 改写；**新增 Epic 1.9–1.15**（点火包、锁槽与原子 GO、两阶段初筛、候选池、质押核验、买断与解密、反滥用）；Gate 1 / Gate 2 判据对齐 PRD §10 |
 | `20-COMMERCIAL-RELEASE.md` | ✅ | §3 补 Fast-Track 7 天豁免；§6 套餐表重写（Free / Pro / Buyout，删除 45 天延迟与"每月 30 份报告"，补 Builder Pass 与对赌兜底）；§7 路由口径改准实时精选 + 战绩页补 Cohort 表述 |
 | `21-DOCKER-VPS-DEPLOYMENT.md` | ✅ | 明确**不需要 Redis / 缓存容器**及其理由（ADR-017），避免部署脚本先行加容器 |
-| `22-EARLY-DISCOVERY-DEVELOPMENT-PLAN.md` | — | 未提及被废除的机制；其"不增加 Redis、常驻浏览器集群或多 worker 框架"与 ADR-017 一致，无需改动 |
+| `22-EARLY-DISCOVERY-DEVELOPMENT-PLAN.md` | ✅（2026-10-17 更正） | 原记「无需改动」有误：22 §P4 把 GSC 当闭环主线，与 PRD F10 相反；AIsa 与 2 小时发现未登记 04。已在文首加说明块，见 `30` R16 |
 | `23-COMPETITIVE-EVOLUTION-AND-EXECUTION-PLAN.md` | ✅ | 清除第 118 行「45 天窗口期」文案残留；`/ledger` 公开战绩大盘更名为 Cohort Hit Rate & Accuracy Matrix |
 | `24-PRODUCT-IMPROVEMENT-PLAN.md` | ✅ | 顶部新增与 v2.1 的关系说明（历史轮次不回溯改写，新轮次以本文为准）；清除 `feed_delay_days=45` 残留；GSC 表述降为可选 |
 | `25-BACKUP-AND-RESTORE.md` | ✅ | 恢复演练抽查表补 `opportunity_slots` / `slot_claims` / `stealth_locks`（有状态、丢了无法重算），并说明新表由整库 `pg_dump` 自动覆盖 |
@@ -120,15 +120,15 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
 如实登记，避免下一轮重新发现：
 
 1. **Free 告警权益的 PRD / 13 张力——已在本次裁决**。PRD §8.1 的免费层能力清单写"自动化追踪与告警：不支持"，而 `13 §3.2` 曾给 `alert_rules_max = 1`（仅 DAILY digest）。按 `00-INDEX` 的裁决顺序（`01 > 05 > 03 > 其余`），**以 PRD 为准**，13 已收紧为 `0` 且 `alert_channels = []`。记在这里是因为它是一次**跨文档的实质权益变更**，不是笔误。
-2. **`build_type` 枚举与实现值不一致（未改，属代码侧）**。`00-INDEX` §4.3 的 `build_type` 与 `05 §11.2` 的排序表用 `TOOL` / `CONTENT_SITE` / `PSEO_SITE` / `DIRECTORY` / `MICRO_SAAS`（+ Phase 2 两项），而代码在 `packages/scoring/src/recommendation.ts` 等处产出并落库 **`LIGHTWEIGHT_TOOL`**——一个不在枚举里的值。本次把 `09` 的示例与 R5 改为规范取值，但**代码侧的迁移未做**。这条必须在实现轮次处理：槽位与点火包模板都要按 `archetype` 取键，若同一个形态在文档里叫 `TOOL`、在库里叫 `LIGHTWEIGHT_TOOL`，槽位容量会被**静默地分裂成两套**，`Σcapacity ≤ 6` 的约束也就形同虚设。
+2. **`build_type` 枚举与实现值不一致（未改，属代码侧）**。`00-INDEX` §4.3 的 `build_type` 与 `05 §11.2` 的排序表用 `TOOL` / `CONTENT_SITE` / `PSEO_SITE` / `DIRECTORY` / `MICRO_SAAS`（+ Phase 2 两项），而代码在 `packages/scoring/src/recommendation.ts` 等处产出并落库 **`LIGHTWEIGHT_TOOL`**——一个不在枚举里的值。本次把 `09` 的示例与 R5 改为规范取值，但**代码侧的迁移未做**。这条必须在实现轮次处理：槽位与点火包模板都要按 `archetype` 取键，若同一个形态在文档里叫 `TOOL`、在库里叫 `LIGHTWEIGHT_TOOL`，槽位容量会被**静默地分裂成两套**，`Σcapacity ≤ 6` 的约束也就形同虚设。→ 已挂接 `30` R19（M1）。
 3. **PRD 正文的队列技术举例与仓库实现不符**。PRD F1.2 举例写 BullMQ，仓库实际是 **pg-boss v12**。已在 02 §5.2 明确以 pg-boss 为准（ADR-003 未变），不需要推翻任何决策。
 4. **买断保护期的公开投影对"已存在页面"的处理依赖 S8 的同一次运行**。15 §3.1 要求"买断生效的同一次 S8 运行中把该页切换为打码投影"，因此下单事务与 S8 之间存在一个最长约一天的窗口。这不是缺陷（页面此刻仍是旧数据、没有泄露新事实），但实现时必须确保**打码切换与 CDN 缓存刷新是同一步**，否则会出现"库里已打码、CDN 仍可查"的假安全。18 §4.1 已有对应用例。
 
 **以下第 5–12 条由 D12 的实现轮（公开站准入判据换成"还剩多少抢跑价值"）发现并登记；第 5–7 条与本轮的判据直接相邻，故先登记。都未改。**
 
-5. **`PUBLIC_DELAY_DAYS = 45` 仍在公开战绩上生效，且注释引的是已废除的规则（未改，属代码侧）**。`packages/services/src/track-record.service.ts:75` 的这个常量把 `prediction_episodes` 的公开披露压后 45 天，而 `:80` 的注释自述是"与 `public_pages` 用的是同一个 45 天禁售期"——那个禁售期已由 PRD §7.1 废除，本轮把公开页的准入整条换掉了，**但战绩页仍是旧口径**。两者用的是同一条已死规则的两半，于是会出现"机会页当天可公开、它的战绩却要等 45 天"。**不能顺手一起改**：战绩披露延迟防的是"提前暴露预测结果"，与公开页防的"泄露抢跑窗口"不是同一件事，是一条**独立的产品决策**（披露延迟多长、是否与 `evaluate-episodes` 的 30 天结算窗口对齐），须单独裁定。
-6. **`isCrowdedLocked` 的喂入与 05 §5.1 / ADR-018 不一致（未改，本轮已绕过）**。规格定义 `Σclaimed == Σcapacity` 时置位，而代码今天的喂入是 `COUNT(*) FROM projects` 对比常量 `MAX_CLAIMS_PER_OPPORTUNITY = 5`（`observe-opportunity.ts`、`opportunity.service.ts`、`claim-policy.ts`）。这正是 §6 第 1 条那条计数谓词的同一处，而 `0003` 的迁移注释已**明令禁止**再按 `projects.status` 推导"谁占着槽"。修它会同时动评分与账本，属独立一轮；本轮 §3 条件①**直读 `opportunity_slots`** 绕过了它，因此准入口径是对的、而 `CROWDED_LOCKED` 这个标志本身仍是错的。
-7. **`crowding_daily` 是死表**。03 建了它（按槽位），`packages/` 下**零引用**：从不写入、从不读取。它是"按形态切分槽位"那轮的遗留物，实际的槽位真源是 `opportunity_slots`。
+5. **`PUBLIC_DELAY_DAYS = 45` 仍在公开战绩上生效，且注释引的是已废除的规则（未改，属代码侧）**。`packages/services/src/track-record.service.ts:75` 的这个常量把 `prediction_episodes` 的公开披露压后 45 天，而 `:80` 的注释自述是"与 `public_pages` 用的是同一个 45 天禁售期"——那个禁售期已由 PRD §7.1 废除，本轮把公开页的准入整条换掉了，**但战绩页仍是旧口径**。两者用的是同一条已死规则的两半，于是会出现"机会页当天可公开、它的战绩却要等 45 天"。**不能顺手一起改**：战绩披露延迟防的是"提前暴露预测结果"，与公开页防的"泄露抢跑窗口"不是同一件事，是一条**独立的产品决策**（披露延迟多长、是否与 `evaluate-episodes` 的 30 天结算窗口对齐），须单独裁定。→ 裁决挂 `30` Q11，实现挂 `30` R19（M5）。
+6. **`isCrowdedLocked` 的喂入与 05 §5.1 / ADR-018 不一致（未改，本轮已绕过）**。规格定义 `Σclaimed == Σcapacity` 时置位，而代码今天的喂入是 `COUNT(*) FROM projects` 对比常量 `MAX_CLAIMS_PER_OPPORTUNITY = 5`（`observe-opportunity.ts`、`opportunity.service.ts`、`claim-policy.ts`）。这正是 §6 第 1 条那条计数谓词的同一处，而 `0003` 的迁移注释已**明令禁止**再按 `projects.status` 推导"谁占着槽"。修它会同时动评分与账本，属独立一轮；本轮 §3 条件①**直读 `opportunity_slots`** 绕过了它，因此准入口径是对的、而 `CROWDED_LOCKED` 这个标志本身仍是错的。→ 已挂接 `30` R19（M1）。
+7. **`crowding_daily` 是死表**。03 建了它（按槽位），`packages/` 下**零引用**：从不写入、从不读取。它是"按形态切分槽位"那轮的遗留物，实际的槽位真源是 `opportunity_slots`。→ 随 `30` R19 的槽位谓词一轮处理（删除或接入，走新迁移）。
 8. **`public_pages.page_type` 的文档取值多于实际约束**。03 的 `public_pages` DDL 列 8 个取值（`OPPORTUNITY` / `MARKET` / `TREND_ENTITY` / `REPLAY` / `REPORT` / `COMPARE` / `TRACK_RECORD` / `CASE_STUDY`），而 `schema.sql` 的 CHECK 只有 4 个（`OPPORTUNITY` / `TRACK_RECORD` / `METHODOLOGY` / `MARKET`）；15 §2/§3.1 还引用 `CASE_STUDY`（§3.1 第 4 条要求买断期满以它重建案例页）与 `COMPARE`。同时 `/markets/[slug]`、`/case-studies/[slug]`、`/compare/[slug]` 三个公开路由**不存在**（实际只有 `/public/opportunities/[slug]` 与 `/track-record`）。改 CHECK 要动枚举，须先走 `00-INDEX` §4.3。
 9. **S8 的排期时刻文档与代码不一致**。02 §5 的调度表把 S8 排在 **06:00**、SLA 写"S1–S8 于 06:30 UTC 前完成"，而代码里含 S8 发布循环的 `run-daily` 排期是 `30 3 * * *`（`apps/worker/src/tasks.ts:96`）。不影响正确性（发布在账本写入之后，见 `pipeline.ts`），但调度表对不上就会让"为什么凌晨三点 CPU 高"这类问题查错方向。
 10. **10 §4.8 的 `GET /public/opportunities/{slug}` 端点不存在**。`apps/web/src/app/api/v1/public/` 下只有 `track-record` 与 `verify-ledger`；公开页是服务端渲染的 HTML 路由，`eligibility` 取出后**未渲染任何字段**。因此"公开接口只承诺 `reason` 与 `decided_at`"这句今天没有载体——它约束的是一个还没写的接口。
@@ -173,5 +173,7 @@ v2.1 不是修辞更新，它改动了产品的定价前提。六项：
     - 该轮**在本地观察不到任何行为变化**，这不是没生效：dev 库里 `public_pages` 0 行；`opportunity_slots` 有 6 行但**没有任何机会的 `claimed > 0`**（条件① 第一支永不成立）；`verdicts` 38 行里 **`WINDOW_CLOSING` 一条都没有**（第二支同样永不成立），且最新 `obs_date` 停在 2026-10-06。**新旧两套判据在那里都选不出任何一条**，所以验证只能靠 `18 §4.1` 的夹具用例——不要把"dev 上什么都没变"读成实现没落地。
 - **不引入 Redis**（ADR-003 保持有效，实现方式按 D13 写明）。
 - **不恢复 AI 编码执行引擎**：点火包是确定性模板装配 + 受约束文本生成，与 ADR-008 当年移除的执行引擎不是同一样东西（ADR-019）。
+
+**后续轮次**：2026-10-17 的 PRD 对照审查、整改项与开发计划见 `30-REVIEW-REMEDIATION-PLAN.md`；本文 §7 未改项已挂接其 R / Q 编号。
 - **不锁定供应商与具体定价**：留待 Phase 0（见 §8）。
 - **不回溯改写 `24-PRODUCT-IMPROVEMENT-PLAN.md` 的历史轮次**：那份文档按当时的 45 天延迟与 GSC 必选口径写成，结论在当时成立；v2.1 的新轮次以本文为准，历史条目不再逐一改写，避免制造"这份文档到底哪个版本对"的混乱。

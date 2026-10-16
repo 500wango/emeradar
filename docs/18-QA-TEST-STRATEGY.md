@@ -95,6 +95,28 @@ flowchart TD
 | **公开资格-非单调撤回（15 §3「已知后果」）** | 取一条靠 `WINDOW_CLOSING` 入选、已是 `PUBLISHED` 的页，把账本推到第 15 天再跑一次发布 | 该页被翻成 `DRAFT`，`/public/opportunities/{slug}` 变 **404**。这是**当前有意**的行为——§8 的 0 容忍泄露率靠自动重评（含撤回）兜底；但它同时是 §5 内容生成落地前的阻塞项，见 `docs/15 §3`「已知后果」 |
 | **蚕食防护（15 §3 第 3 条）** | 候选与各已收录页的 SERP Top10（归一后）算 Jaccard：① 重叠 8/10；② 重叠 9/10；③ 库里一条已收录页都没有；④ 有已收录页但候选拿不到 SERP 快照；⑤ 已收录页是 `indexable = false` 的打码页 | ① `PASSED`（≈0.667 < 0.7）且放行；② `BLOCKED`（≈0.818 ≥ 0.7）且 `blockedBy` 含 `CANNIBALIZATION`；③ `VACUOUS`（**不得**报成"数据缺失"）；④ `NOT_EVALUATED`、fail-closed 阻断并登记 `notEvaluated`；⑤ 不计入参照集 → 退回 ③。**必须断言候选自己不与自己重叠**（否则一条已发布页在复审时被自己挡成 `DRAFT`，永远翻不回来） |
 
+### 4.2 PRD 验收追溯补齐（R18，见 30 §3）
+
+本节补齐 PRD 中有验收条款、此前没有对应测试的项。
+
+| 场景 | 输入 / 方法 | 断言 |
+|------|-------------|------|
+| **F7 构造集①：僵尸定价站** | ≥ 2 个独立域名仅检测到支付 provider / 定价页，90 天内排名、评论、外链均无正增长 | M ≠ `HIGH`；标 `PRICING_DECORATION` |
+| **F7 构造集②：矛盾证据** | 同一域名同时有 observed 定价与"已下架付费层"的负面信号 | M ≠ `HIGH`；两条证据都保留并在详情两栏中可见，不得互相覆盖 |
+| **F7 构造集③：估算无佐证** | 只有 `THIRD_PARTY_ESTIMATE` 流量 / 营收，无 observed 证据 | M ≠ `HIGH`；估算权重为 0，仅展示 |
+| **成本回归** | 按 04 §6.1 新公式（按页计费、Fast Lane 项、用户分摊项）与 Gate 0 实测单价计算 | 能反推 04 §6.4 两条目标（单付费用户 < $1/月；500 用户新增边际 SERP 成本 < $20/月），或输出不达标的明确差额；单价或公式变更时必须重跑 |
+| **H1 评估流程** | 按 `ev-1.1`（06 §7）计算 `external_demand_formed`；对照 B0 随机、B1 Trends（必备）、B2 朴素启发式 | 只读 `hash_version ≥ 2` 的 v2 纪元行，seed 行出现即失败；判据取自 Episode 的 `criteria_snapshot`；报告同时给出命中与失误清单、95% CI；样本 < 100 时标"样本不足" |
+| **H4 评估流程** | 已核验 Project 的 `verified_launch_within_7d` 与 `serp_top100_within_30d`（06 §7.1） | 两个口径均不读 GSC；未连接 GSC 的项目不得因此判失败；关联项目 < 30 时只出内部报告 |
+| **Gate 0 一次性全量重算** | 对 v2 纪元全部 Verdict 执行 05 §8 `recompute`（不是夜间 1% 抽样） | 与账本逐行 bit-for-bit 一致；任一不一致即 Gate 0 不通过 |
+| **Golden：快车道可达** | 历史 7–13 天、`new_queries_7d ≥ 3` 且加速度达标、D ≥ MEDIUM、W = HIGH | 进入资格评估并标 `FAST_TRACK`，可产出 `EARLY_BET`；同条件但不满足脉冲判据时维持 `WATCH` + `PARTIAL_DATA` |
+| **Golden：B 层 W 新鲜度** | B 层机会最近一份 SERP 快照距 `obs_date` 4–8 天 | W 不因新鲜度置 `INSUFFICIENT`；第 9 天起置 `INSUFFICIENT`；A 层超过 3 天即置 |
+| **Golden：INFERRED-only 的 EARLY_BET** | D = HIGH、W ≥ MEDIUM、M 仅有 `INFERRED` 商业意图证据 | 可发布 `EARLY_BET`（带"商业未验证"）；不得为 `BUILD_NOW` |
+| **Golden：补偿 BUILD_NOW 需交易证据（Q1）** | D = W = HIGH、M = MEDIUM，三组：①仅 ≥ 2 站静态定价；②含 `COMMERCIAL_TRACTION`；③定价持续 ≥ 90 天 | ① 最多 `EARLY_BET`，不得为 `BUILD_NOW`；②③ 为 `BUILD_NOW` 并标 `RULE_BUILD_NOW_COMPENSATED` |
+| **Golden：认领不触发窗口关闭（Q2）** | 前置已发布 `BUILD_NOW`；14 天内新增 2–3 个认领使含拥挤项的 W 降一档，市场 W（不含 `crowding_index`）不变；槽位未满 | 不得进入 `WINDOW_CLOSING`；W 展示值可下降；市场 W 降档时才触发；全部槽位满额时经 `CROWDED_LOCKED` 进入 |
+| **质押窗口按执行规模（Q5）** | 分别以 S / M / L 形态 GO，在第 8、15、22 天检查 | S 第 8 天、M 第 15 天、L 第 22 天释放槽位；之前任何时刻均保持占用；应用商店审核期的预发布着陆页可作为凭证通过探针 |
+| **首次逾期退配额（Q5）** | 同一用户先后两次质押逾期 | 第一次逾期退还 1 次导出配额（`usage_counters` 回补且留审计）；第二次不退；并发释放任务重复执行时只退一次 |
+| **活跃 GO 上限只计未核验（Q15）** | 用户已有 2 个 GO，其中 1 个质押核验通过 | 可以再发起第 3 个 GO；2 个都未核验时第 3 个返回 `ACTIVE_SLOTS_EXCEEDED`；核验通过的那个仍占用机会上的形态槽位（`Σclaimed` 不减） |
+
 ---
 
 ## 5. 契约测试（Contract Testing）
