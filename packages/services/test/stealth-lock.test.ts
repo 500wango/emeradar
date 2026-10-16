@@ -132,9 +132,12 @@ before(async () => {
     await query(
       `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
          lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence,
+         raw_verdict, explanation, d_band, m_band, w_band, hash_version,
          prev_hash, row_hash)
        VALUES ($1, $2, CURRENT_DATE, '1.0', 'BUILD_NOW', 'EARLY_WINDOW',
-         7000, 6000, 5000, 'HIGH', $3, $4)`,
+         7000, 6000, 5000, 'HIGH',
+         'BUILD_NOW', '{}'::jsonb, 'HIGH', 'HIGH', 'HIGH', 2,
+         $3, $4)`,
       [VERDICT_OF[opportunityId], opportunityId, '0'.repeat(64), VERDICT_OF[opportunityId].padEnd(64, '0')]
     );
   }

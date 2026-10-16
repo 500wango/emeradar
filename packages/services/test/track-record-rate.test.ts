@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { query, closePool } from '@emeradar/db';
-import { TrackRecordService, rateIfTwoSided } from '../src';
+import { makeDisposableDb } from './helpers/disposable-db';
+import { rateIfTwoSided } from '../src';
 
 /**
  * 公开战绩的比率口径。
@@ -14,30 +14,17 @@ import { TrackRecordService, rateIfTwoSided } from '../src';
  * 下面的用例直接打服务层，就是为了钉住「这条规则不能只活在视图里」。
  */
 describe('公开战绩的比率口径', () => {
+  // 用一次性库自建 v2 裁决行：公开战绩只统计 hash_version >= 2 的账本行（06 §5、30 R3），
+  // 开发库里最新的一行是 seed 的 v1 行，借用它会被纪元过滤正确排除。
+  const harness = makeDisposableDb('emeradar_track_rate_test');
   const opportunityId = 'opp_trackrate_test';
-  const ownerUserId = 'usr_trackrate_test';
-  let verdictId = '';
-
-  /**
-   * `prediction_episodes.verdict_id` 外键指向只追加的 `verdicts`，所以夹具借用
-   * 一条已有账本行，而不是插一条自己永远删不掉的行。
-   */
-  async function borrowVerdictId(): Promise<string | null> {
-    const res = await query<{ id: string }>(`SELECT id FROM verdicts ORDER BY obs_date DESC LIMIT 1`);
-    return res.rows[0]?.id ?? null;
-  }
+  const verdictId = 'vdt_trackrate_test';
 
   /** 45 天公开延迟之外，才可能出现在公开战绩里。 */
   const visiblePredictedAt = '2026-01-01';
 
-  async function resetFixture() {
-    await query(`DELETE FROM prediction_episodes WHERE opportunity_id = $1`, [opportunityId]);
-    await query(`DELETE FROM opportunities WHERE id = $1`, [opportunityId]);
-    await query(`DELETE FROM users WHERE id = $1`, [ownerUserId]);
-  }
-
   async function seedEpisode(id: string, outcome30d: string | null) {
-    await query(
+    await harness.db.query(
       `INSERT INTO prediction_episodes (
          id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d
        ) VALUES ($1, $2, $3, 'BUILD_NOW', $4::date, $5)`,
@@ -45,20 +32,34 @@ describe('公开战绩的比率口径', () => {
     );
   }
 
+  async function clearEpisodes() {
+    await harness.db.query(`DELETE FROM prediction_episodes WHERE opportunity_id = $1`, [opportunityId]);
+  }
+
   before(async () => {
-    verdictId = (await borrowVerdictId()) ?? '';
-    if (!verdictId) return;
-    await resetFixture();
+    await harness.setup();
+    if (!harness.available) return;
+    const { query } = harness.db;
     await query(
       `INSERT INTO opportunities (id, slug, title, status, first_observed_date)
        VALUES ($1, 'trackrate-test', 'Track Rate Test', 'TRACKED', '2026-01-01')`,
       [opportunityId]
     );
+    await query(
+      `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
+         lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence,
+         raw_verdict, explanation, d_band, m_band, w_band, hash_version,
+         prev_hash, row_hash)
+       VALUES ($1, $2, '2026-01-01', 'sc-1.2.0', 'BUILD_NOW', 'EARLY_WINDOW',
+         7000, 6000, 5000, 'HIGH',
+         'BUILD_NOW', '{}'::jsonb, 'HIGH', 'HIGH', 'HIGH', 2,
+         $3, $4)`,
+      [verdictId, opportunityId, '0'.repeat(64), verdictId.padEnd(64, '0')]
+    );
   });
 
   after(async () => {
-    if (verdictId) await resetFixture();
-    await closePool();
+    await harness.teardown();
   });
 
   it('纯函数：单边样本一律返回 null', () => {
@@ -74,14 +75,14 @@ describe('公开战绩的比率口径', () => {
   });
 
   it('只有命中时，服务层返回 null 而不是 100%', async (t) => {
-    if (!verdictId) return t.skip('库里没有可借用的账本行');
+    if (!harness.available) return t.skip(harness.skipReason);
     await seedEpisode('eps_trackrate_hit_only', 'HIT');
 
-    const record = await TrackRecordService.getPublicTrackRecord();
+    const record = await harness.services.TrackRecordService.getPublicTrackRecord();
     assert.strictEqual(
       record.stats.evaluatedEpisodes,
       1,
-      '夹具没有进入公开战绩：检查 45 天延迟与机会状态'
+      '夹具没有进入公开战绩：检查 45 天延迟、机会状态与 hash_version'
     );
     assert.strictEqual(record.stats.hitsCount, 1);
     assert.strictEqual(
@@ -92,27 +93,45 @@ describe('公开战绩的比率口径', () => {
   });
 
   it('只有未命中时同样不出比率', async (t) => {
-    if (!verdictId) return t.skip('库里没有可借用的账本行');
-    await resetFixture();
-    await query(
-      `INSERT INTO opportunities (id, slug, title, status, first_observed_date)
-       VALUES ($1, 'trackrate-test', 'Track Rate Test', 'TRACKED', '2026-01-01')`,
-      [opportunityId]
-    );
+    if (!harness.available) return t.skip(harness.skipReason);
+    await clearEpisodes();
     await seedEpisode('eps_trackrate_miss_only', 'MISS');
 
-    const record = await TrackRecordService.getPublicTrackRecord();
+    const record = await harness.services.TrackRecordService.getPublicTrackRecord();
     assert.strictEqual(record.stats.evaluatedEpisodes, 1);
     assert.strictEqual(record.stats.hitRate30d, null);
   });
 
   it('两边都有样本时才给出比率', async (t) => {
-    if (!verdictId) return t.skip('库里没有可借用的账本行');
+    if (!harness.available) return t.skip(harness.skipReason);
     await seedEpisode('eps_trackrate_hit_2', 'HIT');
 
-    const record = await TrackRecordService.getPublicTrackRecord();
+    const record = await harness.services.TrackRecordService.getPublicTrackRecord();
     assert.strictEqual(record.stats.evaluatedEpisodes, 2);
     assert.strictEqual(record.stats.hitsCount, 1);
     assert.strictEqual(record.stats.hitRate30d, '50%');
+  });
+
+  it('纪元过滤：锚定在 hash_version = 1 裁决行上的 Episode 不进任何统计（30 R3）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+    await query(
+      `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
+         lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence,
+         prev_hash, row_hash)
+       VALUES ('vdt_trackrate_v1', $1, '2025-12-01', 'sc-1.0.0', 'BUILD_NOW', 'EARLY_WINDOW',
+         7000, 6000, 5000, 'HIGH', $2, $3)`,
+      [opportunityId, '0'.repeat(64), 'vdt_trackrate_v1'.padEnd(64, '0')]
+    );
+    const before = (await harness.services.TrackRecordService.getPublicTrackRecord()).stats;
+    await query(
+      `INSERT INTO prediction_episodes (
+         id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d
+       ) VALUES ('eps_trackrate_seed_v1', 'vdt_trackrate_v1', $1, 'BUILD_NOW', '2025-12-01', 'HIT')`,
+      [opportunityId]
+    );
+    const after = (await harness.services.TrackRecordService.getPublicTrackRecord()).stats;
+    assert.strictEqual(after.totalPredictions, before.totalPredictions, 'seed 行进入了公开统计');
+    assert.strictEqual(after.hitsCount, before.hitsCount);
   });
 });

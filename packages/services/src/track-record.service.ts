@@ -83,7 +83,11 @@ export class TrackRecordService {
       `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug
        FROM prediction_episodes e
        JOIN opportunities o ON o.id = e.opportunity_id
+       JOIN verdicts v ON v.id = e.verdict_id
        WHERE o.status = 'TRACKED'
+         -- 账本纪元（06 §5、30 R3）：hash_version = 1 的存量行由 seed 伪造、不可复算，
+         -- 不得进入任何公开统计，也不计入 Gate 1「账本运行 ≥ 60 天」。
+         AND v.hash_version >= 2
          AND e.predicted_at <= (NOW() - ($1 || ' days')::interval)::date
        ORDER BY e.predicted_at DESC
        LIMIT 500`,
