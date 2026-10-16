@@ -33,6 +33,9 @@ export interface LiveScanResult {
   isStealthLocked: boolean;
 }
 
+/** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
+export const SCREENER_LONGTAIL_LIMIT = 15;
+
 export class LiveScanService {
   /**
    * Scans a target keyword using live Google Autocomplete + SERP competitive weakness analysis
@@ -95,6 +98,21 @@ export class LiveScanService {
        * ——查询文本是他自己敲进来的，他没有从中学到新词；而相比"静默建一条重复机会"
        * 那条路，这点披露便宜得多。
        */
+      // 长尾词与报告、点火包同源：只读 opportunity_queries 里已入库的簇内词。
+      // 打码中的机会不返回，否则能从词表反推词根。
+      const clusterWords = r.stealth_lock_id
+        ? []
+        : (
+            await query<{ query_text: string }>(
+              `SELECT q.query_text
+                 FROM opportunity_queries oq
+                 JOIN queries q ON q.id = oq.query_id
+                WHERE oq.opportunity_id = $1 AND oq.role = 'CLUSTER'
+                ORDER BY q.query_text
+                LIMIT $2`,
+              [r.opportunity_id, SCREENER_LONGTAIL_LIMIT]
+            )
+          ).rows.map((row) => row.query_text);
       const mask = r.stealth_lock_id
         ? {
             label: r.masked_label ?? maskedLabel(r.stealth_lock_id),
@@ -118,7 +136,7 @@ export class LiveScanService {
         whyNowSummary: mask ? mask.label : r.why_now_summary,
         topIdea: mask ? mask.label : r.top_idea,
         primaryQuery: mask ? mask.label : r.primary_query,
-        suggestions: [],
+        suggestions: clusterWords,
         isNew: false,
         isStealthLocked: Boolean(mask),
       };
@@ -128,6 +146,7 @@ export class LiveScanService {
     const autocomplete = await this.fetchGoogleAutocomplete(rawQuery);
     const suggestions = autocomplete.suggestions;
     const autocompleteObserved = autocomplete.observed;
+    const storedSuggestions = suggestions.slice(0, SCREENER_LONGTAIL_LIMIT);
 
     // 3. Auxiliary source sample. This is not an organic SERP, so it does not score W.
     // 4. Publication gate: one observation cannot publish a build verdict (01 §1.7, 05 §5.0).
@@ -192,7 +211,7 @@ export class LiveScanService {
       );
 
       // 4. Insert cluster queries from autocomplete
-      for (const sug of suggestions.slice(0, 5)) {
+      for (const sug of storedSuggestions) {
         const clusterQueryId = `qry_${randomBytes(6).toString('hex')}`;
         await client.query(
           `INSERT INTO queries (id, query_text, market_country, research_language, tier)
@@ -314,7 +333,7 @@ export class LiveScanService {
       whyNowSummary,
       topIdea,
       primaryQuery: rawQuery,
-      suggestions,
+      suggestions: storedSuggestions,
       isNew: true,
       isStealthLocked: false,
     };

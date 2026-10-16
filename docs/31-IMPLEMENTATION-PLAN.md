@@ -88,7 +88,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 **T3.1 / T3.3 实施状态**：已落地。`report.service.ts` 从 `opportunity_queries`（非 PRIMARY 角色）读簇内词并显式传入，`generator.ts` 的 `clusterQueries` 改为必填；无观测词时点火包输出 `KEYWORDS_UNAVAILABLE.md`（PSEO 形态同时省略 `routes.yaml`）。词表与路由输出 `slug / target_keyword / intent / title / h1 / meta_description`，`volume_tier` 已删除（无词量源，排序只按查询词，保证可重算）；`title / h1 / meta_description` 只用关键词与机会标题装配，不随界面语言变化（14 §5.4）。模板版本升到 1.1。
 - 簇内词的 `intent` 目前由 `report.service.ts` 里的确定性规则分类，不是 T3.2 要求的"入库时冻结"。T3.2（`llm/classifier.ts` 入库打标 + 不可变列）未做，做完后应改读冻结列。
-- T3.4（初筛长尾词同源）、T3.5（盲审，需要人工）未做。
+- T3.4 已落地：初筛新建机会时入库并返回最多 15 个长尾词（`SCREENER_LONGTAIL_LIMIT`，此前入库 5 个、返回未截断的建议词），重复扫描改从 `opportunity_queries` 的簇内词读取，与报告、点火包同源；买断打码中的机会不返回词表。
+- T3.5（盲审，需要人工）未做。
 
 ### M4 预售（第 1–8 周，并行，非工程）
 
