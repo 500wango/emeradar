@@ -118,6 +118,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 **T5.3 已落地（偏离 PRD v2.2 Q8 的 15 分钟）**：Stripe Checkout 会话有效期下限是 30 分钟，待付窗口若短于会话，会出现"占位已作废、结账页仍可付款"（钱已收、交付物不在）。所以窗口取 35 分钟 = 30 + 5 分钟余量，会话 31 分钟。资格取消按账号计（`user_id`），错误码 `403 STEALTH_BUYOUT_SUSPENDED`；"同一设备"维度要等 T5.8 的设备指纹落地后再加。若要真正做到 15 分钟，需要在作废时主动调用 Stripe 的 expire session 接口，目前没有这条出站能力。
 
+**T5.5 部分落地**：`WeeklySelectionService.getWeeklySelectedCase` 已实现选取逻辑，复用 `publication-policy` 的满额与关窗判定：只选槽位满额或当前为 `WINDOW_CLOSING` 的机会，M 轴 INSUFFICIENT 与买断保护期内的不选，空槽 `BUILD_NOW` 永不入选；7 天内无新案例时回退最近一条历史案例并标 `historical: true`。**尚未切换 Free Feed**：`feed_delay_days` 仍是 Free 层实时性的开关，Feed 页与 API 还没改读这个选取结果，也没有按周配额计数。切换前免费用户仍走延迟 Feed，所以没有泄露空槽窗口的风险。
+
 ---
 
 ## 3. 依赖与顺序

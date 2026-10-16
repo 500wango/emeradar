@@ -13,6 +13,7 @@ export * from './stake.service';
 export * from './stealth-lock-policy';
 export * from './stealth-lock.service';
 export * from './publication-policy';
+export * from './weekly-selection.service';
 export * from './launch-kit.service';
 export * from './ranking.service';
 export * from './public-url';
