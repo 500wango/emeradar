@@ -86,6 +86,10 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 | T3.4 | 半遮罩长尾词 | 初筛的 15 个长尾词改从同一来源取 | `live-scan` 单测 |
 | T3.5 | 样本与盲审 | 20 份报告 + 点火包，按 9 项 rubric 盲审 | 通过率 ≥ 80%，R1/R2 零违例 |
 
+**T3.1 / T3.3 实施状态**：已落地。`report.service.ts` 从 `opportunity_queries`（非 PRIMARY 角色）读簇内词并显式传入，`generator.ts` 的 `clusterQueries` 改为必填；无观测词时点火包输出 `KEYWORDS_UNAVAILABLE.md`（PSEO 形态同时省略 `routes.yaml`）。词表与路由输出 `slug / target_keyword / intent / title / h1 / meta_description`，`volume_tier` 已删除（无词量源，排序只按查询词，保证可重算）；`title / h1 / meta_description` 只用关键词与机会标题装配，不随界面语言变化（14 §5.4）。模板版本升到 1.1。
+- 簇内词的 `intent` 目前由 `report.service.ts` 里的确定性规则分类，不是 T3.2 要求的"入库时冻结"。T3.2（`llm/classifier.ts` 入库打标 + 不可变列）未做，做完后应改读冻结列。
+- T3.4（初筛长尾词同源）、T3.5（盲审，需要人工）未做。
+
 ### M4 预售（第 1–8 周，并行，非工程）
 
 ≥ 20 场访谈、≥ 8 人预付或意向（H3）。工程只需保证 Demo 页与报告样本可演示。

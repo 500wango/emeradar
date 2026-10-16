@@ -228,18 +228,18 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
 
     assert.deepStrictEqual(
       first.files.map((file) => file.path).sort(),
-      ['.cursorrules', 'CLAUDE.md', 'keywords.csv', 'landing-skeleton.html', 'routes.yaml', 'sections.yaml']
+      // 夹具没有簇内观测词：按 09 §5.3 第 6 条输出 KEYWORDS_UNAVAILABLE.md，不出空词表。
+      // 该形态（PSEO）的路由完全由簇内词铺开，所以 routes.yaml 一并省掉。
+      ['.cursorrules', 'CLAUDE.md', 'KEYWORDS_UNAVAILABLE.md', 'landing-skeleton.html', 'sections.yaml']
     );
     // 硬约束 2（R3）的端到端版本：交付物里一个未解析的占位符都不能剩。
     for (const file of first.files) {
       assert.ok(!file.content.includes('{{'), `${file.path} 里残留了未解析的占位符`);
     }
 
-    // 主词必须在词表里排最前：它是唯一每个形态都有的词。
-    const keywords = first.files.find((file) => file.path === 'keywords.csv')!.content;
-    const lines = keywords.trim().split('\n');
-    assert.strictEqual(lines[0], 'query,intent,volume_tier,priority,observed_date,snapshot_id,evidence_id');
-    assert.match(lines[1], /^invoice generator,COMMERCIAL,—,0,/);
+    const unavailable = first.files.find((file) => file.path === 'KEYWORDS_UNAVAILABLE.md')!.content;
+    assert.match(unavailable, /Keyword list unavailable/);
+    assert.match(unavailable, /invoice generator/);
 
     // 冻结：第二次读回来的是库里那一份，不是重新装配的。
     const second = await LaunchKitService.getOrCreate(started.projectId, OWNER);
@@ -255,7 +255,7 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
     const report = await LaunchKitService.verify(started.projectId, OWNER);
     assert.strictEqual(report.verified, true, `复核没通过：${JSON.stringify(report)}`);
     assert.strictEqual(report.storedHash, report.recomputedHash);
-    assert.strictEqual(report.fileCount, 6);
+    assert.strictEqual(report.fileCount, 5);
   });
 
   it('界面语言是中文时复核依然通过（语言也是装配的输入）', async (t) => {
@@ -424,14 +424,19 @@ describe('点火包的确定性装配', () => {
     const bundle = assemble(sampleReport());
     const routes = fileOf(bundle, 'routes.yaml');
 
-    // 词表按词量档位排序（HIGH 在前），路径由查询词确定性改写。
-    assert.match(routes, /^  - path: '\/fixture-opportunity\/invoice-generator-free'$/m);
-    assert.match(routes, /^  - path: '\/fixture-opportunity\/pdf-invoice-template'$/m);
+    // 没有词量数据源，词表按查询词排序；slug 由查询词确定性改写。
+    assert.match(routes, /^  - slug: '\/fixture-opportunity\/invoice-generator-free'$/m);
+    assert.match(routes, /^  - slug: '\/fixture-opportunity\/pdf-invoice-template'$/m);
     assert.match(routes, /^    priority: 1$/m);
     // 查询词保持研究市场原文，不翻译、不外推（硬约束 4）。
-    assert.match(routes, /^    primary_query: 'invoice generator free'$/m);
+    assert.match(routes, /^    target_keyword: 'invoice generator free'$/m);
     assert.match(routes, /^    intent: COMMERCIAL$/m);
-    assert.match(routes, /^    volume_tier: HIGH$/m);
+    // 09 §5.3 ② 的字段集：title / h1 / meta_description 由模板确定性装配。
+    assert.match(routes, /^    title: 'invoice generator free \| Fixture Opportunity'$/m);
+    assert.match(routes, /^    h1: 'invoice generator free'$/m);
+    assert.match(routes, /^    meta_description: '/m);
+    // 没有词量来源就不输出 volume_tier。
+    assert.ok(!routes.includes('volume_tier'), '路由里仍有无来源的 volume_tier');
     // 硬约束 4：指不回 evidence_id 的字段留 —，不得编造。冻结的报告投影里聚类词一级
     // 只到快照粒度，所以如实指回快照。
     assert.match(routes, /^    evidence_id: '—'$/m);
@@ -439,7 +444,31 @@ describe('点火包的确定性装配', () => {
 
     const keywords = fileOf(bundle, 'keywords.csv');
     assert.strictEqual(keywords.trim().split('\n').length, 4, `词表行数不对：\n${keywords}`);
-    assert.match(keywords.split('\n')[1], /^invoice generator,COMMERCIAL,—,0,/);
+    assert.strictEqual(
+      keywords.split('\n')[0],
+      'slug,target_keyword,intent,title,h1,meta_description,priority,first_observed,snapshot_id,evidence_id'
+    );
+    // 主词必须排最前：它是唯一每个形态都有的词。
+    assert.match(keywords.split('\n')[1], /^\/fixture-opportunity,invoice generator,COMMERCIAL,/);
+    assert.ok(!keywords.includes('volume_tier'), '词表里仍有无来源的 volume_tier');
+  });
+
+  it('没有簇内观测词时不输出空词表：PSEO 省掉 routes.yaml，改出 KEYWORDS_UNAVAILABLE.md', () => {
+    const empty = sampleReport();
+    empty.clusterQueries = [];
+    const pseo = assemble(empty);
+    const paths = pseo.files.map((file) => file.path).sort();
+    assert.ok(!paths.includes('keywords.csv'), '无观测词时仍输出了 keywords.csv');
+    assert.ok(!paths.includes('routes.yaml'), 'PSEO 形态无观测词时仍输出了空路由表');
+    assert.ok(paths.includes('KEYWORDS_UNAVAILABLE.md'));
+    assert.match(fileOf(pseo, 'KEYWORDS_UNAVAILABLE.md'), /keywords\.csv, routes\.yaml/);
+
+    // 非 PSEO 形态的路由来自初始页面清单，仍然有内容，只省词表。
+    const tool = assemble(empty, { archetype: 'TOOL' });
+    const toolPaths = tool.files.map((file) => file.path);
+    assert.ok(toolPaths.includes('routes.yaml'));
+    assert.ok(!toolPaths.includes('keywords.csv'));
+    assert.ok(toolPaths.includes('KEYWORDS_UNAVAILABLE.md'));
   });
 
   it('工具形态：主体是落地页，聚类词只作为页面文案的目标词进词表', () => {
@@ -501,7 +530,7 @@ describe('点火包的确定性装配', () => {
 
     // 生成资产是**要部署到研究市场**的东西：路由、路径、查询词与界面语言无关。
     const pathLines = (content: string) =>
-      content.split('\n').filter((line) => /^\s+- path:/.test(line));
+      content.split('\n').filter((line) => /^\s+- (path|slug):/.test(line));
     assert.deepStrictEqual(
       pathLines(fileOf(zh, 'routes.yaml')),
       pathLines(fileOf(en, 'routes.yaml')),
@@ -533,9 +562,9 @@ describe('点火包的确定性装配', () => {
 
   it('模板版本是输入的一部分：换版本就是换产物', () => {
     const a = assemble(sampleReport());
-    const b = assemble(sampleReport(), { templateVersion: '1.1' });
+    const b = assemble(sampleReport(), { templateVersion: '9.9' });
     assert.notStrictEqual(a.contentHash, b.contentHash);
-    assert.match(fileOf(b, 'routes.yaml'), /^template_version: 1\.1$/m);
+    assert.match(fileOf(b, 'routes.yaml'), /^template_version: 9\.9$/m);
   });
 });
 

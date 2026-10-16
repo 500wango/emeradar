@@ -28,7 +28,7 @@ import type { OpportunityReportData } from './types';
  */
 
 /** 模板版本。模板内容一改就要动它：它是"同一输入同一产物"承诺的一部分。 */
-export const LAUNCH_KIT_TEMPLATE_VERSION = '1.0';
+export const LAUNCH_KIT_TEMPLATE_VERSION = '1.1';
 /** 产物结构与 03 §13 `launch_kits.schema_version` 对应。 */
 export const LAUNCH_KIT_SCHEMA_VERSION = '1.0';
 
@@ -215,6 +215,11 @@ export function assembleLaunchKit(input: AssembleLaunchKitInput): LaunchKitBundl
 
   const scope = buildScope(report, archetype, input, isZh, narrative, templateVersion);
 
+  // 09 §5.3 第 6 条：没有观测到簇内词就不输出空词表。PSEO 形态的路由表完全由簇内词
+  // 铺开，所以连 routes.yaml 一并省掉；其余形态的路由来自初始页面清单，仍有内容。
+  const hasClusterWords = report.section2.clusterQueries.length > 0;
+  const omitRoutes = !hasClusterWords && PSEO_ARCHETYPES.includes(archetype);
+
   const files: LaunchKitFile[] = [
     {
       path: 'CLAUDE.md',
@@ -226,16 +231,26 @@ export function assembleLaunchKit(input: AssembleLaunchKitInput): LaunchKitBundl
       mediaType: FILE_MEDIA_TYPES.markdown,
       content: renderCursorRules(scope, isZh),
     },
-    {
-      path: 'routes.yaml',
-      mediaType: FILE_MEDIA_TYPES.yaml,
-      content: renderRoutes(scope, report, archetype, input, isZh),
-    },
-    {
-      path: 'keywords.csv',
-      mediaType: FILE_MEDIA_TYPES.csv,
-      content: renderKeywordsCsv(report, input),
-    },
+    ...(omitRoutes
+      ? []
+      : [
+          {
+            path: 'routes.yaml',
+            mediaType: FILE_MEDIA_TYPES.yaml,
+            content: renderRoutes(scope, report, archetype, input, isZh),
+          },
+        ]),
+    hasClusterWords
+      ? {
+          path: 'keywords.csv',
+          mediaType: FILE_MEDIA_TYPES.csv,
+          content: renderKeywordsCsv(report, input),
+        }
+      : {
+          path: 'KEYWORDS_UNAVAILABLE.md',
+          mediaType: FILE_MEDIA_TYPES.markdown,
+          content: renderKeywordsUnavailable(report, input, isZh, omitRoutes),
+        },
     {
       path: 'landing-skeleton.html',
       mediaType: FILE_MEDIA_TYPES.html,
@@ -646,12 +661,15 @@ function renderRoutes(
       // 没有词量数据源（04 §2），不按量级排序，只按查询词排：顺序必须确定性可重算。
       const ordered = [...cluster].sort((a, b) => a.query.localeCompare(b.query));
       ordered.forEach((entry, index) => {
-        lines.push(`  - path: ${yamlString(`${base}/${slugifyQuery(entry.query)}`)}`);
-        lines.push(`    primary_query: ${yamlString(entry.query)}`);
+        const copy = keywordCopy(report, entry.query);
+        lines.push(`  - slug: ${yamlString(`${base}/${slugifyQuery(entry.query)}`)}`);
+        lines.push(`    target_keyword: ${yamlString(entry.query)}`);
         lines.push(`    intent: ${entry.intent}`);
-        if (entry.volumeTier) lines.push(`    volume_tier: ${entry.volumeTier}`);
+        lines.push(`    title: ${yamlString(copy.title)}`);
+        lines.push(`    h1: ${yamlString(copy.h1)}`);
+        lines.push(`    meta_description: ${yamlString(copy.metaDescription)}`);
         lines.push(`    priority: ${index + 1}`);
-        lines.push(`    observed_date: ${yamlString(report.metadata.obsDate)}`);
+        lines.push(`    first_observed: ${yamlString(report.metadata.obsDate)}`);
         // 聚类词一级没有独立的 evidence_id：冻结报告投影里只到快照粒度，所以按
         // 09 §5.3 硬约束 4 的"指回 evidence_id 或 snapshot_id"如实指回快照，
         // 而不是编一个 id 出来。
@@ -680,28 +698,85 @@ function renderRoutes(
   return resolveTemplate('routes.yaml', lines.join('\n') + '\n', scope);
 }
 
+/**
+ * `title` / `h1` / `meta_description` 由关键词与报告已有字段确定性装配，不经 LLM
+ * （09 §5.3 ②）。关键词本身保持研究市场原文。
+ */
+function keywordCopy(
+  report: OpportunityReportData,
+  keyword: string
+): { title: string; h1: string; metaDescription: string } {
+  return {
+    title: `${keyword} | ${report.metadata.title}`,
+    h1: keyword,
+    metaDescription: `${keyword} | ${report.metadata.title}`,
+  };
+}
+
 function renderKeywordsCsv(report: OpportunityReportData, input: AssembleLaunchKitInput): string {
-  const header = ['query', 'intent', 'volume_tier', 'priority', 'observed_date', 'snapshot_id', 'evidence_id'];
+  const header = [
+    'slug',
+    'target_keyword',
+    'intent',
+    'title',
+    'h1',
+    'meta_description',
+    'priority',
+    'first_observed',
+    'snapshot_id',
+    'evidence_id',
+  ];
+  const base = `/${slugifyQuery(report.metadata.slug)}`;
   const ordered = [...report.section2.clusterQueries].sort((a, b) => a.query.localeCompare(b.query));
-  const rows = ordered.map((entry, index) =>
-    [
-      entry.query,
-      entry.intent,
-      entry.volumeTier ?? ABSENT,
-      String(index + 1),
+  const row = (keyword: string, intent: string, slug: string, priority: number): string => {
+    const copy = keywordCopy(report, keyword);
+    return [
+      slug,
+      keyword,
+      intent,
+      copy.title,
+      copy.h1,
+      copy.metaDescription,
+      String(priority),
       report.metadata.obsDate,
       input.snapshotId,
       ABSENT,
     ]
       .map(csvCell)
-      .join(',')
+      .join(',');
+  };
+  const rows = ordered.map((entry, index) =>
+    row(entry.query, entry.intent, `${base}/${slugifyQuery(entry.query)}`, index + 1)
   );
   // 主词排最前：它是唯一每个形态都有的词，而簇内词只可能在部分机会上有观测。
-  const primary = report.section2.primaryQuery;
-  const primaryRow = [primary, report.section2.searchIntent, ABSENT, '0', report.metadata.obsDate, input.snapshotId, ABSENT]
-    .map(csvCell)
-    .join(',');
+  const primaryRow = row(report.section2.primaryQuery, report.section2.searchIntent, base, 0);
   return [header.join(','), primaryRow, ...rows].join('\n') + '\n';
+}
+
+function renderKeywordsUnavailable(
+  report: OpportunityReportData,
+  input: AssembleLaunchKitInput,
+  isZh: boolean,
+  routesOmitted: boolean
+): string {
+  const omitted = routesOmitted ? 'keywords.csv, routes.yaml' : 'keywords.csv';
+  return isZh
+    ? `# 词表暂不可用
+
+该机会在簇内尚无基线期后的观测词，所以本点火包不含 ${omitted}：没有观测就不输出，也不外推生成"可能相关的词"（09 §5.3 硬约束 4、第 6 条）。
+
+- 观测起始日：${report.metadata.obsDate}
+- 快照：${input.snapshotId}
+- 主词（研究市场原文）：${report.section2.primaryQuery}
+`
+    : `# Keyword list unavailable
+
+No cluster queries have been observed for this opportunity after the baseline period, so this kit omits ${omitted}. Nothing is emitted without an observation, and related terms are never extrapolated (09 §5.3 constraint 4 and item 6).
+
+- Observation start date: ${report.metadata.obsDate}
+- Snapshot: ${input.snapshotId}
+- Primary query (research-market wording): ${report.section2.primaryQuery}
+`;
 }
 
 // ---------------------------------------------------------------------------
