@@ -108,12 +108,12 @@
 | H1 | “autocomplete 新增 + SERP 偏弱 + 增长”的早期信号能预测搜索市场的形成 | 预测账本 T+30/60/90。结果事件必须**独立于 D 轴输入**：用第三方词量或 Trends 走势定义的外部需求形成（`ev-1.1`，06 §7），不得用簇扩张 / 新增 query 自证。对照基线：同池随机；Google Trends 上升榜（**必备**） | Top-decile 机会的 60 天外部需求形成事件率 ≥ 基线 3×。Gate 0 以 T+30 与代理回测判定，T+60 在 Gate 1 前复核 |
 | H2 | 有 observed 商业证据（尤指新晋赢家）的机会更值得做 | Design partner 结果 + SERP 排名追踪 | 定性成立，样本持续积累 |
 | H3 | Builder 愿意为“确定性决策 + AI 建站点火包 + 槽位保护”付费 | 预售访谈与付费转化 | ≥ 20 访谈，≥ 8 人预付或签意向 |
-| H4 | 机会研究报告与 AI 点火包显著提升 Builder 的立项信心与极速出货率 | Design partner 跟踪 | GO 后 **7 天内上线凭证核验通过率 ≥ 40%**，且 **30 天内进入 SERP Top 100 比例 ≥ 30%** |
+| H4 | 机会研究报告与 AI 点火包显著提升 Builder 的立项信心与极速出货率 | Design partner 跟踪 | GO 后**质押窗口内（S 7 / M 14 / L 21 天）上线凭证核验通过率 ≥ 40%**，且 **30 天内进入 SERP Top 100 比例 ≥ 30%** |
 
 任一假设不过线：先修假设，不增加功能。
 
 ### 3.3 指标体系
-- **漏斗**：Feed / 即时初筛钩子 → Detail → GO（原子锁槽并导出 AI 点火包） → 7 天内上线凭证核验通过 → 30 天内 SERP Top 100 排名入榜 → 季度留存 / 额度复购。
+- **漏斗**：Feed / 即时初筛钩子 → Detail → GO（原子锁槽并导出 AI 点火包） → 质押窗口内上线凭证核验通过 → 30 天内 SERP Top 100 排名入榜 → 季度留存 / 额度复购。
 - **质量**：
   - Market-formation precision（自动、代理指标）：已发布 verdict 的 T+30/60/90 市场形成事件命中率。
   - Builder-outcome precision（SERP 真实排名追踪 + 可选 GSC）：追踪已核验项目在 30/60 天内进入 Top 100 / Top 30 / Top 10 的比例。
@@ -148,7 +148,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 |------|------|
 | Opportunity | 一个实体 + query cluster + `market_country` + `research_language` |
 | Evidence | 带类别、来源、时间戳的最小事实单元 |
-| Snapshot | SERP（默认 Top 100） / autocomplete / 商业信号的不可变快照（**含入库时一次性生成并永久冻结的分类元数据**） |
+| Snapshot | SERP（默认 Top 10；映射到已核验 Project 的 query 每周一次 Top 100，见 F1 第 1 条） / autocomplete / 商业信号的不可变快照（**含入库时一次性生成并永久冻结的分类元数据**） |
 | Verdict | 某个 `scoring_config` 版本在某时点对 Opportunity 的判断 |
 | Prediction Ledger | 所有已发布 Verdict 的 append-only 记录（支持 Stealth Lock 项目的 60 天延迟解密展示） |
 | Project | 用户认领槽位（GO）后创建的实际项目，绑定上线凭证 URL 与认领形态 |
@@ -227,7 +227,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 | F3 | Opportunity Feed 与双阶段初筛沙盒 | Phase 1 |
 | F4 | Opportunity Detail（含原子认领导出与处女地买断） | Phase 1 |
 | F5 | Compare | Phase 1 |
-| F6 | SERP Intelligence（Top 100 采集与弱点审计） | Phase 1 |
+| F6 | SERP Intelligence（Top 10 采集与弱点审计） | Phase 1 |
 | F7 | Commercial Signal Engine（含新晋赢家雷达与僵尸站过滤） | Phase 1 |
 | F8 | 机会研究报告与 AI 建站点火包 (Report & Launch Kit) | Phase 1 |
 | F9 | Watchlist 与 Alerts | Phase 1 |
@@ -266,7 +266,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
    - 用户输入自定义词时，弹窗确认消耗额度（Free 用户提示消耗**终身唯一 1 次**免费额度；Pro 用户扣除月度初筛配额）。
    - **第 1 阶段（5 秒即时静态初筛卡）**：调用 Fast Lane 实时探针，当场返回静态 SERP 弱结果数与独立站收款探针结论。
      - **Free 用户半遮罩展示（Blurred Reveal）**：清晰展示“发现 N 个弱结果 + M 个收钱独立站 + 静态切入难度”以制造 Aha Moment；但对**具体弱结果 URL、收钱竞品域名、15 个高意图扩展长尾词进行高斯模糊打码**，引导升级 Pro 解锁。
-   - **第 2 阶段（7 天动态脉冲雷达）**：Pro 用户可将初筛通过的词一键加入 `CANDIDATE` 快车道高频监测，一旦 7 天内确认需求脉冲斜率达标，第一时间邮件/Webhook 推送抢跑通知。
+   - **第 2 阶段（7 天动态脉冲雷达）**：Pro 用户可将初筛通过的词一键加入 `CANDIDATE` 快车道高频监测，一旦 7 天内确认需求脉冲斜率达标，第一时间以邮件与站内通知推送抢跑通知（Webhook 在 Gate 1 之后交付，F9）。
 
 ### F4 Opportunity Detail
 **首屏（无需滚动）**：Verdict、D-M-W 分档、Confidence、`PROVEN_NEW_ENTRANT` 徽章（如有）、研究市场（en-US）、一句 Why Now、各形态剩余认领槽位、主操作按钮组：
@@ -289,7 +289,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 - Web 支持 2–3 个机会并排对比：Verdict、三轴、新晋赢家数量、各形态剩余槽位、是否支持独占买断、执行规模、Kill criteria 状态。
 
 ### F6 SERP Intelligence
-- 每个被追踪 query 保存 Top 100 快照；针对 Top 10 解析结果类型（入库时冻结）、域名年龄/权威分类、相关性、新鲜度，以及 specialist / UGC / official / weak 结果数量。
+- 每个被追踪 query 保存 Top 10 快照（映射到已核验 Project 的 query 每周一次 Top 100，F1 第 1 条）；针对 Top 10 解析结果类型（入库时冻结）、域名年龄/权威分类、相关性、新鲜度，以及 specialist / UGC / official / weak 结果数量。
 - **列出具体的弱结果证据**（例如“第 3 位是 2022 年无人维护的 Reddit 帖”），并高亮近 6 个月新闯入 Top 10 的独立站域名。
 
 ### F7 Commercial Signal Engine
@@ -365,7 +365,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 | **自定义词即时初筛** | **终身仅 1 次**（结果半遮罩打码，需 GitHub/Google 登录） | **每月 15 次**（全量解锁底牌 + 可转 7 天脉冲雷达） | — |
 | **立项锁槽与 AI 点火包导出** | 每月 1 份历史报告在线预览（无点火包、不可导出） | **每月 5 次原子立项（锁槽 + 导出 AI 点火包）**（未用完额度结转下一期，结转后余额上限 10 次）；同时最多持有 **2 个质押未核验的活跃 GO** | — |
 | **处女地独占下架特权** | 不支持 | 可对 `已认领槽位 == 0` 的机会发起买断 | **单次付费（如 $199–$299/次）**：将该未染指机会从全网隐藏下架 60 天（账本打码封印），一人独享窗口 |
-| **自动化追踪与告警** | 不支持 | 邮件/Webhook 告警 + 立项凭证每周 SERP Top 100 自动追踪 | 包含全套追踪 |
+| **自动化追踪与告警** | 不支持 | 邮件与站内告警（Webhook 在 Gate 1 之后）+ 立项凭证每周 SERP Top 100 自动追踪 | 包含全套追踪 |
 
 - **季度 Builder Pass（主推档位）与对赌兜底承诺（De-risking Guarantee）**：
   - 主推季度订阅（90 天恰好覆盖“立项 → Vibe Coding 7 天上线 → 30/60 天 SEO 排名爬升”的完整周期）。
@@ -414,7 +414,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 
 ### Gate 1（公开发布）
 - 预测账本已运行 ≥ 60 天（从 v2 纪元第一条管线写入行起算），战绩页包含真实命中与失误
-- ≥ 30 个活跃 design partner，**GO 后 7 天内上线凭证核验通过率 ≥ 40%**，且 **30 天内 SERP Top 100 入榜率 ≥ 30%**
+- ≥ 30 个活跃 design partner，**GO 后质押窗口内上线凭证核验通过率 ≥ 40%**，且 **30 天内 SERP Top 100 入榜率 ≥ 30%**
 - 已有付费用户（≥ 10）
 
 ### Gate 2（进入 Phase 3）
@@ -443,7 +443,7 @@ Watch 的机会或自定义追踪词发生变化（7天脉冲确认晋升 `BUILD
 1. **ICP 与研究市场（已确认）**：主要用户为华语出海 Builder，首发研究市场锁定 `en-US / US`。
 2. **免费层与防白嫖策略（已确认）**：彻底废除 45 天延迟公开旧方案；采用“每周 1 条刚满额锁定的准实时案例 + 终身仅 1 次半遮罩即时初筛（强绑定 OAuth 防刷）”。
 3. **动作闭环与防冲突机制（已确认）**：点击 GO 锁槽与导出 AI 点火包原子强绑定；支持域名/商店页/着陆页 3 类凭证 7 天核验；仅 0 认领处女地状态开放 60 天独占买断（账本延迟解密）。
-4. **成果追踪与高可用管线（已确认）**：默认采用自身 SERP Top 100 管线快照复用追踪用户项目排名；LLM 分类标签在入库时永久冻结；单源故障执行 72 小时缓存降级。
+4. **成果追踪与高可用管线（已确认）**：默认采用自身 SERP 管线追踪用户项目排名（对映射到已核验 Project 的 query 每周一次 Top 100，F1 第 1 条）；LLM 分类标签在入库时永久冻结；单源故障执行 72 小时缓存降级。
 5. **v2.2 设计审查裁决（已确认，2026-10-17）**：Q1–Q15 的结论已写入本文对应条目，决策理由与落点见 `30-REVIEW-REMEDIATION-PLAN.md` §4。
 6. **数据源选型与具体定价（待 Phase 0 最终敲定）**：SERP 异步队列与实时接口供应商组合（如 DataForSEO + Serper.dev 互备）；Pro 月付、季度 Builder Pass 以及单次独占买断（Stealth Lock）的最终美金定价。
 
