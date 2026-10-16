@@ -42,16 +42,22 @@ export interface AlertFacts {
    * `null`/缺失表示今天没有可求值的谓词或指标，不是"没触发"。
    */
   killTriggered?: boolean | null;
+  /**
+   * 仅 `SLOTS_LAST_ONE` 需要：某一形态剩余可认领槽位恰为 1 且近期尚未提醒过。
+   * `null`/缺失表示没有槽位数据，不是"没有最后一席"。
+   */
+  slotsLastOne?: boolean | null;
 }
 
 export type AlertRuleType =
   | 'VERDICT_CHANGE'
   | 'WINDOW_CLOSING'
   | 'NEW_ENTRANT'
-  | 'KILL_CRITERIA';
+  | 'KILL_CRITERIA'
+  | 'SLOTS_LAST_ONE';
 
 /** 目前真正会被求值的规则类型。其余在创建规则时就被拒绝。 */
-export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT', 'KILL_CRITERIA'] as const;
+export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT', 'KILL_CRITERIA', 'SLOTS_LAST_ONE'] as const;
 
 /** 已被拒绝创建的类型 → 拒绝理由（给人看的中文说明，用于 400 detail）。 */
 export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {};
@@ -129,6 +135,9 @@ export function evaluateAlertTrigger(ruleType: string, facts: AlertFacts): boole
     case 'KILL_CRITERIA':
       // 谓词由 `@emeradar/scoring` 的 `evaluateKillPredicate` 求值；这里只接收结论。
       return facts.killTriggered ?? null;
+
+    case 'SLOTS_LAST_ONE':
+      return facts.slotsLastOne ?? null;
 
     default:
       return null;

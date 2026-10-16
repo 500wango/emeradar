@@ -77,13 +77,12 @@ export const decisionSchema = z.object({
 export const alertRuleSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200),
   /**
-   * Only the types the daily pipeline actually evaluates. `NEW_ENTRANT` and
-   * `KILL_CRITERIA` used to be accepted here and were never evaluated by
-   * anything — a subscription that could only ever be silent. They are rejected
-   * at this layer so the contract stops offering them; `AlertService` returns
-   * the explanation.
+   * Only the launch triggers the daily pipeline evaluates (docs/12 §2).
+   * `NEW_ENTRANT` is evaluated but not offered until Phase 2, so it stays out of
+   * the public contract; a subscription that could only ever be silent is worse
+   * than no option.
    */
-  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING']),
+  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA', 'SLOTS_LAST_ONE']),
   frequency: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']).optional(),
 });
 

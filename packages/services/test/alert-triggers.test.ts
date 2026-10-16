@@ -23,6 +23,7 @@ describe('告警触发器求值', () => {
   const entrantFacts = {
     ...baseFacts,
     killTriggered: false,
+    slotsLastOne: false,
     serpEntrants: {
       today: [{ rank: 1, domain: 'acme.com', resultType: 'OFFICIAL' }],
       prior: [{ rank: 4, domain: 'blog.example', resultType: 'SPECIALIST' }],
@@ -149,6 +150,9 @@ describe('告警触发器求值', () => {
     // 返回 false 会被调用方当成"今天不触发"悄悄吞掉，掩盖"根本没有求值路径"
     // 这个事实。null 逼调用方显式处理。
     assert.strictEqual(evaluateAlertTrigger('SOMETHING_NEW', baseFacts), null);
+    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', baseFacts), null);
+    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', { ...baseFacts, slotsLastOne: true }), true);
+    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', { ...baseFacts, slotsLastOne: false }), false);
     // KILL_CRITERIA 无可求值的谓词时同样是 null，而不是 false。
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', baseFacts), null);
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: true }), true);

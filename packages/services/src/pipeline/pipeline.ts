@@ -436,6 +436,7 @@ export async function runDailyPipeline(
     // 这几次查询在同一事务里重复跑没有意义。
     const entrantCache = new Map<string, SerpEntrantSnapshot | null>();
     const killCache = new Map<string, boolean | null>();
+    const lastSlotCache = new Map<string, boolean>();
 
     /**
      * 买断保护期内的机会：**只对持有者投递**（10 §7、16 §3.3）。
@@ -524,7 +525,30 @@ export async function runDailyPipeline(
         killTriggered = killCache.get(rule.opportunity_id);
       }
 
+      // SLOTS_LAST_ONE：某一形态剩余槽位恰为 1（ADR-018）。只在"进入"那一天提醒一次：
+      // 该规则已有过通知就不再重复，否则槽位停在 1 的每一天都会响。
+      let slotsLastOne: boolean | null | undefined;
+      if (rule.rule_type === 'SLOTS_LAST_ONE') {
+        if (!lastSlotCache.has(rule.opportunity_id)) {
+          const slotRes = await client.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM opportunity_slots
+              WHERE opportunity_id = $1 AND capacity - claimed = 1`,
+            [rule.opportunity_id]
+          );
+          lastSlotCache.set(rule.opportunity_id, (slotRes.rows[0]?.n ?? 0) > 0);
+        }
+        slotsLastOne = lastSlotCache.get(rule.opportunity_id);
+        if (slotsLastOne) {
+          const prior = await client.query(
+            `SELECT 1 FROM notifications WHERE id LIKE $1 LIMIT 1`,
+            [`ntf\\_%\\_${rule.id}`]
+          );
+          if (prior.rows.length > 0) slotsLastOne = false;
+        }
+      }
+
       const fires = evaluateAlertTrigger(rule.rule_type, {
+        slotsLastOne,
         verdict: match.output.verdict,
         previousVerdict: match.previousVerdict,
         serpEntrants,
@@ -535,6 +559,8 @@ export async function runDailyPipeline(
       const title =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `Entry window closing: ${match.title}`
+          : rule.rule_type === 'SLOTS_LAST_ONE'
+          ? `Last slot left: ${match.title}`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `Kill criterion triggered: ${match.title}`
           : rule.rule_type === 'NEW_ENTRANT'
@@ -543,6 +569,8 @@ export async function runDailyPipeline(
       const body =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `${match.primaryQuery} entered WINDOW_CLOSING. ${match.whyNowSummary}`
+          : rule.rule_type === 'SLOTS_LAST_ONE'
+          ? `${match.primaryQuery}: exactly one build slot is left on at least one track. ${match.whyNowSummary}`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `${match.primaryQuery}: a stated stop condition was met today. Re-check the kill criteria on the report before building further.`
           : rule.rule_type === 'NEW_ENTRANT'
