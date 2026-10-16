@@ -42,6 +42,10 @@ describe('Opportunity Report Unit Tests', () => {
     },
     obsDate: '2026-09-25',
     primaryQuery: 'shopify sales tax calculator',
+    clusterQueries: [
+      { query: 'shopify sales tax by state', intent: 'INFORMATIONAL' as const },
+      { query: 'sales tax calculator for shopify', intent: 'COMMERCIAL' as const },
+    ],
   };
 
   it('generates complete 6-section structured report data', () => {
@@ -283,6 +287,7 @@ describe('Decision basis (why this verdict)', () => {
     },
     obsDate: '2026-10-11',
     primaryQuery: 'basis fixture query',
+    clusterQueries: [],
   };
 
   it('defaults to NOT_RETAINED and withholds reasons rather than inventing them', () => {

@@ -11,6 +11,17 @@ import {
 import { EntitlementService } from './entitlement.service';
 import { hiddenFromViewer } from './stealth-lock-policy';
 
+/** 簇内词意图的确定性规则分类（同一词必得同一结果，重算可复现）。 */
+function classifyClusterIntent(
+  text: string
+): 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL' {
+  const q = text.toLowerCase();
+  if (/\b(buy|price|pricing|cost|download|subscribe|deal|coupon|free trial)\b/.test(q)) return 'TRANSACTIONAL';
+  if (/^(how|what|why|when|guide|tutorial|learn|meaning)\b/.test(q)) return 'INFORMATIONAL';
+  if (/\b(login|sign in|official site)\b/.test(q)) return 'NAVIGATIONAL';
+  return 'COMMERCIAL';
+}
+
 export class ReportService {
   /**
    * Get an existing report or generate a new one with Hold & Release quota protection
@@ -208,6 +219,20 @@ export class ReportService {
         throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'A report requires a real SERP observation; no report was generated.', 409);
       }
 
+      // 词表只从 opportunity_queries 读（09 §5.3 第 6 条）：已观测到的簇内词，不外推。
+      const clusterRes = await query<{ query_text: string }>(
+        `SELECT q.query_text
+           FROM opportunity_queries oq
+           JOIN queries q ON q.id = oq.query_id
+          WHERE oq.opportunity_id = $1 AND oq.role <> 'PRIMARY'
+          ORDER BY q.query_text`,
+        [opp.id]
+      );
+      const clusterQueries = clusterRes.rows.map((r) => ({
+        query: r.query_text,
+        intent: classifyClusterIntent(r.query_text),
+      }));
+
       // Fetch Kill Criteria
       let kcRes = await query<any>(
         `SELECT rule_code as code, description as rule, 'Stated threshold, checked by you' as rationale
@@ -305,6 +330,7 @@ export class ReportService {
           isWeak: r.is_weak,
           weaknessReason: r.weakness_type,
         })),
+        clusterQueries,
         killCriteria: kcRes.rows,
         llmSummaryNarrative: {
           whyNow: opp.why_now_summary || 'Continuous market and search engine observation.',

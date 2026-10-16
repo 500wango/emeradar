@@ -391,7 +391,7 @@ export function renderReportToHtml(report: OpportunityReportData): string {
       </tr>
     </thead>
     <tbody>
-      ${section2.clusterQueries.map((q) => `<tr><td><code>${esc(q.query)}</code></td><td>${esc(formatSearchIntent(q.intent, isZh ? 'zh-CN' : 'en-US'))}</td><td>${esc(q.volumeTier)}</td></tr>`).join('')}
+      ${section2.clusterQueries.map((q) => `<tr><td><code>${esc(q.query)}</code></td><td>${esc(formatSearchIntent(q.intent, isZh ? 'zh-CN' : 'en-US'))}</td><td>${esc(q.volumeTier ?? '—')}</td></tr>`).join('')}
     </tbody>
   </table>
   <p><strong>${isZh ? '动量综合评估：' : 'Momentum Assessment:'}</strong> ${esc(section2.momentumAssessment)}</p>

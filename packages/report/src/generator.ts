@@ -46,10 +46,15 @@ export interface ReportGenerationInput {
   jobToBeDone?: string;
   recommendedProductShape?: string;
   siteStrategy?: Section2DemandBreakdown['siteStrategy'];
-  clusterQueries?: {
+  /**
+   * 簇内观测词（09 §5.3 第 6 条）。必填：缺省为 `[]` 会让"调用方忘了传"与"确实没有
+   * 观测词"无法区分，词表因此恒空而无人察觉。确实没有时显式传 `[]`。
+   * `volumeTier` 可选：目前没有词量数据源（04 §2），无来源就不输出，不得编造。
+   */
+  clusterQueries: {
     query: string;
     intent: 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL';
-    volumeTier: 'HIGH' | 'MEDIUM' | 'EMERGING';
+    volumeTier?: 'HIGH' | 'MEDIUM' | 'EMERGING';
   }[];
   queryVelocity?: number;
   autocompleteSuggestions?: string[];
@@ -357,7 +362,7 @@ export function generateOpportunityReport(
     siteStrategy:
       input.siteStrategy ??
       (input.scoring.verdict === 'BUILD_NOW' ? 'INDEPENDENT_SITE' : 'WATCH'),
-    clusterQueries: input.clusterQueries ?? [],
+    clusterQueries: input.clusterQueries,
     queryVelocity: input.queryVelocity ?? 0,
     autocompleteSignals: input.autocompleteSuggestions ?? [],
     momentumAssessment: isZh
@@ -618,7 +623,7 @@ export function generateOpportunityReport(
       coreAction: isZh
         ? '无需注册直接使用核心功能，在 5 秒内给出直观可交付结果。'
         : 'Complete the core task without sign-up; deliver value within 5 seconds.',
-      requiredVariants: (input.clusterQueries ?? []).slice(0, 8).map((q) => q.query),
+      requiredVariants: input.clusterQueries.slice(0, 8).map((q) => q.query),
       initialPages: [
         {
           path: '/',
@@ -736,7 +741,7 @@ export function generateOpportunityReport(
       ? 'DR 35 ~ 50'
       : 'DR 50+';
   const monthlyVolumeEstimate =
-    (input.clusterQueries?.length || 1) * 750 + (input.queryVelocity || 1) * 350;
+    (input.clusterQueries.length || 1) * 750 + (input.queryVelocity || 1) * 350;
   const kgrRatio =
     Math.round((0.18 + (input.scoring.wScore < 5000 ? 0.32 : 0.04)) * 100) / 100;
   const ekgrRatio = Math.round(kgrRatio * (1 + estimatedKd / 100) * 100) / 100;

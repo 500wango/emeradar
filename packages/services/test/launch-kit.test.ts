@@ -239,7 +239,7 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
     const keywords = first.files.find((file) => file.path === 'keywords.csv')!.content;
     const lines = keywords.trim().split('\n');
     assert.strictEqual(lines[0], 'query,intent,volume_tier,priority,observed_date,snapshot_id,evidence_id');
-    assert.match(lines[1], /^invoice generator,COMMERCIAL,HIGH,0,/);
+    assert.match(lines[1], /^invoice generator,COMMERCIAL,—,0,/);
 
     // 冻结：第二次读回来的是库里那一份，不是重新装配的。
     const second = await LaunchKitService.getOrCreate(started.projectId, OWNER);
@@ -439,7 +439,7 @@ describe('点火包的确定性装配', () => {
 
     const keywords = fileOf(bundle, 'keywords.csv');
     assert.strictEqual(keywords.trim().split('\n').length, 4, `词表行数不对：\n${keywords}`);
-    assert.match(keywords.split('\n')[1], /^invoice generator,COMMERCIAL,HIGH,0,/);
+    assert.match(keywords.split('\n')[1], /^invoice generator,COMMERCIAL,—,0,/);
   });
 
   it('工具形态：主体是落地页，聚类词只作为页面文案的目标词进词表', () => {

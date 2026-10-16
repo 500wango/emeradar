@@ -261,7 +261,7 @@ ${renderDecisionBasisMarkdown(section1.decisionBasis, metadata.locale)}
 ### 关联查询词矩阵 (Query Cluster)
 | 搜索关键词 (Google Query) | 搜索意图类型 | 搜索量等级 |
 |:--------------------------|:-------------|:-----------|
-${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${formatSearchIntent(q.intent, 'zh-CN')} | ${formatVolumeTier(q.volumeTier, 'zh-CN')} |`).join('\n')}
+${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${formatSearchIntent(q.intent, 'zh-CN')} | ${(q.volumeTier ? formatVolumeTier(q.volumeTier, 'zh-CN') : '—')} |`).join('\n')}
 
 ### 搜索框联想词与长尾萌芽信号 (Autocomplete Signals)
 ${section2.autocompleteSignals.map((s) => `- \`${s}\``).join('\n')}
@@ -487,7 +487,7 @@ ${renderDecisionBasisMarkdown(section1.decisionBasis, metadata.locale)}
 ### Query Cluster Matrix
 | Search Query | Search Intent | Volume Tier |
 |--------------|---------------|-------------|
-${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${q.intent} | ${q.volumeTier} |`).join('\n')}
+${section2.clusterQueries.map((q) => `| \`${escapeMarkdown(q.query)}\` | ${q.intent} | ${q.volumeTier ?? '—'} |`).join('\n')}
 
 ### Autocomplete & Emerging Long-Tail Signals
 ${section2.autocompleteSignals.map((s) => `- \`${s}\``).join('\n')}

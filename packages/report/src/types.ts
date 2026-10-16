@@ -98,7 +98,7 @@ export interface Section2DemandBreakdown {
   clusterQueries: {
     query: string;
     intent: 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL';
-    volumeTier: 'HIGH' | 'MEDIUM' | 'EMERGING';
+    volumeTier?: 'HIGH' | 'MEDIUM' | 'EMERGING';
   }[];
   queryVelocity: number;
   autocompleteSignals: string[];

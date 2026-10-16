@@ -188,9 +188,6 @@ function yamlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-/** 档位顺序：把 HIGH 排前面，让导出的词表第一眼就是最该做的。 */
-const VOLUME_TIER_ORDER: Record<string, number> = { HIGH: 0, MEDIUM: 1, EMERGING: 2 };
-
 // ---------------------------------------------------------------------------
 // 装配
 // ---------------------------------------------------------------------------
@@ -646,16 +643,13 @@ function renderRoutes(
       lines.push(`  # ${isZh ? '本期报告没有聚类词观测：没有观测就不铺路由' : 'No cluster observation in this report: no observation, no routes'}`);
       lines.push(`  []`);
     } else {
-      const ordered = [...cluster].sort(
-        (a, b) =>
-          (VOLUME_TIER_ORDER[a.volumeTier] ?? 9) - (VOLUME_TIER_ORDER[b.volumeTier] ?? 9) ||
-          a.query.localeCompare(b.query)
-      );
+      // 没有词量数据源（04 §2），不按量级排序，只按查询词排：顺序必须确定性可重算。
+      const ordered = [...cluster].sort((a, b) => a.query.localeCompare(b.query));
       ordered.forEach((entry, index) => {
         lines.push(`  - path: ${yamlString(`${base}/${slugifyQuery(entry.query)}`)}`);
         lines.push(`    primary_query: ${yamlString(entry.query)}`);
         lines.push(`    intent: ${entry.intent}`);
-        lines.push(`    volume_tier: ${entry.volumeTier}`);
+        if (entry.volumeTier) lines.push(`    volume_tier: ${entry.volumeTier}`);
         lines.push(`    priority: ${index + 1}`);
         lines.push(`    observed_date: ${yamlString(report.metadata.obsDate)}`);
         // 聚类词一级没有独立的 evidence_id：冻结报告投影里只到快照粒度，所以按
@@ -688,16 +682,12 @@ function renderRoutes(
 
 function renderKeywordsCsv(report: OpportunityReportData, input: AssembleLaunchKitInput): string {
   const header = ['query', 'intent', 'volume_tier', 'priority', 'observed_date', 'snapshot_id', 'evidence_id'];
-  const ordered = [...report.section2.clusterQueries].sort(
-    (a, b) =>
-      (VOLUME_TIER_ORDER[a.volumeTier] ?? 9) - (VOLUME_TIER_ORDER[b.volumeTier] ?? 9) ||
-      a.query.localeCompare(b.query)
-  );
+  const ordered = [...report.section2.clusterQueries].sort((a, b) => a.query.localeCompare(b.query));
   const rows = ordered.map((entry, index) =>
     [
       entry.query,
       entry.intent,
-      entry.volumeTier,
+      entry.volumeTier ?? ABSENT,
       String(index + 1),
       report.metadata.obsDate,
       input.snapshotId,
@@ -708,7 +698,7 @@ function renderKeywordsCsv(report: OpportunityReportData, input: AssembleLaunchK
   );
   // 主词排最前：它是唯一每个形态都有的词，而簇内词只可能在部分机会上有观测。
   const primary = report.section2.primaryQuery;
-  const primaryRow = [primary, report.section2.searchIntent, 'HIGH', '0', report.metadata.obsDate, input.snapshotId, ABSENT]
+  const primaryRow = [primary, report.section2.searchIntent, ABSENT, '0', report.metadata.obsDate, input.snapshotId, ABSENT]
     .map(csvCell)
     .join(',');
   return [header.join(','), primaryRow, ...rows].join('\n') + '\n';
