@@ -15,6 +15,8 @@ export interface SerpTarget {
   opportunityId?: string;
   marketCountry?: string;
   researchLanguage?: string;
+  /** 请求深度；缺省为 `SERP_DEFAULT_DEPTH`。只有项目排名追踪的周采集传 100。 */
+  depth?: number;
 }
 
 export interface SerpCollectedItem {
@@ -38,6 +40,11 @@ export interface SerpCollectedItem {
  * 不增加任何调用次数。
  */
 export const SERP_DEPTH = 100;
+/**
+ * 默认采集深度（ADR-022、PRD v2.2 F1 第 1 条）。Google 自 2025 年 9 月停用 `num=100`，
+ * Top 100 要按 10 条一页计 10 次请求，所以只有映射到已核验 Project 的 query 才取 100。
+ */
+export const SERP_DEFAULT_DEPTH = 10;
 /** 参与评分的名次上限（05 §3.3）。深于它的部分只进 `rankIndex`。 */
 export const SERP_SCORING_DEPTH = 10;
 
@@ -82,11 +89,13 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       };
     }
 
+    const depth = Math.min(SERP_DEPTH, Math.max(SERP_SCORING_DEPTH, item.depth ?? SERP_DEFAULT_DEPTH));
     try {
       const rawItems = await this.fetchSerp(
         item.queryText,
         item.marketCountry || 'US',
-        item.researchLanguage || 'en'
+        item.researchLanguage || 'en',
+        depth
       );
       if (!rawItems || rawItems.length === 0) {
         return {
@@ -159,7 +168,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             weakResultRatio: weakRatio,
             weaknessScore: weaknessResult.score,
             /** 请求的深度（`serp_snapshots.depth`）。 */
-            depth: SERP_DEPTH,
+            depth,
             /** 实际取回条数（`serp_snapshots.result_count`）。各有各的上限：Brave 与
              *  Tavily 只给到 20，SerpApi 给到 100。低于 depth 是常态，不是故障。 */
             resultCount: ranked.length,
@@ -272,7 +281,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   private async fetchSerp(
     query: string,
     marketCountry: string,
-    language: string
+    language: string,
+    depth: number
   ): Promise<
     Array<{
       rank: number;
@@ -288,19 +298,19 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   > {
     const serpApiKey = process.env.SERP_API_KEY;
     if (serpApiKey) {
-      const fromSerpApi = await this.fetchSerpApi(query, marketCountry, language, serpApiKey);
+      const fromSerpApi = await this.fetchSerpApi(query, marketCountry, language, serpApiKey, depth);
       if (fromSerpApi && fromSerpApi.length > 0) return fromSerpApi;
     }
 
     const aisaKey = process.env.AISA_API_KEY;
     if (aisaKey) {
-      const fromAIsa = await this.fetchAIsa(query, marketCountry, language, aisaKey);
+      const fromAIsa = await this.fetchAIsa(query, marketCountry, language, aisaKey, depth);
       if (fromAIsa && fromAIsa.length > 0) return fromAIsa;
     }
 
     const braveKey = process.env.BRAVE_API_KEY;
     if (braveKey) {
-      const fromBrave = await this.fetchBrave(query, marketCountry, braveKey);
+      const fromBrave = await this.fetchBrave(query, marketCountry, braveKey, depth);
       if (fromBrave && fromBrave.length > 0) return fromBrave;
     }
 
@@ -311,7 +321,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     query: string,
     marketCountry: string,
     language: string,
-    apiKey: string
+    apiKey: string,
+    depth: number
   ) {
     try {
       const endpoint = process.env.AISA_SEARCH_URL || 'https://api.aisa.one/apis/v1/tavily/search';
@@ -323,8 +334,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
               keyword: query,
               location_code: marketCountry === 'US' ? 2840 : undefined,
               language_code: language || 'en',
-              // 一鱼多吃（04 §9.2）：一次请求拿满深度，前 10 名进评分，其余进匹配索引。
-              depth: SERP_DEPTH,
+              // 深度分层（ADR-022）：默认 10；项目排名追踪的周采集才取 100。
+              depth,
             },
           ])
         : JSON.stringify({
@@ -352,7 +363,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       // Format 1: Tavily / Web Search format ({ results: [{ title, url, content }] })
       if (Array.isArray(data?.results)) {
         return data.results
-          .slice(0, SERP_DEPTH)
+          .slice(0, depth)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || '');
             const title = String(r.title || '');
@@ -375,7 +386,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       if (Array.isArray(dfsItems)) {
         return dfsItems
           .filter((i: any) => (i.type === 'organic' || !i.type) && i.url)
-          .slice(0, SERP_DEPTH)
+          .slice(0, depth)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || '');
             const title = String(r.title || '');
@@ -395,7 +406,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       // Format 3: Generic items array format ({ items: [...] })
       if (Array.isArray(data?.items)) {
         return data.items
-          .slice(0, SERP_DEPTH)
+          .slice(0, depth)
           .map((r: any, idx: number) => {
             const urlStr = String(r.url || r.link || '');
             const title = String(r.title || '');
@@ -422,18 +433,19 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     query: string,
     marketCountry: string,
     language: string,
-    apiKey: string
+    apiKey: string,
+    depth: number
   ) {
     try {
       const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(
         query
-      )}&gl=${encodeURIComponent(marketCountry)}&hl=${encodeURIComponent(language)}&num=${SERP_DEPTH}&api_key=${encodeURIComponent(apiKey)}`;
+      )}&gl=${encodeURIComponent(marketCountry)}&hl=${encodeURIComponent(language)}&num=${depth}&api_key=${encodeURIComponent(apiKey)}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) return null;
       const data = await res.json();
       if (!Array.isArray(data.organic_results)) return null;
       return data.organic_results
-        .slice(0, SERP_DEPTH)
+        .slice(0, depth)
         .map((r: any, idx: number) => {
           const urlStr = String(r.link || '');
           return {
@@ -451,7 +463,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     }
   }
 
-  private async fetchBrave(query: string, marketCountry: string, apiKey: string) {
+  private async fetchBrave(query: string, marketCountry: string, apiKey: string, depth: number) {
     try {
       const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
         query
@@ -465,7 +477,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       const results = data.web?.results;
       if (!Array.isArray(results)) return null;
       return results
-        .slice(0, SERP_DEPTH)
+        .slice(0, depth)
         .map((r: any, idx: number) => {
           const urlStr = String(r.url || '');
           return {

@@ -8,6 +8,7 @@ import {
   RunContext,
   BudgetGuard,
   SERP_DEPTH,
+  SERP_DEFAULT_DEPTH,
   SERP_SCORING_DEPTH,
 } from '../src';
 
@@ -230,6 +231,8 @@ describe('SerpCollector', () => {
         queryId: 'q_depth',
         queryText: 'cron online',
         opportunityId: 'opp_depth',
+        // 项目排名追踪的周采集才取 100（ADR-022）。
+        depth: SERP_DEPTH,
       });
 
       assert.equal(outcome.status, 'OK');
@@ -258,6 +261,46 @@ describe('SerpCollector', () => {
       assert.equal(outcome.evidence[0].payload.top10Count, SERP_SCORING_DEPTH);
       // 名次索引不进原始载荷：它是匹配用的中间量，不是我们"观察到"的证据。
       assert.ok(!JSON.parse(outcome.raw!.content).rankIndex);
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AISA_API_KEY;
+      if (oldSerpKey) process.env.SERP_API_KEY = oldSerpKey;
+      if (oldAisaUrl) process.env.AISA_SEARCH_URL = oldAisaUrl;
+    }
+  });
+
+  it('requests and records Top 10 by default (ADR-022)', async () => {
+    const originalFetch = globalThis.fetch;
+    process.env.AISA_API_KEY = 'test_aisa_default_depth_key';
+    const oldSerpKey = process.env.SERP_API_KEY;
+    const oldAisaUrl = process.env.AISA_SEARCH_URL;
+    delete process.env.SERP_API_KEY;
+    delete process.env.AISA_SEARCH_URL;
+
+    const stubResults = Array.from({ length: 25 }, (_, i) => ({
+      title: `Clean tool ${i + 1}`,
+      url: `https://clean-tool-${i + 1}.example/`,
+      content: 'A focused independent tool',
+    }));
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ results: stubResults }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    try {
+      const outcome = await collector.collect(createMockContext(), {
+        queryId: 'q_default_depth',
+        queryText: 'cron online',
+        opportunityId: 'opp_default_depth',
+      });
+      assert.equal(outcome.status, 'OK');
+      if (outcome.status !== 'OK') return;
+      const serpData = outcome.snapshots[0].data;
+      assert.equal(SERP_DEFAULT_DEPTH, 10);
+      assert.equal(serpData.depth, SERP_DEFAULT_DEPTH);
+      assert.equal(serpData.resultCount, SERP_DEFAULT_DEPTH);
+      assert.equal(serpData.rankIndex.length, SERP_DEFAULT_DEPTH);
     } finally {
       globalThis.fetch = originalFetch;
       delete process.env.AISA_API_KEY;

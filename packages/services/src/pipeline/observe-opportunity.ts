@@ -178,12 +178,34 @@ export async function observeOpportunity(
     ? (trend.recent_avg - trend.prior_avg) / trend.prior_avg
     : null;
 
+  // 深度分层（ADR-022、04 §9.2）：默认 Top 10；只有映射到已核验 Project 的 query，
+  // 且当周还没取过 Top 100 时才取 100。11–100 名唯一的消费者就是项目排名追踪。
+  const trackedRes = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+       FROM project_credentials pc
+       JOIN projects p ON p.id = pc.project_id
+      WHERE p.opportunity_id = $1
+        AND p.status <> 'ARCHIVED'
+        AND pc.verification_state = 'VERIFIED'
+        AND pc.host IS NOT NULL`,
+    [opp.id]
+  );
+  const weeklyDepthRes = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM serp_snapshots
+      WHERE query_id = $1 AND depth >= 100
+        AND obs_date > $2::date - 7 AND obs_date < $2::date`,
+    [primary.id, obsDate]
+  );
+  const wantsDeepSerp = (trackedRes.rows[0]?.n ?? 0) > 0 && (weeklyDepthRes.rows[0]?.n ?? 0) === 0;
+  const serpDepth = wantsDeepSerp ? 100 : undefined;
+
   let serpOutcome = await collectors.serp.collect(ctx, {
     queryId: primary.id,
     queryText: primary.query_text,
     opportunityId: opp.id,
     marketCountry: opp.market_country,
     researchLanguage: opp.research_language,
+    depth: serpDepth,
   });
 
   // A billable provider call costs money whether or not it returned data, so the
@@ -202,6 +224,7 @@ export async function observeOpportunity(
       opportunityId: opp.id,
       marketCountry: opp.market_country,
       researchLanguage: opp.research_language,
+      depth: serpDepth,
     });
     if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
       await CostLedgerService.recordCost(serpOutcome.cost);
@@ -283,12 +306,15 @@ export async function observeOpportunity(
       // 主机名。**不额外发请求**——这是这条管线唯一一次 SERP 调用，追踪搭它的车。
       // 用主词（PRIMARY）那条查询记录排名：F10 的判据问的是"这个项目在主词上入榜了吗"，
       // 而簇内词的名次各自的量级不同，混在一条曲线里没有意义。
-      await RankingService.recordFromSerp({
-        opportunityId: opp.id,
-        queryId: primary.id,
-        obsDate,
-        rankIndex,
-      });
+      // 只有取过 Top 100 的那天才记录：Top 10 的快照里"没看到"不等于"未入榜"。
+      if (serpSnap.data.depth >= 100) {
+        await RankingService.recordFromSerp({
+          opportunityId: opp.id,
+          queryId: primary.id,
+          obsDate,
+          rankIndex,
+        });
+      }
     }
   }
 
