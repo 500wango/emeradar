@@ -26,23 +26,31 @@ export interface StripeLinkOptions {
 
 
 const PLAN_PRICES = {
+  STARTER: {
+    name: 'Starter',
+    monthly: 4900, // $49
+    yearly: 47000, // $39.17/mo * 12 = $470 (20% off)
+  },
   PRO: {
     name: 'Builder Pro',
-    monthly: 2900, // $29
-    yearly: 29000, // ~$24/mo * 12 = $290 (2 months free)
+    monthly: 7900, // $79
+    yearly: 79000, // $65.83/mo * 12 = $790 (17% off)
   },
   TEAM: {
     name: 'Scale Team',
-    monthly: 14900, // $149
-    yearly: 142800, // $119/mo * 12 = $1,428
+    monthly: 19900, // $199
+    yearly: 199000, // $165.83/mo * 12 = $1,990 (17% off)
   },
 } as const;
 
-const LIFETIME_AMOUNT_CENTS = 39900;
+const LIFETIME_AMOUNT_CENTS = 129900; // $1,299 (Founding Legacy, 限量 20 席)
+// const STEALTH_LOCK_AMOUNT_CENTS = 29900; // $299 (Phase 1) — 待实现买断功能时启用
 
-/** Phase 1 供给约束（PRD v2.2 Q6、Q12）：Pro 活跃订阅席位 30，Founding Lifetime 50 席售罄即止。 */
-export const PRO_SEAT_CAP = 30;
-export const FOUNDING_SEAT_CAP = 50;
+/** Phase 1 供给约束（新定价方案 2026-10）：阶梯化席位上限，按需扩容。 */
+export const STARTER_SEAT_CAP = 100;
+export const PRO_SEAT_CAP = 200; // Phase 1 先开放 50 席
+export const TEAM_SEAT_CAP = 30;
+export const FOUNDING_SEAT_CAP = 20; // Founding Legacy 限量
 
 /** 终身订阅的 `current_period_end` 哨兵值（见 activateSubscription）。 */
 const LIFETIME_PERIOD_END_SQL = `TIMESTAMPTZ '9999-12-31 23:59:59+00'`;
@@ -127,31 +135,40 @@ export class StripeService {
     const interval = billingCycle === 'yearly' ? 'year' : 'month';
 
     // 席位上限放在建会话（以及开发模拟激活）之前：满额后不应再让人付款（付完才发现
-    // 没座位，就是收了钱无物可交）。竞态下可能略微超卖一两席，对 30/50 这种供给约束
-    // 可接受；严格化需要在 webhook 落账侧再校验，不在本任务范围。
-    if (planCode === 'PRO') {
+    // 没座位，就是收了钱无物可交）。竞态下可能略微超卖一两席，阶梯化上限可接受；
+    // 严格化需要在 webhook 落账侧再校验，不在本任务范围。
+    const seatCapByPlan: Record<string, { recurring: number; lifetime: number }> = {
+      STARTER: { recurring: STARTER_SEAT_CAP, lifetime: 0 },
+      PRO: { recurring: PRO_SEAT_CAP, lifetime: FOUNDING_SEAT_CAP },
+      TEAM: { recurring: TEAM_SEAT_CAP, lifetime: 0 },
+    };
+
+    const cap = seatCapByPlan[planCode];
+    if (cap) {
       const seats = await query<{ lifetime: number; recurring: number }>(
         `SELECT COUNT(*) FILTER (WHERE current_period_end = ${LIFETIME_PERIOD_END_SQL})::int AS lifetime,
                 COUNT(*) FILTER (WHERE current_period_end <> ${LIFETIME_PERIOD_END_SQL})::int AS recurring
            FROM subscriptions
-          WHERE plan_code = 'PRO' AND status = 'ACTIVE' AND current_period_end > NOW()`
+          WHERE plan_code = $1 AND status = 'ACTIVE' AND current_period_end > NOW()`,
+        [planCode]
       );
       const lifetimeSeats = seats.rows[0]?.lifetime ?? 0;
       const recurringSeats = seats.rows[0]?.recurring ?? 0;
-      if (isLifetime && lifetimeSeats >= FOUNDING_SEAT_CAP) {
+
+      if (isLifetime && planCode === 'PRO' && lifetimeSeats >= cap.lifetime) {
         throw new EmeradarError(
           ErrorCode.SEATS_FULL,
-          `Founding Lifetime is sold out (${FOUNDING_SEAT_CAP} seats). Join the waitlist or choose a monthly or yearly plan.`,
+          `Founding Lifetime is sold out (${cap.lifetime} seats). Join the waitlist or choose a monthly or yearly plan.`,
           409,
-          { details: { cap: FOUNDING_SEAT_CAP, waitlist: true } }
+          { details: { cap: cap.lifetime, waitlist: true } }
         );
       }
-      if (!isLifetime && recurringSeats + lifetimeSeats >= PRO_SEAT_CAP) {
+      if (!isLifetime && recurringSeats >= cap.recurring) {
         throw new EmeradarError(
           ErrorCode.SEATS_FULL,
-          `Builder Pro seats are full during Phase 1 (${PRO_SEAT_CAP}). Join the waitlist.`,
+          `${config.name} seats are full during Phase 1 (${cap.recurring}). Join the waitlist or upgrade to a higher tier.`,
           409,
-          { details: { cap: PRO_SEAT_CAP, waitlist: true } }
+          { details: { cap: cap.recurring, waitlist: true } }
         );
       }
     }

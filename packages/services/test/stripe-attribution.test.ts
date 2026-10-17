@@ -115,7 +115,7 @@ describe('Stripe 事件的归因链', () => {
       id: 'cs_missing_payment_status', status: 'complete', mode: 'payment',
       client_reference_id: ORPHAN_USER,
       metadata: { userId: ORPHAN_USER, planCode: 'PRO', billingCycle: 'lifetime' },
-      amount_total: 39900, currency: 'usd', payment_intent: 'pi_missing_status',
+      amount_total: 129900, currency: 'usd', payment_intent: 'pi_missing_status',
     });
     assert.strictEqual(response.status, 200);
     const user = await harness.db.query<{ tier: string }>('SELECT tier FROM users WHERE id = $1', [ORPHAN_USER]);
@@ -133,14 +133,14 @@ describe('Stripe 事件的归因链', () => {
       userId: ORPHAN_USER, planCode: 'PRO', billingCycle: 'lifetime',
     });
     assert.strictEqual(created.sessionId, 'cs_persisted_intent');
-    assert.strictEqual(submitted?.get('line_items[0][price_data][unit_amount]'), '39900');
+    assert.strictEqual(submitted?.get('line_items[0][price_data][unit_amount]'), '129900');
     const intent = await harness.db.query<{
       user_id: string; plan_code: string; billing_cycle: string; amount_cents: number; currency: string; mode: string;
     }>(`SELECT user_id, plan_code, billing_cycle, amount_cents, currency, mode
           FROM stripe_checkout_intents WHERE id = $1`, [created.sessionId]);
     assert.deepStrictEqual(intent.rows[0], {
       user_id: ORPHAN_USER, plan_code: 'PRO', billing_cycle: 'lifetime',
-      amount_cents: 39900, currency: 'usd', mode: 'payment',
+      amount_cents: 129900, currency: 'usd', mode: 'payment',
     });
   });
 
@@ -232,7 +232,7 @@ describe('Stripe 事件的归因链', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const session = {
       id: 'cs_persisted_intent', payment_status: 'paid', mode: 'payment',
-      amount_total: 39900, currency: 'usd', payment_intent: 'pi_validated',
+      amount_total: 129900, currency: 'usd', payment_intent: 'pi_validated',
       metadata: { userId: ORPHAN_USER, planCode: 'PRO', billingCycle: 'lifetime' },
     };
     assert.strictEqual(await harness.services.StripeService.validatePaidCheckout(session), true);
@@ -245,7 +245,7 @@ describe('Stripe 事件的归因链', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const session = {
       id: 'cs_legacy_verified', status: 'complete', payment_status: 'paid', mode: 'payment',
-      amount_total: 39900, currency: 'usd', payment_intent: 'pi_legacy_verified',
+      amount_total: 129900, currency: 'usd', payment_intent: 'pi_legacy_verified',
       client_reference_id: ORPHAN_USER,
       metadata: { userId: ORPHAN_USER, planCode: 'PRO', billingCycle: 'lifetime' },
     };
@@ -266,7 +266,7 @@ describe('Stripe 事件的归因链', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const session = {
       id: 'cs_legacy_mismatch', status: 'complete', payment_status: 'paid', mode: 'payment',
-      amount_total: 39900, currency: 'usd', payment_intent: 'pi_legacy_mismatch',
+      amount_total: 129900, currency: 'usd', payment_intent: 'pi_legacy_mismatch',
       client_reference_id: ORPHAN_USER,
       metadata: { userId: ORPHAN_USER, planCode: 'PRO', billingCycle: 'lifetime' },
     };
