@@ -82,6 +82,48 @@ export function mapStripeSubscriptionStatus(
   }
 }
 
+/**
+ * Billing period end carried by a `customer.subscription.*` event object.
+ *
+ * Stripe API 2025-03-31 ("Basil") removed `current_period_start/end` from the
+ * Subscription resource and moved them onto each subscription item. An endpoint
+ * created on a current API version therefore sends the period only as
+ * `items.data[].current_period_end`; reading the old top-level field alone
+ * quietly yields "no period end", and on a renewal that means the paid-through
+ * date never moves while the customer is being charged. Both shapes are read, so
+ * the endpoint behaves the same on either version. A single-item subscription —
+ * which is every subscription this app creates — makes `data[0]` exact.
+ */
+export function subscriptionPeriodEnd(obj: any): number | null {
+  const top = obj?.current_period_end;
+  if (typeof top === 'number' && Number.isFinite(top)) return top;
+  const item = obj?.items?.data?.[0]?.current_period_end;
+  return typeof item === 'number' && Number.isFinite(item) ? item : null;
+}
+
+/**
+ * Invoice → subscription id.
+ *
+ * Basil moved `invoice.subscription` to `invoice.parent.subscription_details.subscription`.
+ * Reading only the old field makes every renewal event unattributable: the
+ * subscription id is null, `updateSubscriptionState` returns early, and
+ * `invoice.payment_failed` turns into a 500 that Stripe retries forever while the
+ * account never enters PAST_DUE.
+ */
+export function invoiceSubscriptionId(obj: any): string | null {
+  if (typeof obj?.subscription === 'string' && obj.subscription) return obj.subscription;
+  const parent = obj?.parent?.subscription_details?.subscription;
+  if (typeof parent === 'string' && parent) return parent;
+  if (typeof parent?.id === 'string' && parent.id) return parent.id;
+  return null;
+}
+
+/** Paid-through end of the first invoice line's period (unchanged by Basil). */
+export function invoicePeriodEnd(obj: any): number | null {
+  const end = obj?.lines?.data?.[0]?.period?.end;
+  return typeof end === 'number' && Number.isFinite(end) ? end : null;
+}
+
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
 }
@@ -747,8 +789,7 @@ export class StripeService {
       }
 
       const invoice = charge.invoice;
-      const subscriptionId =
-        typeof invoice?.subscription === 'string' ? invoice.subscription : invoice?.subscription?.id;
+      const subscriptionId = invoiceSubscriptionId(invoice);
       if (subscriptionId) return this.findUserIdByStripeSubscription(subscriptionId);
     } catch (error) {
       console.error(`[StripeService] Charge lookup for ${stripeChargeId} failed:`, error);
@@ -830,7 +871,7 @@ export class StripeService {
     if (!obj) return null;
     if (typeof obj.metadata?.userId === 'string' && obj.metadata.userId) return obj.metadata.userId;
 
-    const subId = typeof obj.subscription === 'string' ? obj.subscription : obj.subscription?.id;
+    const subId = invoiceSubscriptionId(obj);
     if (subId) {
       const bySub = await this.findUserIdByStripeSubscription(subId);
       if (bySub) return bySub;

@@ -39,6 +39,7 @@
 | 29 | GEO-OPTIMIZATION | GEO (生成式引擎优化) 落地规范与 Google AI Overviews 对齐报告 | 前端、增长 |
 | 30 | REVIEW-REMEDIATION-PLAN | 2026-10-17 设计审查的整改项（R1–R20）、裁决事项（Q1–Q15，已合入 PRD v2.2）与重排的开发计划 | 产品、全员 |
 | 31 | IMPLEMENTATION-PLAN | 30 的整改项落到代码：按里程碑拆分的任务、涉及文件、迁移与验收 | 后端、前端、全员 |
+| 32 | STRIPE-WEBHOOK-SETUP | Stripe 接入：endpoint 与事件清单、密钥切换顺序、可重跑的验证命令 | 后端、运维 |
 
 ## 2. 依赖关系
 

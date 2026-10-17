@@ -1,5 +1,5 @@
 import { transaction } from '@emeradar/db';
-import { StripeService } from './stripe.service';
+import { StripeService, invoiceSubscriptionId } from './stripe.service';
 import { applyPaymentEvent, isPaymentEvent } from './stripe-payment.service';
 import { SubscriptionLifecycleService } from './subscription-lifecycle.service';
 
@@ -39,7 +39,7 @@ export async function retryStripeAttributions(limit = 20): Promise<{ completed: 
           // unsafe. Resolve only matching identifiers, and do not infer ownership
           // from the customer ID or metadata on this delayed path.
           const subscriptionId = row.event_type === 'customer.subscription.deleted'
-            ? object.id : object.subscription;
+            ? object.id : invoiceSubscriptionId(object) ?? object.subscription;
           if (isPaymentEvent(row.event_type)) {
             canceledUser = await applyPaymentEvent(client,row.event_type,object);
           } else if (row.event_type === 'invoice.payment_failed') {

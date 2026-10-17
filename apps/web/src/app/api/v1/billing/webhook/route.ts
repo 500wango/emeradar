@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { StripeService, StealthLockService, mapStripeSubscriptionStatus } from '@emeradar/services';
+import {
+  StripeService,
+  StealthLockService,
+  mapStripeSubscriptionStatus,
+  invoicePeriodEnd,
+  invoiceSubscriptionId,
+  subscriptionPeriodEnd,
+} from '@emeradar/services';
 
 function toIsoOrNull(epochSeconds: unknown): string | null {
   return typeof epochSeconds === 'number' && Number.isFinite(epochSeconds)
@@ -140,7 +147,7 @@ export async function POST(request: NextRequest) {
         await StripeService.updateSubscriptionState(
           object?.id,
           status,
-          toIsoOrNull(object?.current_period_end),
+          toIsoOrNull(subscriptionPeriodEnd(object)),
           typeof object?.cancel_at_period_end === 'boolean' ? object.cancel_at_period_end : null
         );
         break;
@@ -163,15 +170,18 @@ export async function POST(request: NextRequest) {
 
       case 'invoice.paid': {
         await StripeService.updateSubscriptionState(
-          object?.subscription,
+          invoiceSubscriptionId(object) ?? '',
           'ACTIVE',
-          toIsoOrNull(object?.lines?.data?.[0]?.period?.end)
+          toIsoOrNull(invoicePeriodEnd(object))
         );
         break;
       }
 
       case 'invoice.payment_failed': {
-        const userId = await StripeService.updateSubscriptionState(object?.subscription, 'PAST_DUE');
+        const userId = await StripeService.updateSubscriptionState(
+          invoiceSubscriptionId(object) ?? '',
+          'PAST_DUE'
+        );
         if (userId) {
           console.warn(`[Stripe Webhook] Payment failed for user ${userId}; subscription marked PAST_DUE.`);
         } else {
