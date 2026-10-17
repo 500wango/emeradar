@@ -6,7 +6,7 @@ import { processPaymentEvent } from './stripe-payment.service';
 
 export interface CheckoutSessionOptions {
   userId: string;
-  planCode: 'PRO' | 'TEAM';
+  planCode: 'STARTER' | 'PRO' | 'TEAM';
   billingCycle?: 'monthly' | 'yearly' | 'lifetime';
   returnUrl?: string;
 }

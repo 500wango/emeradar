@@ -21,18 +21,18 @@ export async function POST(request: NextRequest) {
     // TEAM intent must still reach the design-partner check below, so the body is
     // validated for shape here and the plan gate stays explicit.
     const parsed = parseInput(
-      checkoutSchema.extend({ planCode: z.union([z.literal('PRO'), z.literal('TEAM'), z.string().max(40)]) }),
+      checkoutSchema.extend({ planCode: z.union([z.literal('STARTER'), z.literal('PRO'), z.literal('TEAM'), z.string().max(40)]) }),
       await request.json().catch(() => ({}))
     );
     const { planCode, billingCycle, returnUrl } = parsed;
 
-    if (planCode !== 'PRO' && planCode !== 'TEAM') {
+    if (planCode !== 'STARTER' && planCode !== 'PRO' && planCode !== 'TEAM') {
       return NextResponse.json(
         {
           type: 'about:blank',
           title: 'Invalid Plan',
           status: 400,
-          detail: 'Valid subscription plans are PRO or TEAM.',
+          detail: 'Valid subscription plans are STARTER, PRO or TEAM.',
         },
         { status: 400 }
       );
