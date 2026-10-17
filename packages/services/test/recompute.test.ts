@@ -76,3 +76,21 @@ describe('recompute (05 §8)', () => {
     );
   });
 });
+
+describe('recompute sampling', () => {
+  it('samples deterministically and surfaces only the drifted rows', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    // percent=100 samples everything; the seeded drift row is the only mismatch.
+    const first = await harness.services.RecomputeService.sample('2026-07-01', { percent: 100 });
+    const second = await harness.services.RecomputeService.sample('2026-07-01', { percent: 100 });
+    assert.strictEqual(first.sampled, second.sampled);
+    assert.ok(first.sampled >= 2, 'rows with a sealed input must be sampled');
+    assert.deepStrictEqual(first.mismatches.map((m: any) => m.opportunityId), ['opp_rc_drift']);
+  });
+
+  it('never samples rows without a sealed input', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const result = await harness.services.RecomputeService.sample('2026-07-01', { percent: 100 });
+    assert.ok(!result.mismatches.some((m: any) => m.opportunityId === 'opp_rc_legacy'));
+  });
+});

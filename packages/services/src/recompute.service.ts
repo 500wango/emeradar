@@ -68,4 +68,33 @@ export class RecomputeService {
       .map(([field, a, b]) => ({ field, ledger: a, recomputed: b }));
     return { opportunityId, obsDate, matches: diffs.length === 0, diffs };
   }
+
+  /**
+   * 05 §8：随机抽取历史 Verdict 重算并比对。按 `md5(id || 观测日)` 的哈希取模抽样，而不是
+   * `random()`：同一天重跑抽到同一批，事后能复现「当晚到底查了哪几条」。
+   * 只抽有封存输入的行（没有输入的存量不是不一致，是无法评估）。
+   */
+  static async sample(
+    asOf: string,
+    options: { percent?: number; limit?: number } = {}
+  ): Promise<{ sampled: number; mismatches: RecomputeResult[] }> {
+    const percent = options.percent ?? 1;
+    const limit = options.limit ?? 200;
+    const rows = await query<{ opportunity_id: string; obs_date: string }>(
+      `SELECT v.opportunity_id, to_char(v.obs_date, 'YYYY-MM-DD') AS obs_date
+         FROM verdicts v
+         JOIN opportunity_snapshots s ON s.opportunity_id = v.opportunity_id AND s.obs_date = v.obs_date
+        WHERE v.hash_version >= 2 AND s.scoring_input IS NOT NULL AND v.obs_date < $1::date
+          AND (('x' || substr(md5(v.id || $1::text), 1, 8))::bit(32)::int & 2147483647) % 100 < $2
+        ORDER BY v.obs_date DESC
+        LIMIT $3`,
+      [asOf, percent, limit]
+    );
+    const mismatches: RecomputeResult[] = [];
+    for (const row of rows.rows) {
+      const result = await RecomputeService.recompute(row.opportunity_id, row.obs_date);
+      if (!result.matches) mismatches.push(result);
+    }
+    return { sampled: rows.rows.length, mismatches };
+  }
 }

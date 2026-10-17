@@ -15,6 +15,7 @@ import {
   StripeService,
   YieldGuardService,
   OutputGuaranteeService,
+  RecomputeService,
   ingestExternalDemand,
   retryStripeAttributions,
 } from '@emeradar/services';
@@ -381,6 +382,27 @@ export const TASKS: TaskSpec[] = [
     async run(args, context) {
       const result = await OutputGuaranteeService.check(scheduledDate(args, context));
       console.log(`[task] output guarantee: ${JSON.stringify(result)} (trigger=${context.trigger})`);
+    },
+  },
+  {
+    command: 'recompute-sample',
+    cron: '10 8 * * *',
+    description: '抽样 1% 历史 Verdict 用封存输入重算并比对账本（不一致即严重告警，不重试）',
+    // 与 verify-ledger 同理：不一致不会因为再跑一次就一致，重试只会推迟发现。
+    retryLimit: 0,
+    retryDelaySeconds: 0,
+    expireInSeconds: 900,
+    alertAfterFailures: 1,
+    async run(args, context) {
+      const result = await RecomputeService.sample(scheduledDate(args, context));
+      console.log(`[task] recompute sample: ${result.sampled} sampled, ${result.mismatches.length} mismatched (trigger=${context.trigger})`);
+      if (result.mismatches.length > 0) {
+        throw new Error(
+          `重算与账本不一致（快照被污染或代码非确定）：${JSON.stringify(
+            result.mismatches.map((m) => ({ opp: m.opportunityId, date: m.obsDate, fields: m.diffs.map((d) => d.field) }))
+          )}`
+        );
+      }
     },
   },
   {
