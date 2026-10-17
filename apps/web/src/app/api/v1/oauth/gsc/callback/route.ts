@@ -25,8 +25,9 @@ export async function GET(request: NextRequest) {
     if (oauthError) {
       // state 格式: base64url(projectId:random)
       const projectId = state ? ProjectService.extractProjectIdFromState(state) : null;
+      const baseUrl = process.env.APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || request.url;
       return NextResponse.redirect(
-        new URL(projectId ? `/projects/${projectId}?gsc=denied` : '/projects?gsc=denied', request.url)
+        new URL(projectId ? `/projects/${projectId}?gsc=denied` : '/projects?gsc=denied', baseUrl)
       );
     }
 
@@ -51,7 +52,8 @@ export async function GET(request: NextRequest) {
 
     await ProjectService.completeGscAuthorization(projectId, auth.user.id, code, redirectUri);
 
-    const response = NextResponse.redirect(new URL(`/projects/${projectId}?gsc=select-property`, request.url));
+    const baseUrl = process.env.APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || request.url;
+    const response = NextResponse.redirect(new URL(`/projects/${projectId}?gsc=select-property`, baseUrl));
     response.cookies.delete(`gsc_oauth_state_${projectId}`);
     return response;
   } catch (error: any) {
