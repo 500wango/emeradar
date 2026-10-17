@@ -121,7 +121,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 **T5.3 已落地（偏离 PRD v2.2 Q8 的 15 分钟）**：Stripe Checkout 会话有效期下限是 30 分钟，待付窗口若短于会话，会出现"占位已作废、结账页仍可付款"（钱已收、交付物不在）。所以窗口取 35 分钟 = 30 + 5 分钟余量，会话 31 分钟。资格取消按账号计（`user_id`），错误码 `403 STEALTH_BUYOUT_SUSPENDED`；"同一设备"维度要等 T5.8 的设备指纹落地后再加。若要真正做到 15 分钟，需要在作废时主动调用 Stripe 的 expire session 接口，目前没有这条出站能力。
 
-**T5.5 部分落地**：`WeeklySelectionService.getWeeklySelectedCase` 已实现选取逻辑，复用 `publication-policy` 的满额与关窗判定：只选槽位满额或当前为 `WINDOW_CLOSING` 的机会，M 轴 INSUFFICIENT 与买断保护期内的不选，空槽 `BUILD_NOW` 永不入选；7 天内无新案例时回退最近一条历史案例并标 `historical: true`。**尚未切换 Free Feed**：`feed_delay_days` 仍是 Free 层实时性的开关，Feed 页与 API 还没改读这个选取结果，也没有按周配额计数。切换前免费用户仍走延迟 Feed，所以没有泄露空槽窗口的风险。
+**T5.5 已落地（Feed 与列表 API）**：`WeeklySelectionService.getWeeklySelectedCase` 只选槽位满额或当前为 `WINDOW_CLOSING` 的机会（M 轴 INSUFFICIENT 与买断保护期内的不选，空槽 `BUILD_NOW` 永不入选），7 天内无新案例时回退最近一条历史案例并标 `historical: true`。Free 用户的 `/feed` 页与 `GET /opportunities` 现在走 `listFreeWeeklyFeed`，只返回这一条（或空），不再返回延迟 N 天的整本 Feed。**仍未改的**：机会详情、对比、研报页的 `minAgeDays` 仍读 `feed_delay_days`（Free 本来就被 `opportunityDetailFull` 挡在详情之外，这几处对 Free 实际不可达）；「每周 1 条」是选取逻辑保证的，没有单独的按周配额计数器。
 
 **T5.4 部分落地**：`evaluateKillPredicate` 已在 `@emeradar/scoring` 按现存 `{metric, op, threshold}` 结构实现（指标限 `weak_result_ratio` 与三轴基点，畸形谓词或指标缺失返回 null，不当作未触发）；`KILL_CRITERIA` 已进入可订阅与可求值类型，每日流水线按机会求值一次并缓存，触发的谓词置 `TRIGGERED`，同一机会的多个订阅者都会收到。`SLOTS_LAST_ONE` 已实现（某形态剩余槽位恰为 1，每条规则只提醒一次），迁移 `0010` 放宽了 `alert_rules.rule_type` 的 CHECK，创建入口的 schema 开放 `KILL_CRITERIA` 与 `SLOTS_LAST_ONE`。`CUSTOM_QUERY_PULSE_CONFIRMED`、`PROJECT_SERP_RANK_JUMP` 两条首发触发器仍未实现；Email 投递沿用既有的告警邮件路径。
 

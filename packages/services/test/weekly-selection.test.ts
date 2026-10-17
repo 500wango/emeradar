@@ -88,4 +88,14 @@ describe('Free 精选：每周 1 条准实时案例', () => {
     assert.ok(picked);
     assert.notStrictEqual(picked.opportunityId, OPP_CLOSING);
   });
+
+  it('Free Feed 只返回精选那一条，空槽 BUILD_NOW 不会出现在列表里', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { listFreeWeeklyFeed } = harness.services;
+    const feed = await listFreeWeeklyFeed();
+    assert.strictEqual(feed.items.length, 1);
+    assert.strictEqual(feed.items[0].opportunityId, OPP_FULL);
+    assert.ok(!feed.items.some((item: any) => item.opportunityId === OPP_OPEN), '空槽 BUILD_NOW 泄露进了 Free Feed');
+    assert.strictEqual(feed.total, 1);
+  });
 });

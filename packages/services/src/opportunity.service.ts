@@ -15,6 +15,8 @@ export interface FeedCardFilterOptions {
   offset?: number;
   /** Hide decisions newer than this many days. 0 shows the realtime published feed. */
   minAgeDays?: number;
+  /** Restrict to these opportunities (Free weekly pick). An empty array matches nothing. */
+  opportunityIds?: string[];
 }
 
 export interface FeedCardItem {
@@ -205,6 +207,7 @@ export class OpportunityService {
       limit = 20,
       offset = 0,
       minAgeDays = 0,
+      opportunityIds,
     } = options;
 
     const conditions: string[] = [
@@ -225,6 +228,10 @@ export class OpportunityService {
     if (minAgeDays > 0) {
       conditions.push(`c.first_observed_at <= NOW() - ($${paramIdx++} || ' days')::interval`);
       params.push(String(minAgeDays));
+    }
+    if (opportunityIds) {
+      conditions.push(`o.id = ANY($${paramIdx++}::text[])`);
+      params.push(opportunityIds);
     }
 
     if (verdicts && verdicts.length > 0) {

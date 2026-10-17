@@ -90,3 +90,22 @@ export class WeeklySelectionService {
     };
   }
 }
+
+/**
+ * Free 层的 Feed（13 §3.2）：只返回每周精选的那一条（或没有），不再按 `feed_delay_days`
+ * 延迟展示整本 Feed。资格判据在 `getWeeklySelectedCase`，这里只负责把它变成 Feed 响应。
+ */
+export async function listFreeWeeklyFeed(
+  options: import('./opportunity.service').FeedCardFilterOptions = {}
+): Promise<import('./opportunity.service').FeedResponse & { weekly: WeeklySelectedCase | null }> {
+  const { OpportunityService } = await import('./opportunity.service');
+  const weekly = await WeeklySelectionService.getWeeklySelectedCase();
+  const feed = await OpportunityService.listFeedCards({
+    ...options,
+    minAgeDays: 0,
+    offset: 0,
+    limit: 1,
+    opportunityIds: weekly ? [weekly.opportunityId] : [],
+  });
+  return { ...feed, weekly };
+}

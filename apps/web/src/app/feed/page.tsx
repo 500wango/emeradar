@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, listFreeWeeklyFeed } from '@emeradar/services';
 import { FeedClient } from '@/components/FeedClient';
 import { TrackRequest } from '@/components/TrackRequest';
 import { StartExperimentButton } from '@/components/StartExperimentButton';
@@ -42,15 +42,18 @@ export default async function FeedPage({
   const selectedVerdict = verdicts.includes(verdictParam || '') ? verdictParam : undefined;
   const selectedArchetype = archetypes.includes(archetypeParam || '') ? archetypeParam : undefined;
   const selectedExecutionClass = executionClasses.includes(executionClassParam || '') ? executionClassParam : undefined;
-  const feed = await OpportunityService.listFeedCards({
+  const feedFilters = {
     verdict: selectedVerdict as any,
     archetype: selectedArchetype as any,
     executionClass: selectedExecutionClass as any,
     search: searchParam,
     limit: 10,
     offset,
-    minAgeDays: feedDelayDays,
-  });
+  };
+  // Free 层：每周 1 条精选，不再是延迟 N 天的整本 Feed（13 §3.2）。
+  const feed = realtime
+    ? await OpportunityService.listFeedCards({ ...feedFilters, minAgeDays: 0 })
+    : await listFreeWeeklyFeed(feedFilters);
   const observations = realtime
     ? await OpportunityService.listLiveObservations({ limit: 20 })
     : [];
