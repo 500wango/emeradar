@@ -40,7 +40,10 @@ export interface EpisodeOutcome {
   sustainedNewQueries: boolean;
   marketFormed: boolean;
   windowClosed: boolean;
-  outcome: 'HIT' | 'MISS';
+  /** `UNEVALUABLE` 只出现在 ev-1.1：外部数据缺失，不计入命中率分母（06 §7.1a）。 */
+  outcome: 'HIT' | 'MISS' | 'UNEVALUABLE';
+  /** ev-1.1 主事件；ev-1.0 的评估里为 null。 */
+  externalDemandFormed?: boolean | null;
   /** Observed values behind the booleans, kept for audit. */
   observed: Record<string, number | boolean | null>;
 }
@@ -61,7 +64,7 @@ export interface EvaluationCriteria {
   criteriaVersion: string;
   horizons: readonly number[];
   /** 被判定的目标事件（06 §7.1）。 */
-  target: 'market_formed';
+  target: 'market_formed' | 'external_demand_formed';
   thresholds: {
     /** 06 §7.1 `sustained_new_queries`：窗口内新增簇 query 的下限。 */
     newQueries: number;
@@ -71,17 +74,24 @@ export interface EvaluationCriteria {
     wLowBasisPoints: number;
     /** 06 §7.1 `window_closed`：窗口内 specialist + authoritative 域名数下限。 */
     windowCloseEvidence: number;
+    /** ev-1.1 ①：第 h 天词量 ≥ 预测日值 × 该倍数。 */
+    volumeMultiplier?: number;
+    /** ev-1.1 ①：且月搜索量 ≥ 该下限。 */
+    minVolume?: number;
+    /** ev-1.1 ②：Trends 窗口均值 ≥ 预测日前基线均值 × 该倍数。 */
+    trendsMultiplier?: number;
+    /** ev-1.1 ②：基线取预测日前（含当日）多少天。 */
+    trendsBaselineDays?: number;
+    /** ev-1.1 ③：新进入 Top 10、且有 observed 商业证据的独立域名数下限。 */
+    newCommercialDomains?: number;
   };
 }
 
 /**
- * 当前生效的评估规格（`ev-1.0`）。
- *
- * 改这里的任何一个数字都等于定义一个新规格：必须同时改 `criteriaVersion`
- * （06 §7「变更即新版本，历史评估保留」），否则已经写进账本的旧预测会声称
- * 自己是按新判据判的。
+ * `ev-1.0`：此前所有 Episode 的口径。保留为独立常量，因为没有快照的老 Episode 回落时
+ * 要按它们被开出时的口径判，而不是按今天的生效规格（06 §7）。
  */
-export const ACTIVE_EVAL_CRITERIA: EvaluationCriteria = {
+export const EV_1_0_CRITERIA: EvaluationCriteria = {
   criteriaVersion: 'ev-1.0',
   horizons: [30, 60, 90],
   target: 'market_formed',
@@ -92,6 +102,39 @@ export const ACTIVE_EVAL_CRITERIA: EvaluationCriteria = {
     windowCloseEvidence: 3,
   },
 };
+
+/**
+ * `ev-1.1`（06 §7.1a，30 R2）：主结果事件 `external_demand_formed`，三个输入都不进 D 轴，
+ * 切断 ev-1.0 里「用 D 轴的输入判 D 轴的预测」的循环。
+ *
+ * 阈值在 06 §7.1a 写明「冻结前可调」；此处即冻结点。改这里的任何数字都等于定义新规格：
+ * 必须同时改 `criteriaVersion`，且只对此后新开的 Episode 生效（快照不可改写）。
+ */
+export const EV_1_1_CRITERIA: EvaluationCriteria = {
+  criteriaVersion: 'ev-1.1',
+  horizons: [30, 60, 90],
+  target: 'external_demand_formed',
+  thresholds: {
+    newQueries: 10,
+    clusterExpansionMultiplier: 1.5,
+    wLowBasisPoints: 4500,
+    windowCloseEvidence: 3,
+    volumeMultiplier: 2,
+    minVolume: 100,
+    trendsMultiplier: 1.5,
+    trendsBaselineDays: 28,
+    newCommercialDomains: 2,
+  },
+};
+
+/**
+ * 当前生效的评估规格。新开的 Episode 把它整份写进 `criteria_snapshot`。
+ *
+ * 改这里的任何一个数字都等于定义一个新规格：必须同时改 `criteriaVersion`
+ * （06 §7「变更即新版本，历史评估保留」），否则已经写进账本的旧预测会声称
+ * 自己是按新判据判的。
+ */
+export const ACTIVE_EVAL_CRITERIA: EvaluationCriteria = EV_1_1_CRITERIA;
 
 export class PredictionEpisodeService {
   static readonly EVAL_SPEC_VERSION = ACTIVE_EVAL_CRITERIA.criteriaVersion;
@@ -207,12 +250,14 @@ export class PredictionEpisodeService {
    */
   static async evaluateDueEpisodes(
     today = new Date().toISOString().slice(0, 10),
-    fallbackCriteria: EvaluationCriteria = ACTIVE_EVAL_CRITERIA
+    fallbackCriteria: EvaluationCriteria = EV_1_0_CRITERIA
   ): Promise<{
     episodes: number;
     evaluated: number;
     hits: number;
     misses: number;
+    /** ev-1.1：外部数据缺失、不计入分母的地平线数。 */
+    unevaluable: number;
   }> {
     const due = await query<{
       id: string;
@@ -244,6 +289,7 @@ export class PredictionEpisodeService {
     let evaluated = 0;
     let hits = 0;
     let misses = 0;
+    let unevaluable = 0;
 
     for (const episode of due.rows) {
       const snapshot = episode.criteria_snapshot;
@@ -257,7 +303,7 @@ export class PredictionEpisodeService {
         const stored = episode[`outcome_${horizon}d` as const];
         // NULL means never evaluated; PENDING is the placeholder written at
         // open time, so both are due once the horizon has passed.
-        if (stored === 'HIT' || stored === 'MISS') continue;
+        if (stored === 'HIT' || stored === 'MISS' || stored === 'UNEVALUABLE') continue;
 
         const horizonDate = this.addDays(episode.predicted_at, horizon);
         if (Date.parse(`${horizonDate}T00:00:00Z`) > Date.parse(`${today}T00:00:00Z`)) continue;
@@ -289,6 +335,7 @@ export class PredictionEpisodeService {
                 sustainedNewQueries: outcome.sustainedNewQueries,
                 marketFormed: outcome.marketFormed,
                 windowClosed: outcome.windowClosed,
+                externalDemandFormed: outcome.externalDemandFormed ?? null,
                 observed: outcome.observed,
               },
             }),
@@ -298,11 +345,12 @@ export class PredictionEpisodeService {
 
         evaluated++;
         if (outcome.outcome === 'HIT') hits++;
+        else if (outcome.outcome === 'UNEVALUABLE') unevaluable++;
         else misses++;
       }
     }
 
-    return { episodes: due.rows.length, evaluated, hits, misses };
+    return { episodes: due.rows.length, evaluated, hits, misses, unevaluable };
   }
 
   /**
@@ -340,21 +388,161 @@ export class PredictionEpisodeService {
     const wBasisPoints = wRes.rows[0]?.w_basis_points ?? null;
     const windowClosed = this.isWindowClosed(wBasisPoints, authorityCount, criteria);
 
+    const observed: EpisodeOutcome['observed'] = {
+      suggestionsAtStart: startCount,
+      suggestionsAtHorizon: horizonCount,
+      newQueries,
+      wBasisPoints,
+      authoritativeDomains: authorityCount,
+    };
+
+    // ev-1.0：沿用 market_formed 且窗口未关。
+    if (criteria.target !== 'external_demand_formed') {
+      return {
+        horizonDays,
+        clusterExpansion,
+        sustainedNewQueries,
+        marketFormed,
+        windowClosed,
+        outcome: this.outcomeFor(marketFormed, windowClosed),
+        observed,
+      };
+    }
+
+    // ev-1.1：主事件来自不参与 D 轴的外部数据（06 §7.1a）。market_formed 仍然算出并留档，
+    // 但只作内部诊断，不决定 HIT/MISS。
+    const external = await this.evaluateExternalDemand(
+      opportunityId,
+      startDate,
+      horizonDate,
+      criteria
+    );
+    Object.assign(observed, external.observed);
     return {
       horizonDays,
       clusterExpansion,
       sustainedNewQueries,
       marketFormed,
       windowClosed,
-      outcome: this.outcomeFor(marketFormed, windowClosed),
-      observed: {
-        suggestionsAtStart: startCount,
-        suggestionsAtHorizon: horizonCount,
-        newQueries,
-        wBasisPoints,
-        authoritativeDomains: authorityCount,
-      },
+      externalDemandFormed: external.formed,
+      outcome: this.outcomeForExternal(external.formed, windowClosed),
+      observed,
     };
+  }
+
+  /**
+   * ev-1.1 `external_demand_formed`：三项里至少两项成立。①词量 ②Trends 缺任何一项的数据
+   * 源时，该地平线记为 UNEVALUABLE（不计分母）；只有两项都有数据才允许判 HIT/MISS，
+   * 因为只靠 ③（SERP 新进入者）一项永远凑不够「至少两项」的口径对称性。
+   */
+  static async evaluateExternalDemand(
+    opportunityId: string,
+    startDate: string,
+    horizonDate: string,
+    criteria: EvaluationCriteria
+  ): Promise<{ formed: boolean | null; observed: Record<string, number | boolean | null> }> {
+    const t = criteria.thresholds;
+    const volume = await this.externalSeries(opportunityId, 'src_volume', startDate, horizonDate);
+    const trends = await this.externalSeries(opportunityId, 'src_trends', startDate, horizonDate, t.trendsBaselineDays ?? 28);
+
+    const hasVolume = volume.atStart !== null && volume.atHorizon !== null;
+    const hasTrends = trends.baselineMean !== null && trends.windowMean !== null;
+    const observed = {
+      volumeAtStart: volume.atStart,
+      volumeAtHorizon: volume.atHorizon,
+      trendsBaselineMean: trends.baselineMean,
+      trendsWindowMean: trends.windowMean,
+    };
+    if (!hasVolume || !hasTrends) return { formed: null, observed };
+
+    const volumeOk =
+      volume.atHorizon! >= volume.atStart! * (t.volumeMultiplier ?? 2) &&
+      volume.atHorizon! >= (t.minVolume ?? 100);
+    const trendsOk = trends.windowMean! >= trends.baselineMean! * (t.trendsMultiplier ?? 1.5);
+    const newDomains = await this.newCommercialDomainsAt(opportunityId, startDate, horizonDate);
+    const serpOk = newDomains >= (t.newCommercialDomains ?? 2);
+
+    const passed = [volumeOk, trendsOk, serpOk].filter(Boolean).length;
+    return {
+      formed: passed >= 2,
+      observed: { ...observed, volumeOk, trendsOk, serpOk, newCommercialDomains: newDomains },
+    };
+  }
+
+  /** ev-1.1 的结论：外部需求形成且窗口没关 = HIT；数据不足 = UNEVALUABLE。 */
+  static outcomeForExternal(formed: boolean | null, windowClosed: boolean): 'HIT' | 'MISS' | 'UNEVALUABLE' {
+    if (formed === null) return 'UNEVALUABLE';
+    return formed && !windowClosed ? 'HIT' : 'MISS';
+  }
+
+  private static async externalSeries(
+    opportunityId: string,
+    source: 'src_volume' | 'src_trends',
+    startDate: string,
+    horizonDate: string,
+    baselineDays = 28
+  ): Promise<{ atStart: number | null; atHorizon: number | null; baselineMean: number | null; windowMean: number | null }> {
+    const res = await query<{
+      at_start: string | null;
+      at_horizon: string | null;
+      baseline_mean: string | null;
+      window_mean: string | null;
+    }>(
+      `WITH q AS (
+         SELECT oq.query_id FROM opportunity_queries oq
+          WHERE oq.opportunity_id = $1 AND oq.role = 'PRIMARY'
+       )
+       SELECT
+         (SELECT o.value FROM external_demand_observations o JOIN q ON q.query_id = o.query_id
+           WHERE o.source = $2 AND o.obs_date <= $3::date ORDER BY o.obs_date DESC LIMIT 1) AS at_start,
+         (SELECT o.value FROM external_demand_observations o JOIN q ON q.query_id = o.query_id
+           WHERE o.source = $2 AND o.obs_date <= $4::date ORDER BY o.obs_date DESC LIMIT 1) AS at_horizon,
+         (SELECT AVG(o.value) FROM external_demand_observations o JOIN q ON q.query_id = o.query_id
+           WHERE o.source = $2 AND o.obs_date <= $3::date AND o.obs_date > $3::date - $5::int) AS baseline_mean,
+         (SELECT AVG(o.value) FROM external_demand_observations o JOIN q ON q.query_id = o.query_id
+           WHERE o.source = $2 AND o.obs_date > $3::date AND o.obs_date <= $4::date) AS window_mean`,
+      [opportunityId, source, startDate, horizonDate, baselineDays]
+    );
+    const row = res.rows[0];
+    const num = (v: string | null | undefined) => (v === null || v === undefined ? null : Number(v));
+    return {
+      atStart: num(row?.at_start),
+      atHorizon: num(row?.at_horizon),
+      baselineMean: num(row?.baseline_mean),
+      windowMean: num(row?.window_mean),
+    };
+  }
+
+  /** ev-1.1 ③：预测日 Top 10 没有、第 h 天占位，且在 07 §6 有 observed 商业证据的独立域名数。 */
+  private static async newCommercialDomainsAt(
+    opportunityId: string,
+    startDate: string,
+    horizonDate: string
+  ): Promise<number> {
+    const res = await query<{ n: number }>(
+      `WITH snap AS (
+         SELECT ss.id, ss.obs_date FROM serp_snapshots ss
+           JOIN opportunity_queries oq ON oq.query_id = ss.query_id AND oq.role = 'PRIMARY'
+          WHERE oq.opportunity_id = $1
+       ),
+       start_snap AS (SELECT id FROM snap WHERE obs_date <= $2::date ORDER BY obs_date DESC LIMIT 1),
+       horizon_snap AS (SELECT id FROM snap WHERE obs_date <= $3::date ORDER BY obs_date DESC LIMIT 1)
+       SELECT COUNT(DISTINCT r.domain)::int AS n
+         FROM serp_results r
+         JOIN horizon_snap h ON h.id = r.serp_snapshot_id
+        WHERE r.rank <= 10
+          AND r.domain NOT IN (
+            SELECT r0.domain FROM serp_results r0 JOIN start_snap s ON s.id = r0.serp_snapshot_id WHERE r0.rank <= 10
+          )
+          AND EXISTS (
+            SELECT 1 FROM commercial_targets ct
+              JOIN commercial_snapshots cs ON cs.commercial_target_id = ct.id
+             WHERE ct.domain = r.domain AND cs.commercial_stage <> 'NONE'
+               AND cs.obs_date <= $3::date
+          )`,
+      [opportunityId, startDate, horizonDate]
+    );
+    return Number(res.rows[0]?.n ?? 0);
   }
 
   /**

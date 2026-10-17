@@ -39,6 +39,7 @@ export {
 } from './alert-triggers';
 export * from './track-record.service';
 export * from './prediction-episode.service';
+export * from './external-demand.service';
 export * from './auth.service';
 export * from './live-scan.service';
 export * from './public-publication.service';

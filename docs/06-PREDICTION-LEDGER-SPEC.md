@@ -199,7 +199,10 @@ Episode = (opportunity_id, verdict_class, start_date)
 
 评估地平线 `h ∈ {30, 60, 90}`。Builder 结果类事件只在**存在已核验 Project** 的 Episode 上评估；`market_formed` / `window_closed` 等需求与竞争事件不要求用户授权任何外部数据。
 
-### 7.1a `ev-1.1`：去循环的主结果事件（30 R2，Status: Proposed）
+### 7.1a `ev-1.1`：去循环的主结果事件（30 R2，Status: Frozen 2026-10-17）
+
+> **已冻结并生效（31 T2.1）**：`EV_1_1_CRITERIA` 是 `ACTIVE_EVAL_CRITERIA`，此后新开的 Episode 把整份规格写入 `criteria_snapshot`（含 `volumeMultiplier=2`、`minVolume=100`、`trendsMultiplier=1.5`、`trendsBaselineDays=28`、`newCommercialDomains=2`）。无快照的老 Episode 回落到 `EV_1_0_CRITERIA`，不按新口径补判。评估结果新增 `UNEVALUABLE`（迁移 `0011`）：词量或 Trends 任一序列缺数据即记 `UNEVALUABLE`，不计分母，且与 HIT/MISS 一样不可事后改判；公开统计返回 `unevaluableShare`。
+> **数据面尚未接通**：原始序列落在 `external_demand_observations`（`ExternalDemandService.record` 是唯一写入口），但 `src_volume` 采集器与 `src_trends` 采集器都还没有实现，所以在它们开始逐日写入之前，新 Episode 的外部事件全部会是 `UNEVALUABLE`。
 
 **问题**：`ev-1.0` 的 `market_formed` = `cluster_expansion` ∧ `sustained_new_queries`，而这两项正是 D 轴的输入（05 §3.1）。高 D 的机会本来就在扩簇、在新增 query，用同一组指标判定「市场形成了」，命中率高只说明特征有自相关，不说明信号能预测市场。H1 因此无法被证伪。
 

@@ -116,6 +116,11 @@ export class TrackRecordService {
      */
     const hitRate30d = rateIfTwoSided(hits, evaluated.length);
 
+    // 06 §7.1a：缺外部数据源的地平线记为 UNEVALUABLE，不计分母，但必须单独报告其占比。
+    // 占比 > 30% 时 H1 结论不得引用，所以这个数字不能只留在库里。
+    const unevaluable30d = episodes.filter((e) => e.outcome_30d === 'UNEVALUABLE').length;
+    const gradedOrUnevaluable = evaluated.length + unevaluable30d;
+
     // 2. Cohort Hit-Rate Matrix (grouped by predicted_at month)
     const cohortMap = new Map<string, any[]>();
     for (const ep of episodes) {
@@ -209,6 +214,9 @@ export class TrackRecordService {
         evaluatedEpisodes: evaluated.length,
         hitsCount: hits,
         hitRate30d,
+        unevaluableEpisodes: unevaluable30d,
+        unevaluableShare:
+          gradedOrUnevaluable > 0 ? Math.round((unevaluable30d / gradedOrUnevaluable) * 1000) / 1000 : null,
         undisclosedEpisodes: episodes.filter((e: any) => !e.disclosed).length,
         activeWatchlistCount: Number(watchlistRes.rows[0]?.count ?? 0),
       },

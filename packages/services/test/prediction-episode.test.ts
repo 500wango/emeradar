@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { query, transaction, closePool } from '@emeradar/db';
-import { EvaluationCriteria, PredictionEpisodeService } from '../src';
+import { EV_1_0_CRITERIA, EV_1_1_CRITERIA, EvaluationCriteria, PredictionEpisodeService } from '../src';
 
 /**
  * Prediction episodes are the public Track Record's only data source, and the
@@ -152,7 +152,8 @@ describe('PredictionEpisodeService', () => {
       opportunityId,
       start,
       '2026-01-31',
-      30
+      30,
+      EV_1_0_CRITERIA
     );
     assert.strictEqual(result.clusterExpansion, true);
     assert.strictEqual(result.sustainedNewQueries, true);
@@ -208,7 +209,8 @@ describe('PredictionEpisodeService', () => {
     const snapshot = rows.rows[0].criteria_snapshot;
     assert.ok(snapshot, 'the criteria snapshot must be persisted with the prediction');
     assert.strictEqual(snapshot!.criteriaVersion, PredictionEpisodeService.EVAL_SPEC_VERSION);
-    assert.strictEqual(snapshot!.target, 'market_formed');
+    assert.strictEqual(snapshot!.target, 'external_demand_formed');
+    assert.strictEqual(snapshot!.criteriaVersion, 'ev-1.1');
     assert.deepStrictEqual([...snapshot!.horizons], [...PredictionEpisodeService.HORIZONS]);
     // 阈值必须在内：只存版本号等于"事后还得去翻当年的代码常量"。
     assert.strictEqual(typeof snapshot!.thresholds.newQueries, 'number');
@@ -246,7 +248,7 @@ describe('PredictionEpisodeService', () => {
     );
     assert.strictEqual(row.rows[0].outcome_30d, 'HIT');
     assert.strictEqual(row.rows[0].evaluated_30d_at, today);
-    assert.strictEqual(row.rows[0].metrics.evalSpecVersion, PredictionEpisodeService.EVAL_SPEC_VERSION);
+    assert.strictEqual(row.rows[0].metrics.evalSpecVersion, 'ev-1.0');
     // 这条 Episode 没有快照（本功能上线前开的），所以它明说了自己是按当前规格补判的
     // —— 事后能把"按原判据判的"和"按今天的判据判的"分开。
     assert.strictEqual(row.rows[0].metrics.criteriaSource, 'active-spec-fallback');
@@ -317,6 +319,100 @@ describe('PredictionEpisodeService', () => {
     assert.strictEqual(row.rows[0].outcome_60d, 'PENDING');
 
     await query(`DELETE FROM prediction_episodes WHERE id = $1`, [idFor('eps_frozen')]);
+  });
+
+  describe('ev-1.1 external_demand_formed (06 §7.1a)', () => {
+    const horizonDate = '2026-01-31';
+
+    async function putSeries(source: 'src_volume' | 'src_trends', rows: Array<[string, number]>) {
+      for (const [date, value] of rows) {
+        await query(
+          `INSERT INTO external_demand_observations (query_id, obs_date, source, value)
+           VALUES ($1, $2::date, $3, $4)
+           ON CONFLICT (query_id, source, obs_date) DO UPDATE SET value = EXCLUDED.value`,
+          [queryId, date, source, value]
+        );
+      }
+    }
+    const clearSeries = () => query(`DELETE FROM external_demand_observations WHERE query_id = $1`, [queryId]);
+
+    it('is UNEVALUABLE, not MISS, when a required external source has no data', async () => {
+      await clearSeries();
+      const result = await PredictionEpisodeService.evaluateEpisodeAtHorizon(
+        opportunityId, start, horizonDate, 30, EV_1_1_CRITERIA
+      );
+      assert.strictEqual(result.externalDemandFormed, null);
+      assert.strictEqual(result.outcome, 'UNEVALUABLE');
+    });
+
+    it('does not let D-axis style signals decide: market_formed alone is not a HIT', async () => {
+      await clearSeries();
+      // The autocomplete fixture from the ev-1.0 test would make market_formed true.
+      const result = await PredictionEpisodeService.evaluateEpisodeAtHorizon(
+        opportunityId, start, horizonDate, 30, EV_1_1_CRITERIA
+      );
+      assert.notStrictEqual(result.outcome, 'HIT');
+    });
+
+    it('is a HIT when volume and Trends both clear their bars and the window is open', async () => {
+      await clearSeries();
+      await putSeries('src_volume', [['2026-01-01', 200], ['2026-01-31', 500]]);
+      await putSeries('src_trends', [['2025-12-20', 10], ['2026-01-10', 20], ['2026-01-25', 20]]);
+      const result = await PredictionEpisodeService.evaluateEpisodeAtHorizon(
+        opportunityId, start, horizonDate, 30, EV_1_1_CRITERIA
+      );
+      assert.strictEqual(result.externalDemandFormed, true);
+      assert.strictEqual(result.outcome, 'HIT');
+      assert.strictEqual(result.observed.volumeOk, true);
+      assert.strictEqual(result.observed.trendsOk, true);
+    });
+
+    it('is a MISS when both sources have data but fewer than two signals hold', async () => {
+      await clearSeries();
+      await putSeries('src_volume', [['2026-01-01', 200], ['2026-01-31', 210]]);
+      await putSeries('src_trends', [['2025-12-20', 10], ['2026-01-10', 10], ['2026-01-25', 10]]);
+      const result = await PredictionEpisodeService.evaluateEpisodeAtHorizon(
+        opportunityId, start, horizonDate, 30, EV_1_1_CRITERIA
+      );
+      assert.strictEqual(result.externalDemandFormed, false);
+      assert.strictEqual(result.outcome, 'MISS');
+    });
+
+    it('records UNEVALUABLE once and never re-grades it when data shows up later', async (t) => {
+      const verdictId = await borrowVerdictId();
+      if (!verdictId) return t.skip('no verdict row available');
+      await clearSeries();
+      await query(
+        `INSERT INTO prediction_episodes (
+           id, verdict_id, opportunity_id, published_verdict, predicted_at,
+           outcome_30d, outcome_60d, outcome_90d, metrics, criteria_version, criteria_snapshot
+         ) VALUES ($1, $2, $3, 'BUILD_NOW', $4::date, 'PENDING', 'PENDING', 'PENDING', '{}', $5, $6)`,
+        [idFor('eps_ev11'), verdictId, opportunityId, start, 'ev-1.1', JSON.stringify({ ...EV_1_1_CRITERIA, horizons: [30] })]
+      );
+
+      const first = await PredictionEpisodeService.evaluateDueEpisodes(today);
+      assert.ok(first.unevaluable >= 1);
+      const graded = await query<{ outcome_30d: string }>(
+        `SELECT outcome_30d FROM prediction_episodes WHERE id = $1`, [idFor('eps_ev11')]
+      );
+      assert.strictEqual(graded.rows[0].outcome_30d, 'UNEVALUABLE');
+
+      // Data arriving afterwards must not turn the recorded outcome into a HIT or MISS.
+      await putSeries('src_volume', [['2026-01-01', 200], ['2026-01-31', 500]]);
+      await putSeries('src_trends', [['2025-12-20', 10], ['2026-01-25', 30]]);
+      await PredictionEpisodeService.evaluateDueEpisodes(today);
+      const again = await query<{ outcome_30d: string }>(
+        `SELECT outcome_30d FROM prediction_episodes WHERE id = $1`, [idFor('eps_ev11')]
+      );
+      assert.strictEqual(again.rows[0].outcome_30d, 'UNEVALUABLE');
+      await assert.rejects(
+        () => query(`UPDATE prediction_episodes SET outcome_30d = 'HIT' WHERE id = $1`, [idFor('eps_ev11')]),
+        /cannot be re-graded|0A000/
+      );
+
+      await query(`DELETE FROM prediction_episodes WHERE id = $1`, [idFor('eps_ev11')]);
+      await clearSeries();
+    });
   });
 
   it('leaves horizons that have not matured alone', async (t) => {

@@ -234,9 +234,9 @@ export interface PredictionLedgerEpisode {
   w_band: Band;
   row_hash: string;
   prev_hash: string;
-  outcome_30d?: 'HIT' | 'MISS' | 'PENDING';
-  outcome_60d?: 'HIT' | 'MISS' | 'PENDING';
-  outcome_90d?: 'HIT' | 'MISS' | 'PENDING';
+  outcome_30d?: 'HIT' | 'MISS' | 'PENDING' | 'UNEVALUABLE';
+  outcome_60d?: 'HIT' | 'MISS' | 'PENDING' | 'UNEVALUABLE';
+  outcome_90d?: 'HIT' | 'MISS' | 'PENDING' | 'UNEVALUABLE';
   metrics?: {
     peak_serp_gain?: number;
     gsc_impressions_spike?: boolean;
