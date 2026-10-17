@@ -6,6 +6,7 @@ import {
   calculateOpportunityScore,
   CommercialSummary,
   DatedWBand,
+  FullOpportunityScoreInput,
 } from '@emeradar/scoring';
 import { Lifecycle, Verdict } from '@emeradar/core';
 import { RankingService } from '../ranking.service';
@@ -583,7 +584,7 @@ export async function observeOpportunity(
     newQueries7d >= 3 &&
     clusterGrowth30d >= 0.5;
 
-  const output = calculateOpportunityScore({
+  const scoringInput: FullOpportunityScoreInput = {
     demand: {
       clusterSize: clusterRes.rows[0]?.count ?? 1,
       newQueries7d,
@@ -655,7 +656,8 @@ export async function observeOpportunity(
         })
       : undefined,
     obsDate,
-  });
+  };
+  const output = calculateOpportunityScore(scoringInput);
 
   const minHistoryReq = isFastTrack ? 7 : 14;
   const publishable =
@@ -715,12 +717,13 @@ export async function observeOpportunity(
   };
 
   await query(
-    `INSERT INTO opportunity_snapshots (id, opportunity_id, obs_date, metrics)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO opportunity_snapshots (id, opportunity_id, obs_date, metrics, scoring_input)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (opportunity_id, obs_date) DO UPDATE SET
        metrics = EXCLUDED.metrics,
+       scoring_input = COALESCE(opportunity_snapshots.scoring_input, EXCLUDED.scoring_input),
        sealed_at = NOW()`,
-    [`snp_${opp.id}_${obsDate}`, opp.id, obsDate, JSON.stringify(featureMetrics)]
+    [`snp_${opp.id}_${obsDate}`, opp.id, obsDate, JSON.stringify(featureMetrics), JSON.stringify(scoringInput)]
   );
 
   await query(
