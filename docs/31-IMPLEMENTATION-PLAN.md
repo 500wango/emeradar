@@ -126,7 +126,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 **T5.4 部分落地**：`evaluateKillPredicate` 已在 `@emeradar/scoring` 按现存 `{metric, op, threshold}` 结构实现（指标限 `weak_result_ratio` 与三轴基点，畸形谓词或指标缺失返回 null，不当作未触发）；`KILL_CRITERIA` 已进入可订阅与可求值类型，每日流水线按机会求值一次并缓存，触发的谓词置 `TRIGGERED`，同一机会的多个订阅者都会收到。`SLOTS_LAST_ONE` 已实现（某形态剩余槽位恰为 1，每条规则只提醒一次），迁移 `0010` 放宽了 `alert_rules.rule_type` 的 CHECK，创建入口的 schema 开放 `KILL_CRITERIA` 与 `SLOTS_LAST_ONE`。`CUSTOM_QUERY_PULSE_CONFIRMED`、`PROJECT_SERP_RANK_JUMP` 两条首发触发器仍未实现；Email 投递沿用既有的告警邮件路径。
 
 **T5.6 / T5.7 / T5.8 未做，原因是前置缺失而不是工作量**：
-- **T5.6 / T5.7**：`/screener/*` 整个接口族都不存在，现状只有同步的 `POST /opportunities/scan`（一次请求跑完、直接返回结果）。10 §4.3b 要的是 `202 + 轮询`，需要先有扫描任务表与 worker 处理器，`status` 阶段（`FETCHING_SERP`、`PROBING_COMMERCIAL`、`CLASSIFYING`）才有真实的阶段边界可报；在同步实现上补一个假的进度条只会展示编造的阶段。Demo 词（T5.6）还需要「冻结快照」存储与 Admin 维护入口。
+- **T5.6 部分落地**：迁移 `0013` 的 `screener_demos`（至多 3 条）、`ScreenerDemoService`、匿名可读的 `GET /api/v1/screener/demos` 与 `/demos/{id}` 已实现，只读冻结快照，快照缺失回 503 `DEMO_UNAVAILABLE`、不回退实时采集。**还缺**：Admin 维护入口，以及把真实初筛结果冻结进 `snapshot` 的动作（现在表是空的，所以接口会列出 0 条）。
+- **T5.7**：`/screener/scans` 接口族不存在，现状只有同步的 `POST /opportunities/scan`（一次请求跑完、直接返回结果）。10 §4.3b 要的是 `202 + 轮询`，需要先有扫描任务表与 worker 处理器，`status` 阶段（`FETCHING_SERP`、`PROBING_COMMERCIAL`、`CLASSIFYING`）才有真实的阶段边界可报；在同步实现上补一个假的进度条只会展示编造的阶段。Demo 词（T5.6）还需要「冻结快照」存储与 Admin 维护入口。
 - **T5.8**：设备指纹与 OAuth 账号年龄都没有采集面（用户表里没有指纹、没有 OAuth 绑定时间），反滥用引擎无从判定；T5.3 的「同一设备」维度同样卡在这里。
 
 **T5.10 部分落地**：Pro 席位上限 30、Founding Lifetime 上限 50 已在 `StripeService.createCheckoutSession` 建会话（含开发模拟激活）之前校验，满额返回 `409 SEATS_FULL` 并带 `waitlist: true`；Founding 按永久到期的 PRO 订阅计数，Pro 席位为在期 PRO 订阅总数。校验与落账不在同一事务，并发下可能超卖一两席，严格化需要 webhook 侧再校验。「连续 2 周 0 产出自动延长 7 天」未做，且与 T1.7（产出守卫只告警、不自动改配置）的原则需要先裁决。

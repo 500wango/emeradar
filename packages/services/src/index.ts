@@ -41,6 +41,7 @@ export * from './track-record.service';
 export * from './prediction-episode.service';
 export * from './external-demand.service';
 export * from './query-intent';
+export * from './screener-demo.service';
 export * from './auth.service';
 export * from './live-scan.service';
 export * from './public-publication.service';
