@@ -55,7 +55,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 - **版本号偏离**：仓库里 `SCORING_CONFIG_VERSION` 早已是 `sc-1.1.0`（7ee71af 起写入账本），新规则会改变同一输入的输出，所以代码里升到了 `sc-1.2.0`；本文与 05、30 里写的 `sc-1.1.0` 指的是同一批规则，待 T1.8 时统一改名。
 - **T1.8 未做**：仓库里没有 `verdicts_shadow` 表，也没有 SHADOW 写入路径，新规则目前直接进每日管线。上线前需要先建影子表并跑满 14 天，或书面决定跳过。
 - 市场 W 的带日期历史取自 `opportunity_snapshots.metrics.market_w_band`（`verdicts` 没有该列，`schema.sql` 冻结）；上线前几天没有历史，不会判定降档。
-- **T1.7 代码侧无事可做**：全仓没有任何产出告警或自动改阈值的路径（grep 过 `services`、`worker`），05 §7.2 的"不得自动校准"目前只是规格约束。等 Yield 告警真正实现时，再按该条验收。
+- **T1.7 已落地**：`YieldGuardService.check` 实现两个守卫（下限：7 天无新增 BUILD_NOW/EARLY_BET；上限：BUILD_NOW 存量占比连续 7 天超 5%），只写 `audit_log` 与 Admin 站内通知，不触碰任何评分配置；由新任务 `check-yield`（`50 7 * * *`）每日执行。单测验证断流只产生告警、不产生新配置。
 - **T1.9 未开始**：需要访问生产库，本轮没有做。
 
 **注意**：T1.3 改变账本里 W 历史的语义，要进 `sc-1.1.0`，不能直接改 `sc-1.0.0` 的行为（ACTIVE 只前向生效）。

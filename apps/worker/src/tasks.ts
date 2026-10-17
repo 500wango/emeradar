@@ -13,6 +13,7 @@ import {
   ProjectService,
   StealthLockService,
   StripeService,
+  YieldGuardService,
   retryStripeAttributions,
 } from '@emeradar/services';
 import { query } from '@emeradar/db';
@@ -346,6 +347,22 @@ export const TASKS: TaskSpec[] = [
         // 对账要知道是哪一次作业、动了哪一条机会。
         console.log('[task] stealth lock transitions:', affected);
       }
+    },
+  },
+  {
+    command: 'check-yield',
+    // 排在 run-daily（03:30）与全部写库作业之后，读到的是当日最终的账本。
+    cron: '50 7 * * *',
+    description: '产出守卫：7 天无新增或 BUILD_NOW 占比超限时只给 Admin 发告警（不改配置）',
+    retryLimit: 2,
+    retryDelaySeconds: 300,
+    expireInSeconds: 900,
+    alertAfterFailures: 2,
+    async run(args, context) {
+      const result = await YieldGuardService.check(scheduledDate(args, context));
+      console.log(
+        `[task] yield guard: new=${result.newPublishedInWindow} floor=${result.floorBreached} ceiling=${result.ceilingBreached} (trigger=${context.trigger})`
+      );
     },
   },
   {
