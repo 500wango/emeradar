@@ -100,11 +100,10 @@ describe('降级与续订的连带效应', () => {
 
     const rows = await alertRows(CASCADE_USER);
     const active = rows.filter((r) => r.is_active);
-    assert.strictEqual(active.length, 1, `FREE 只允许 1 条，实际活跃 ${active.length} 条`);
-    assert.strictEqual(active[0].id, `alr_${CASCADE_USER}_0`, '留下的不是最早那条');
+    assert.strictEqual(active.length, 0, `FREE 不允许告警，实际活跃 ${active.length} 条`);
 
     const disabled = rows.filter((r) => !r.is_active);
-    assert.strictEqual(disabled.length, 2);
+    assert.strictEqual(disabled.length, 3);
     for (const row of disabled) {
       assert.strictEqual(
         row.disabled_reason,
@@ -173,13 +172,13 @@ describe('降级与续订的连带效应', () => {
     );
     assert.strictEqual(
       (await alertRows(CASCADE_USER)).filter((r) => r.is_active).length,
-      1,
-      '终止订阅后告警没有被封顶'
+      0,
+      '终止订阅后告警没有被封顶到 FREE（0 条）'
     );
 
     const second = await SubscriptionLifecycleService.sweepExpiredSubscriptions(7);
     assert.ok(!second.canceled.includes(CASCADE_USER), '第二次清扫又处理了同一个订阅');
-    assert.strictEqual((await alertRows(CASCADE_USER)).filter((r) => r.is_active).length, 1);
+    assert.strictEqual((await alertRows(CASCADE_USER)).filter((r) => r.is_active).length, 0);
   });
 
   it('催缴标记只写一次（同一天重复跑不会重复发信）', async (t) => {

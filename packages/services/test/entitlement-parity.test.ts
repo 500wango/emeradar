@@ -96,9 +96,9 @@ describe('权益口径：订阅表是唯一事实源', () => {
     const reserved = await EntitlementService.reserveLiveScanQuota(TIER_ONLY);
     assert.strictEqual(reserved.limit, shown.liveScanDailyLimit, '展示与强制的日扫描额度不一致');
 
-    // 目录里的 FREE 值：1 个项目、1 条告警规则。
-    assert.strictEqual(shown.maxProjects, 1);
-    assert.strictEqual(shown.maxAlerts, 1);
+    // FREE 层无自动化功能（PRD §8.1：免费层不支持自动化追踪与告警）
+    assert.strictEqual(shown.maxProjects, 0);
+    assert.strictEqual(shown.maxAlerts, 0);
   });
 
   it('TRIALING 两端一致地算作有权益', async (t) => {
@@ -119,7 +119,7 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const shown = await EntitlementService.getUserEntitlements(EXPIRED_USER);
     assert.strictEqual(shown.planCode, 'FREE', '过期订阅仍在授权 —— webhook 或清扫任务一停就无限续期');
-    assert.strictEqual(shown.maxProjects, 1);
+    assert.strictEqual(shown.maxProjects, 0);
     assert.strictEqual(shown.renewsAt, null, '过期订阅不该报出续费日');
 
     const reserved = await EntitlementService.reserveLiveScanQuota(EXPIRED_USER);
@@ -132,7 +132,7 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const shown = await EntitlementService.getUserEntitlements(CANCELED_USER);
     assert.strictEqual(shown.planCode, 'FREE');
-    assert.strictEqual(shown.maxProjects, 1);
+    assert.strictEqual(shown.maxProjects, 0);
     assert.strictEqual(shown.renewsAt, null);
   });
 
@@ -142,13 +142,13 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const day3 = await EntitlementService.getUserEntitlements(PAST_DUE_DAY3);
     assert.strictEqual(day3.planCode, 'PRO', '宽限期内被提前断供');
-    assert.strictEqual(day3.maxProjects, 50);
+    assert.strictEqual(day3.maxProjects, 10);
     // 宽限期内没有任何"下一次续费"，周期末端已经在过去。
     assert.strictEqual(day3.renewsAt, null, '宽限期内报出了一个已经过去的续费日');
 
     const day8 = await EntitlementService.getUserEntitlements(PAST_DUE_DAY8);
     assert.strictEqual(day8.planCode, 'FREE', '宽限期结束后仍按 PRO 授权 —— 一直不付款就能一直用');
-    assert.strictEqual(day8.maxProjects, 1);
+    assert.strictEqual(day8.maxProjects, 0);
 
     // 宽限期的尽头由数据决定，不需要任何任务跑过。
     const reserved = await EntitlementService.reserveLiveScanQuota(PAST_DUE_DAY8);
@@ -177,7 +177,7 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const shown = await EntitlementService.getUserEntitlements(PAST_DUE_DAY3);
     assert.strictEqual(shown.exportReportsMonthlyLimit, 30, '快照定义过的键没有被尊重');
-    assert.strictEqual(shown.maxProjects, 50, '快照没定义的键没有回落目录 —— 付费用户被按 1 个项目处理');
+    assert.strictEqual(shown.maxProjects, 10, '快照没定义的键没有回落目录 —— 付费用户被按 0 个项目处理');
     assert.strictEqual(shown.maxAlerts, 20);
   });
 
