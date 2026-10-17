@@ -518,9 +518,9 @@ export const zh: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro 专业版',
-    planProMonthlyPrice: '$29',
-    planProYearlyPrice: '$24',
-    planProBilledYearly: '按年计费（$290/年）',
+    planProMonthlyPrice: '$79',
+    planProYearlyPrice: '$66',
+    planProBilledYearly: '按年计费（$790/年）',
     planProDesc: '抢占市场先机，获取实时决策流、实地抓取的结账证据与深度研究报告。',
     proFeatures: [
       '⚡ 实时决策动态流（0 延迟，每日最多 10 条已发布决定）',
@@ -534,7 +534,7 @@ export const zh: TranslationDictionary = {
     ],
     lifetimeEarlyBirdTitle: '创始用户终身版',
     lifetimeEarlyBirdDesc: '一次付费获得当前 Builder Pro 权益，报告和其他月度配额仍按 Pro 规则执行。',
-    lifetimePrice: '$399',
+    lifetimePrice: '$1,299',
     lifetimeCta: '购买创始用户终身版',
     lifetimeCheckoutLoading: '正在连接 Stripe...',
     lifetimeFinePrint: '创始用户首发价',

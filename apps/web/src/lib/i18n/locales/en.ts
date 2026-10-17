@@ -518,9 +518,9 @@ export const en: TranslationDictionary = {
     ],
 
     planProTitle: 'Builder Pro',
-    planProMonthlyPrice: '$29',
-    planProYearlyPrice: '$24',
-    planProBilledYearly: 'billed annually ($290/yr)',
+    planProMonthlyPrice: '$79',
+    planProYearlyPrice: '$66',
+    planProBilledYearly: 'billed annually ($790/yr)',
     planProDesc: 'Capture high-conviction markets before incumbents. Full source-backed research and exportable deep-dive reports.',
     proFeatures: [
       '⚡ Realtime decision feed (Zero delay — up to 10 verified opportunities / day)',
@@ -534,7 +534,7 @@ export const en: TranslationDictionary = {
     ],
     lifetimeEarlyBirdTitle: 'Founding Pro Lifetime',
     lifetimeEarlyBirdDesc: 'One payment for current Builder Pro access. Monthly quotas still apply.',
-    lifetimePrice: '$399',
+    lifetimePrice: '$1,299',
     lifetimeCta: 'Get Founding Lifetime',
     lifetimeCheckoutLoading: 'Connecting to Stripe...',
     lifetimeFinePrint: 'Founding launch price',
