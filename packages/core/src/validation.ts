@@ -33,7 +33,7 @@ export const registerSchema = z.object({
 
 export const checkoutSchema = z.object({
   planCode: z.enum(['PRO', 'TEAM']),
-  billingCycle: z.enum(['monthly', 'yearly']).default('yearly'),
+  billingCycle: z.enum(['monthly', 'yearly', 'lifetime']).default('yearly'),
   returnUrl: z.string().max(2048).optional(),
 });
 
