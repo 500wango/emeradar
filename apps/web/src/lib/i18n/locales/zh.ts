@@ -114,7 +114,7 @@ export const zh: TranslationDictionary = {
     badge: '关于 Emeradar',
     title: '专为独立软件开发者打造的搜索机会情报平台',
     intro:
-      'Emeradar 是一套基于客观实证的搜索信号情报平台，旨在让独立开发者在写下第一行代码前验证真实的微型 SaaS 市场需求。',
+      'Emeradar 是一套基于客观实证的搜索信号情报平台，旨在让独立开发者在开始编码前验证真实的微型 SaaS 市场需求。',
     missionTitle: '我们的使命与方法',
     missionDesc:
       '我们深知开发者花费数月做出一款没人搜索、没人付费的产品的痛苦。Emeradar 用跨周连续采集的自动补全扩散率、自然搜索竞争弱点与真实公开定价实证，取代主观臆断。',
@@ -190,7 +190,7 @@ export const zh: TranslationDictionary = {
   home: {
     badge: '独立开发者搜索机会情报与商业信号雷达 · US 英语市场',
     heroTitle: '在机会窗口关闭前，\n精准锁定下一个 Micro-SaaS',
-    heroDesc: '在写代码前审查搜索需求、公开定价和竞争窗口。Emeradar 把来源、观察日期和限制条件放在同一张机会记录里，帮助你决定是否值得进入。',
+    heroDesc: '在开始编码前审查搜索需求、公开定价和竞争窗口。Emeradar 把来源、观察日期和限制条件放在同一张机会记录里，帮助你决定是否值得进入。',
     ctaDecisions: '探索今日发布决策',
     ctaMethodology: '三维实证方法论',
     ctaPricing: '查看定价方案',
@@ -470,9 +470,9 @@ export const zh: TranslationDictionary = {
     backToFeed: '返回今日决策动态',
   },
   pricing: {
-    badge: '在代码落笔前验证市场',
+    badge: '写代码前先验证市场',
     title: '发现被遗漏的蓝海机会，抢在竞手前',
-    desc: '搜索量数字会骗人。我们把需求信号、真实商业证据和进入机遇展示给你，让你在敲代码前就知道这个想法是否值得。',
+    desc: '搜索量数字会骗人。我们把需求信号、真实商业证据和进入机遇展示给你，让你在动手编码前就知道这个想法是否值得。',
     monthly: '按月付费',
     yearly: '按年订阅',
     save20: '按年订阅 · 节省 20%',
@@ -636,7 +636,7 @@ export const zh: TranslationDictionary = {
     ],
 
     // Bottom CTA
-    bottomCtaTitle: '在代码落笔前验证市场',
+    bottomCtaTitle: '写代码前先验证市场',
     bottomCtaDesc: '找到真实的买家信号，再决定做什么。',
     bottomCtaBtn: '免费开始',
     bottomCtaTrackRecord: '查看战绩',
@@ -1268,7 +1268,7 @@ export const zh: TranslationDictionary = {
     home: {
       title: 'Emeradar — 独立开发者的搜索机会情报与商业信号雷达',
       description:
-        '在写代码前审查搜索需求、SERP 弱点与公开定价证据：每条机会记录都带来源、观察日期和限制条件，历史决策与回看结果可核验。免费账号可浏览延迟 45 天的公开决策。',
+        '在开始编码前审查搜索需求、SERP 弱点与公开定价证据：每条机会记录都带来源、观察日期和限制条件，历史决策与回看结果可核验。免费账号可浏览延迟 45 天的公开决策。',
     },
     pricing: {
       title: '价格方案：Free 与 Pro 对比',
