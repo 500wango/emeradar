@@ -223,6 +223,12 @@ C_month_fast = U_active · s_per_user · (1 − r_dedup) · c_scan
 | 7 | 数据质量 | 抽样 100 条人工核对，错误率在阈值内 |
 | 8 | 展示权限 | 明确哪些字段可在公开页与 API 中展示 |
 
+### 7.1 `src_volume` / `src_trends` 供应商决定（31 T2.2，2026-10-17）
+
+选定 **DataForSEO**：Google Ads 搜索量（`keywords_data/google_ads/search_volume/live`，单次最多 1000 词，供应商公开定价按请求计、与词数无关）与 Google Trends explore（`keywords_data/google_trends/explore/live`）。理由：同一家覆盖 ev-1.1 需要的两路序列，按请求计费、不绑月费，评估只需对「有未结 Episode 的机会主词」取数，量小。采集器见 `packages/collectors/src/external-demand-collector.ts`，每日任务 `ingest-external-demand`（`30 5 * * *`）。
+
+**准入八项当前状态**：1 登记 ✓（本节）；5 成本 ✓ 已知（按请求计价，纳入 04 §6.3 前需用真实账单校准）；4 降级 ✓ 缺数据记 `UNEVALUABLE`，不写占位值；6 契约测试 ✓ 解析器与失败路径已测。**2 条款审阅、3 合规评估、7 抽样 100 条人工核对、8 展示权限未完成**，且请求/响应字段按供应商文档摘要编写、**未用真实账号验证**——所以这不是「已准入」，是「已选定并接好管线，待凭证与人工核对」。拿到 `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` 之前，任务会整体跳过并如实记录，不会写入任何值。
+
 ## 8. 供应商评估矩阵（SERP / Autocomplete）
 
 | 维度 | 权重 | 说明 |

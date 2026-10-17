@@ -14,6 +14,7 @@ import {
   StealthLockService,
   StripeService,
   YieldGuardService,
+  ingestExternalDemand,
   retryStripeAttributions,
 } from '@emeradar/services';
 import { query } from '@emeradar/db';
@@ -346,6 +347,24 @@ export const TASKS: TaskSpec[] = [
         // 逐条打出来是为了可追责：一条买断的消失意味着 60 天独占结束了，事后
         // 对账要知道是哪一次作业、动了哪一条机会。
         console.log('[task] stealth lock transitions:', affected);
+      }
+    },
+  },
+  {
+    command: 'ingest-external-demand',
+    // 在 evaluate-episodes（06:00）之前，评估读到的是当日写入的序列。
+    cron: '30 5 * * *',
+    description: '写入 ev-1.1 外部结果事件的词量与 Trends 序列（未配置凭证时跳过，不写占位值）',
+    retryLimit: 2,
+    retryDelaySeconds: 600,
+    expireInSeconds: 1800,
+    alertAfterFailures: 2,
+    async run(args, context) {
+      const result = await ingestExternalDemand(scheduledDate(args, context));
+      console.log(`[task] external demand: ${JSON.stringify(result)} (trigger=${context.trigger})`);
+      // 部分失败必须让任务失败，才会进重试与告警；整体跳过（没配凭证）不算失败。
+      if (!result.skipped && result.failures > 0) {
+        throw new Error(`external demand ingest had ${result.failures} failed request(s)`);
       }
     },
   },

@@ -120,6 +120,7 @@ packages/
 | `sweep-subscriptions` | `15 6 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `release-expired-stakes` | `30 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `expire-stealth-locks` | `45 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
+| `ingest-external-demand` | `30 5 * * *` | 2 次，退避 600s | 30m | 连续 2 次 |
 | `check-yield` | `50 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `verify-ledger` | `0 7 * * *` | **不重试** | 15m | 连续 1 次（P0） |
 | `assess-commercial` | 仅手工 | 不重试 | 15m | — |
