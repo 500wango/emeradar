@@ -511,6 +511,11 @@ export interface TranslationDictionary {
     planFreeDesc: string;
     freeFeatures: string[];
 
+    planStarterTitle: string;
+    planStarterMonthlyPrice: string;
+    planStarterDesc: string;
+    starterFeatures: string[];
+
     planProTitle: string;
     planProMonthlyPrice: string;
     planProYearlyPrice: string;
@@ -543,10 +548,12 @@ export interface TranslationDictionary {
     matrixSubtitle: string;
     colFeature: string;
     colFree: string;
+    colStarter: string;
     colPro: string;
     matrixRows: Array<{
       feature: string;
       free: string;
+      starter: string;
       pro: string;
     }>;
 

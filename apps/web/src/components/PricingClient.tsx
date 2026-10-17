@@ -45,8 +45,9 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
 
   // The plan named here must be the one the quotas below were computed from.
   const planCode = resolvePlanCode(entitlements);
+  const isStarter = planCode === 'STARTER';
   const isPro = planCode === 'PRO';
-  const isFree = !isPro;
+  const isFree = planCode === 'FREE';
 
   const p = dictionary.pricing;
 
@@ -85,7 +86,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
   }, [isZh]);
 
   const handleUpgrade = async (
-    planCode: 'PRO',
+    planCode: 'STARTER' | 'PRO',
     cycle: 'monthly' | 'yearly' | 'lifetime' = billingCycle,
   ) => {
     if (!isLoggedIn) {
@@ -276,7 +277,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       {/* Plans */}
       <section className="mt-16">
         <h2 className="sr-only">{p.plansHeading}</h2>
-        <div className="grid items-stretch gap-6 lg:grid-cols-3">
+        <div className="grid items-stretch gap-6 lg:grid-cols-2 xl:grid-cols-4">
         {/* Free */}
         <Panel brackets className="flex flex-col p-8">
           <div className="flex-1">
@@ -314,6 +315,55 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
               >
                 {p.getStartedFree}
               </Link>
+            )}
+          </div>
+        </Panel>
+
+        {/* Starter */}
+        <Panel brackets className="flex flex-col p-8">
+          <div className="flex-1">
+            <Badge tone="neutral">STARTER</Badge>
+            <h3 className="mt-5 font-display text-2xl font-extrabold text-fg">{p.planStarterTitle}</h3>
+            <p className="mt-2 min-h-[36px] text-xs leading-relaxed text-fg-subtle">{p.planStarterDesc}</p>
+
+            <div className="mt-6 border-b border-line pb-6">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-4xl font-bold tabular-nums text-fg sm:text-5xl">
+                  {p.planStarterMonthlyPrice}
+                </span>
+                <span className="font-mono text-xs text-fg-subtle">{p.perMonth}</span>
+              </div>
+              <p className="mt-2 font-mono text-[11px] text-fg-subtle">{p.billedMonthly}</p>
+            </div>
+
+            <ul className="mt-6 space-y-3.5 text-xs leading-relaxed text-fg-muted">
+              {p.starterFeatures.map((feat: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2.5">
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-subtle" />
+                  <span>{feat}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="mt-8 border-t border-line pt-6">
+            {isLoggedIn && isStarter ? (
+              <button disabled className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full')}>
+                {p.currentActive}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleUpgrade('STARTER', 'monthly')}
+                disabled={loadingPlan === 'STARTER'}
+                className={cn(buttonVariants({ variant: 'outline', size: 'md' }), 'w-full')}
+              >
+                {loadingPlan === 'STARTER'
+                  ? p.connectingStripe
+                  : isLoggedIn
+                    ? p.upgradeNow
+                    : p.startTrial}
+              </button>
             )}
           </div>
         </Panel>
@@ -481,6 +531,9 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 <th scope="col" className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
                   {p.colFree}
                 </th>
+                <th scope="col" className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                  {p.colStarter}
+                </th>
                 <th scope="col" className="bg-accent/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
                   {p.colPro}
                 </th>
@@ -491,6 +544,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                 <tr key={idx}>
                   <th scope="row" className="px-5 py-4 text-left text-sm font-medium text-fg">{row.feature}</th>
                   <td className="px-5 py-4 text-sm text-fg-muted">{row.free}</td>
+                  <td className="px-5 py-4 text-sm text-fg-muted">{row.starter}</td>
                   <td className="bg-accent/5 px-5 py-4 font-mono text-xs text-accent">{row.pro}</td>
                 </tr>
               ))}
