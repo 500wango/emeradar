@@ -492,7 +492,7 @@ export class StripeService {
    */
   static async activateSubscription(
     userId: string,
-    planCode: 'PRO' | 'TEAM',
+    planCode: 'STARTER' | 'PRO' | 'TEAM',
     billingCycle: 'monthly' | 'yearly' | 'lifetime' = 'monthly',
     link: StripeLinkOptions = {}
   ): Promise<void> {
