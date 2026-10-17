@@ -189,10 +189,10 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         <Badge tone="accent" size="sm">
           {p.badge}
         </Badge>
-        <h1 className="mt-6 font-display text-3xl font-extrabold leading-[1.15] tracking-tight text-fg sm:text-5xl sm:leading-[1.15]">
+        <h1 className="mt-6 font-display text-4xl font-black leading-[1.1] tracking-tight text-fg sm:text-6xl sm:leading-[1.1]">
           {p.title}
         </h1>
-        <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-fg-muted sm:text-base sm:leading-relaxed">
+        <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-fg-muted sm:text-lg sm:leading-relaxed">
           {p.desc}
         </p>
 
@@ -484,32 +484,34 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           differentiates itself in both. */}
       <Panel tone="inverse" className="mt-20 p-8 sm:p-12">
         <SectionMark index="01">{p.roiBadge}</SectionMark>
-        <h2 className="mt-4 max-w-2xl font-display text-2xl font-extrabold tracking-tight text-inverse-fg sm:text-3xl">
+        <h2 className="mt-4 max-w-2xl font-display text-2xl font-black tracking-tight text-inverse-fg sm:text-4xl">
           {p.whyTitle}
         </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-inverse-fg-muted">{p.whySubtitle}</p>
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-inverse-fg-muted sm:text-base">
+          {p.whySubtitle}
+        </p>
 
         <div className="mt-10 grid gap-8 border-t border-inverse-line pt-8 md:grid-cols-3">
           <div>
-            <div className="font-mono text-3xl font-bold tabular-nums text-warn sm:text-4xl">
+            <div className="font-display text-4xl font-black tabular-nums text-warn sm:text-5xl">
               {p.stat1Number}
             </div>
-            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat1Label}</h3>
-            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat1Desc}</p>
+            <h3 className="mt-2 font-display text-base font-bold text-inverse-fg">{p.stat1Label}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-inverse-fg-subtle">{p.stat1Desc}</p>
           </div>
           <div>
-            <div className="font-mono text-3xl font-bold tabular-nums text-axis-m sm:text-4xl">
+            <div className="font-display text-4xl font-black tabular-nums text-axis-m sm:text-5xl">
               {p.stat2Number}
             </div>
-            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat2Label}</h3>
-            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat2Desc}</p>
+            <h3 className="mt-2 font-display text-base font-bold text-inverse-fg">{p.stat2Label}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-inverse-fg-subtle">{p.stat2Desc}</p>
           </div>
           <div>
-            <div className="font-mono text-3xl font-bold tabular-nums text-signal sm:text-4xl">
+            <div className="font-display text-4xl font-black tabular-nums text-signal sm:text-5xl">
               {p.stat3Number}
             </div>
-            <h3 className="mt-2 text-sm font-bold text-inverse-fg">{p.stat3Label}</h3>
-            <p className="mt-2 text-xs leading-relaxed text-inverse-fg-subtle">{p.stat3Desc}</p>
+            <h3 className="mt-2 font-display text-base font-bold text-inverse-fg">{p.stat3Label}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-inverse-fg-subtle">{p.stat3Desc}</p>
           </div>
         </div>
       </Panel>
@@ -518,34 +520,34 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       <Panel className="mt-20 overflow-hidden">
         <div className="border-b border-line p-6 sm:p-8">
           <SectionMark index="02">{p.matrixTitle}</SectionMark>
-          <p className="mt-3 text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{p.matrixSubtitle}</p>
+          <p className="mt-4 text-sm leading-relaxed text-fg-muted sm:text-base">{p.matrixSubtitle}</p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs sm:text-sm">
-            <thead className="border-b border-line">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-line bg-surface">
               <tr>
-                <th scope="col" className="w-2/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <th scope="col" className="px-6 py-4 font-display text-sm font-bold text-fg">
                   {p.colFeature}
                 </th>
-                <th scope="col" className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <th scope="col" className="px-6 py-4 text-center font-display text-sm font-bold text-fg-muted">
                   {p.colFree}
                 </th>
-                <th scope="col" className="px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <th scope="col" className="px-6 py-4 text-center font-display text-sm font-bold text-fg-muted">
                   {p.colStarter}
                 </th>
-                <th scope="col" className="bg-accent/5 px-5 py-3 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                <th scope="col" className="bg-accent/5 px-6 py-4 text-center font-display text-sm font-bold text-accent">
                   {p.colPro}
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {p.matrixRows.map((row: any, idx: number) => (
-                <tr key={idx}>
-                  <th scope="row" className="px-5 py-4 text-left text-sm font-medium text-fg">{row.feature}</th>
-                  <td className="px-5 py-4 text-sm text-fg-muted">{row.free}</td>
-                  <td className="px-5 py-4 text-sm text-fg-muted">{row.starter}</td>
-                  <td className="bg-accent/5 px-5 py-4 font-mono text-xs text-accent">{row.pro}</td>
+                <tr key={idx} className="hover:bg-surface-2 transition-colors">
+                  <th scope="row" className="px-6 py-4 font-display font-semibold text-fg">{row.feature}</th>
+                  <td className="px-6 py-4 text-center text-fg-muted">{row.free}</td>
+                  <td className="px-6 py-4 text-center text-fg-muted">{row.starter}</td>
+                  <td className="bg-accent/5 px-6 py-4 text-center font-semibold text-accent">{row.pro}</td>
                 </tr>
               ))}
             </tbody>
@@ -556,7 +558,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
       {/* Guarantees */}
       <Panel tone="sunken" className="mt-8 p-8">
         <SectionMark index="03">{p.guaranteeTitle}</SectionMark>
-        <p className="mt-3 max-w-2xl text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{p.guaranteeDesc}</p>
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-fg-muted">{p.guaranteeDesc}</p>
         <div className="mt-7 grid gap-px sm:grid-cols-3">
           {[
             { icon: ShieldCheck, label: p.badgeCancel, tone: 'text-signal' },
@@ -565,7 +567,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           ].map(({ icon: Icon, label, tone }) => (
             <div key={label} className="flex items-center gap-3 border-l border-line py-3 pl-4">
               <Icon className={cn('h-4 w-4 shrink-0', tone)} />
-              <span className="text-xs leading-relaxed text-fg-muted">{label}</span>
+              <span className="text-sm leading-relaxed text-fg-muted">{label}</span>
             </div>
           ))}
         </div>
@@ -577,10 +579,10 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
           <Badge tone="neutral" size="sm">
             {p.faqBadge}
           </Badge>
-          <h2 className="mt-5 font-display text-2xl font-extrabold tracking-tight text-fg sm:text-3xl">
+          <h2 className="mt-5 font-display text-2xl font-black tracking-tight text-fg sm:text-4xl">
             {p.faqTitle}
           </h2>
-          <p className="mt-3 text-xs leading-relaxed text-fg-subtle sm:text-sm sm:leading-relaxed">{p.faqSubtitle}</p>
+          <p className="mt-4 text-sm leading-relaxed text-fg-subtle sm:text-base">{p.faqSubtitle}</p>
         </div>
 
         <div className="mt-10 divide-y divide-line border-y border-line">
@@ -592,18 +594,18 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                   type="button"
                   onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
                   aria-expanded={isOpen}
-                  className="flex w-full items-center justify-between gap-4 py-5 text-left text-sm font-semibold text-fg transition-colors hover:text-accent"
+                  className="flex w-full items-center justify-between gap-4 py-5 text-left font-display font-semibold text-fg transition-colors hover:text-accent"
                 >
                   <span>{faq.q}</span>
                   <ChevronDown
                     className={cn(
-                      'h-4 w-4 shrink-0 text-fg-subtle transition-transform duration-200',
+                      'h-5 w-5 shrink-0 text-fg-subtle transition-transform duration-200',
                       isOpen && 'rotate-180 text-accent'
                     )}
                   />
                 </button>
                 <div className={cn(isOpen ? 'block' : 'hidden')}>
-                  <p className="pb-5 text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">{faq.a}</p>
+                  <p className="pb-5 text-sm leading-relaxed text-fg-muted">{faq.a}</p>
                 </div>
               </div>
             );
@@ -613,10 +615,10 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
 
       {/* Closing CTA */}
       <Panel brackets className="mt-20 p-8 text-center sm:p-12">
-        <h2 className="mx-auto max-w-2xl font-display text-2xl font-extrabold tracking-tight text-fg sm:text-4xl">
+        <h2 className="mx-auto max-w-2xl font-display text-3xl font-black tracking-tight text-fg sm:text-5xl">
           {p.bottomCtaTitle}
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-xs leading-relaxed text-fg-muted sm:text-sm sm:leading-relaxed">
+        <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-fg-muted sm:text-base sm:leading-relaxed">
           {p.bottomCtaDesc}
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-4">
