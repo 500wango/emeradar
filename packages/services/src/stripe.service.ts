@@ -312,9 +312,15 @@ export class StripeService {
 
     const data = await res.json();
     if (!res.ok) {
+      console.error('[StripeService] Stripe API error:', {
+        status: res.status,
+        error: data.error,
+        message: data.error?.message,
+        type: data.error?.type,
+      });
       throw new EmeradarError(
         ErrorCode.INTERNAL,
-        'Failed to initialize the checkout session. Please try again later.',
+        `Failed to initialize the checkout session: ${data.error?.message || 'Please try again later.'}`,
         res.status || 500
       );
     }
