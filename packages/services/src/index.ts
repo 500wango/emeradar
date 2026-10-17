@@ -15,6 +15,7 @@ export * from './stealth-lock.service';
 export * from './publication-policy';
 export * from './weekly-selection.service';
 export * from './yield-guard.service';
+export * from './output-guarantee.service';
 export * from './launch-kit.service';
 export * from './ranking.service';
 export * from './public-url';

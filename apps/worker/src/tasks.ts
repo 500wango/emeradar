@@ -14,6 +14,7 @@ import {
   StealthLockService,
   StripeService,
   YieldGuardService,
+  OutputGuaranteeService,
   ingestExternalDemand,
   retryStripeAttributions,
 } from '@emeradar/services';
@@ -366,6 +367,20 @@ export const TASKS: TaskSpec[] = [
       if (!result.skipped && result.failures > 0) {
         throw new Error(`external demand ingest had ${result.failures} failed request(s)`);
       }
+    },
+  },
+  {
+    command: 'apply-output-guarantee',
+    // 在 check-yield（07:50）之后：先让 Admin 看到告警，再执行补偿。
+    cron: '55 7 * * *',
+    description: '兜底承诺：连续 14 天零合格 BUILD_NOW/EARLY_BET 时，活跃 Pro 订阅自动延长 7 天（只给时长，不退现金）',
+    retryLimit: 2,
+    retryDelaySeconds: 300,
+    expireInSeconds: 900,
+    alertAfterFailures: 2,
+    async run(args, context) {
+      const result = await OutputGuaranteeService.check(scheduledDate(args, context));
+      console.log(`[task] output guarantee: ${JSON.stringify(result)} (trigger=${context.trigger})`);
     },
   },
   {

@@ -130,7 +130,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 - **T5.7**：`/screener/scans` 接口族不存在，现状只有同步的 `POST /opportunities/scan`（一次请求跑完、直接返回结果）。10 §4.3b 要的是 `202 + 轮询`，需要先有扫描任务表与 worker 处理器，`status` 阶段（`FETCHING_SERP`、`PROBING_COMMERCIAL`、`CLASSIFYING`）才有真实的阶段边界可报；在同步实现上补一个假的进度条只会展示编造的阶段。Demo 词（T5.6）还需要「冻结快照」存储与 Admin 维护入口。
 - **T5.8**：设备指纹与 OAuth 账号年龄都没有采集面（用户表里没有指纹、没有 OAuth 绑定时间），反滥用引擎无从判定；T5.3 的「同一设备」维度同样卡在这里。
 
-**T5.10 部分落地**：Pro 席位上限 30、Founding Lifetime 上限 50 已在 `StripeService.createCheckoutSession` 建会话（含开发模拟激活）之前校验，满额返回 `409 SEATS_FULL` 并带 `waitlist: true`；Founding 按永久到期的 PRO 订阅计数，Pro 席位为在期 PRO 订阅总数。校验与落账不在同一事务，并发下可能超卖一两席，严格化需要 webhook 侧再校验。「连续 2 周 0 产出自动延长 7 天」未做，且与 T1.7（产出守卫只告警、不自动改配置）的原则需要先裁决。
+**T5.10 部分落地**：Pro 席位上限 30、Founding Lifetime 上限 50 已在 `StripeService.createCheckoutSession` 建会话（含开发模拟激活）之前校验，满额返回 `409 SEATS_FULL` 并带 `waitlist: true`；Founding 按永久到期的 PRO 订阅计数，Pro 席位为在期 PRO 订阅总数。校验与落账不在同一事务，并发下可能超卖一两席，严格化需要 webhook 侧再校验。「连续 2 周 0 产出自动延长 7 天」**已落地**（迁移 `0014`、`OutputGuaranteeService`、每日任务 `apply-output-guarantee`）。它与 T1.7 并不冲突：T1.7 禁止的是自动改评分阈值，这里改的是订阅时长，触发判定只读账本。口径：v2 纪元账本在 14 天窗口内有行、但没有任何 BUILD_NOW/EARLY_BET 行才触发（窗口内完全没行说明管线没跑，是另一类故障，不补偿）；终身版不动；`window_end` 唯一，同一窗口只补偿一次。**局限**：Stripe 续费事件会用供应商给的周期末覆盖 `current_period_end`，所以延长只在当前周期内有效，不保证跨过下一次续费；要永久生效需要同步调整 Stripe 侧周期。
 
 ---
 
