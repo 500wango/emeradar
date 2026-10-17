@@ -66,7 +66,8 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 - **T2.3 已落地**（9b6e406）：公开战绩只统计锚定在 `hash_version ≥ 2` 裁决行上的 Episode。评估器（`evaluateDueEpisodes`）尚未加同样的过滤，seed 行的 Episode 仍会被评估，只是不进公开统计；Gate 0 的 H1 评估脚本必须自带该过滤。两个借用 seed 行的测试夹具已改为自建 v2 行。
 - **T2.4 已落地**（67e6416）：采集深度默认 10；流水线只对映射到已核验 Project 的主词、且当周还没取过 Top 100 时取 100，并且**只在 depth ≥ 100 的快照上记录排名**，避免把 Top 10 里"没看到"当成"未入榜"。
 - **T2.1 规格已冻结**（迁移 `0011`）：`ev-1.1` 成为生效规格，`ev-1.0` 保留给无快照的老 Episode；新增 `UNEVALUABLE` 终态与 `unevaluableShare`。**但这只关上了「事后定口径」的口子，没有让 H1 可被检验**：`src_volume`（T2.2，需要选定供应商）与 Trends 时间序列的采集器都还没有，序列表 `external_demand_observations` 现在是空的，所以此刻开出的 Episode 到 T+30 会全部是 `UNEVALUABLE`。要让 Gate 0 有意义，必须在首批 v2 Episode 开出之前让两路序列开始逐日写入。
-- **T2.2 / T2.5 / T2.6 未开始**。
+- **T2.6 被存储设计卡住，不是缺脚本**：账本只存 `features_hash`（`featureMetrics` 的指纹），完整的评分输入（SERP 条目、需求与商业特征、前一日状态）没有落库，`opportunity_snapshots.metrics` 里也只有一部分特征。`recompute`（05 §8）要做到逐行 bit-for-bit，必须先把完整的 `FullOpportunityScoreInput` 随每日快照封存（与 `features_hash` 同口径哈希，且不可改写）；在那之前写脚本只能拿残缺输入算出伪差异，或者拿输出和自己比。建议作为独立任务排在 M2，先决于「每日夜间 1% 抽样重算」的告警承诺。
+- **T2.2 / T2.5 未开始**。
 
 | # | 任务 | 改动 | 验收 |
 |---|------|------|------|
