@@ -124,16 +124,39 @@ export class ProjectService {
     return { token, connection: { property_url: row.property_url } };
   }
 
+  /**
+   * state 格式：`base64url(projectId:randomSecret)`
+   *
+   * 旧版端点将项目 ID 放在回调路径中 (`/projects/[id]/gsc/callback`)，但
+   * Google OAuth 不支持通配符 URL。现在项目 ID 编码在 state 中，回调端点
+   * 变成固定的 `/oauth/gsc/callback`，只需注册一次。
+   */
   static async getGscAuthorizationUrl(projectId: string, userId: string): Promise<{ url: string; state: string }> {
     await this.assertProjectOwned(projectId, userId);
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const redirectUri = process.env.GSC_REDIRECT_URI;
     if (!clientId || !redirectUri) throw new EmeradarError(ErrorCode.PRECONDITION_FAILED, 'Google Search Console OAuth is not configured.', 503);
-    const state = randomBytes(24).toString('base64url');
+    const secret = randomBytes(24).toString('base64url');
+    const state = Buffer.from(`${projectId}:${secret}`).toString('base64url');
     await query(`DELETE FROM gsc_oauth_states WHERE project_id = $1 OR expires_at < NOW()`, [projectId]);
     await query(`INSERT INTO gsc_oauth_states (project_id, user_id, state_hash, expires_at) VALUES ($1,$2,$3,NOW() + INTERVAL '10 minutes')`, [projectId, userId, createHash('sha256').update(state).digest('hex')]);
     const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: 'https://www.googleapis.com/auth/webmasters.readonly', state });
     return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`, state };
+  }
+
+  /**
+   * 从 OAuth state 中提取项目 ID。
+   *
+   * state 格式：`base64url(projectId:randomSecret)`
+   */
+  static extractProjectIdFromState(state: string): string | null {
+    try {
+      const decoded = Buffer.from(state, 'base64url').toString('utf-8');
+      const projectId = decoded.split(':')[0];
+      return projectId || null;
+    } catch {
+      return null;
+    }
   }
 
   static async consumeGscOAuthState(projectId: string, userId: string, state: string): Promise<boolean> {
