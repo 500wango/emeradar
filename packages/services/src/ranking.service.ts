@@ -83,6 +83,41 @@ export interface ProjectRankingView {
   series: QueryRankSeries[];
 }
 
+/** 12 §2 `PROJECT_SERP_RANK_JUMP`：较上次观测排名跃升 ≥ 该名次数即告警（默认值，冻结前可调）。 */
+export const RANK_JUMP_THRESHOLD = 10;
+const RANK_TIERS = [10, 30, 100] as const;
+
+export interface RankJump {
+  kind: 'FIRST_ENTRY' | 'TIER_ENTRY' | 'JUMP';
+  /** 本次所处的名次档（10 / 30 / 100）。 */
+  tier: number;
+  rank: number;
+  previousRank: number | null;
+}
+
+/**
+ * 是否构成排名跃升事件。纯函数，便于直接测。
+ *
+ * - `previous`：此前**所有**观测里的最好名次（NULL 表示从未进榜）；`last` 是上一次观测。
+ * - 首次进入 Top 100、首次进入 Top 30 / Top 10（历史最好从未达到该档）、或较上一次观测
+ *   跃升 ≥ 阈值，都算；三者取最强的一个返回，同一天只提醒一次。
+ * - `rank` 为 NULL（今天没进榜）永远不触发。
+ */
+export function detectRankJump(
+  rank: number | null,
+  last: number | null,
+  bestEver: number | null,
+  threshold = RANK_JUMP_THRESHOLD
+): RankJump | null {
+  if (rank === null) return null;
+  const tier = RANK_TIERS.find((t) => rank <= t) ?? 100;
+  if (bestEver === null) return { kind: 'FIRST_ENTRY', tier, rank, previousRank: null };
+  const bestTier = RANK_TIERS.find((t) => bestEver <= t) ?? 101;
+  if (tier < bestTier) return { kind: 'TIER_ENTRY', tier, rank, previousRank: last };
+  if (last !== null && last - rank >= threshold) return { kind: 'JUMP', tier, rank, previousRank: last };
+  return null;
+}
+
 export class RankingService {
   /**
    * 把一次 SERP 采集的结果与已核验项目对上，写入 `project_serp_rankings`。
@@ -131,6 +166,39 @@ export class RankingService {
         if (hit) matched += 1;
         // 未入榜时写一行 best_rank IS NULL，而不是跳过：跳过会让"连续 60 天没进榜"
         // 与"这 60 天我们没在看"在库里长得一模一样。
+        // 先读历史再写今天：跃升是「相对此前」的判断，写完再读就读到自己了。
+        const history = await client.query<{ last: number | null; best: number | null }>(
+          `SELECT (SELECT best_rank FROM project_serp_rankings
+                    WHERE project_id = $1 AND query_id = $2 AND obs_date < $3::date
+                    ORDER BY obs_date DESC LIMIT 1) AS last,
+                  (SELECT MIN(best_rank) FROM project_serp_rankings
+                    WHERE project_id = $1 AND query_id = $2 AND obs_date < $3::date) AS best`,
+          [row.project_id, input.queryId, input.obsDate]
+        );
+        const jump = detectRankJump(hit?.rank ?? null, history.rows[0]?.last ?? null, history.rows[0]?.best ?? null);
+        if (jump) {
+          const owner = await client.query<{ user_id: string; title: string }>(
+            `SELECT user_id, title FROM projects WHERE id = $1`,
+            [row.project_id]
+          );
+          if (owner.rows[0]) {
+            const tierLabel = `Top ${jump.tier}`;
+            const body =
+              jump.kind === 'JUMP'
+                ? `Your page moved from #${jump.previousRank} to #${jump.rank} for this keyword.`
+                : `Your page entered ${tierLabel} for this keyword (now #${jump.rank}).`;
+            await client.query(
+              `INSERT INTO notifications (id, user_id, title, body)
+               VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING`,
+              [
+                `ntf_rank_${row.project_id}_${input.queryId}_${input.obsDate}`,
+                owner.rows[0].user_id,
+                `Ranking update: ${owner.rows[0].title}`,
+                body,
+              ]
+            );
+          }
+        }
         await client.query(
           `INSERT INTO project_serp_rankings (project_id, query_id, obs_date, best_rank, matched_url)
            VALUES ($1, $2, $3, $4, $5)
