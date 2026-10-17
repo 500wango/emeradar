@@ -270,7 +270,8 @@ export class StripeService {
 
     const form = new URLSearchParams();
     form.append('mode', isLifetime ? 'payment' : 'subscription');
-    form.append('payment_method_types[]', 'card');
+    // payment_method_types 已弃用，现在由 Dashboard 设置管理
+    // form.append('payment_method_types[]', 'card');
     form.append('client_reference_id', userId);
     if (knownCustomerId) {
       form.append('customer', knownCustomerId);
