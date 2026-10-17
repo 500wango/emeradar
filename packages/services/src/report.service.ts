@@ -10,17 +10,7 @@ import {
 } from '@emeradar/report';
 import { EntitlementService } from './entitlement.service';
 import { hiddenFromViewer } from './stealth-lock-policy';
-
-/** 簇内词意图的确定性规则分类（同一词必得同一结果，重算可复现）。 */
-function classifyClusterIntent(
-  text: string
-): 'INFORMATIONAL' | 'COMMERCIAL' | 'TRANSACTIONAL' | 'NAVIGATIONAL' {
-  const q = text.toLowerCase();
-  if (/\b(buy|price|pricing|cost|download|subscribe|deal|coupon|free trial)\b/.test(q)) return 'TRANSACTIONAL';
-  if (/^(how|what|why|when|guide|tutorial|learn|meaning)\b/.test(q)) return 'INFORMATIONAL';
-  if (/\b(login|sign in|official site)\b/.test(q)) return 'NAVIGATIONAL';
-  return 'COMMERCIAL';
-}
+import { frozenIntentFor } from './query-intent';
 
 export class ReportService {
   /**
@@ -220,18 +210,18 @@ export class ReportService {
       }
 
       // 词表只从 opportunity_queries 读（09 §5.3 第 6 条）：已观测到的簇内词，不外推。
-      const clusterRes = await query<{ query_text: string }>(
-        `SELECT q.query_text
+      const clusterRes = await query<{ query_id: string; query_text: string }>(
+        `SELECT q.id AS query_id, q.query_text
            FROM opportunity_queries oq
            JOIN queries q ON q.id = oq.query_id
           WHERE oq.opportunity_id = $1 AND oq.role <> 'PRIMARY'
           ORDER BY q.query_text`,
         [opp.id]
       );
-      const clusterQueries = clusterRes.rows.map((r) => ({
-        query: r.query_text,
-        intent: classifyClusterIntent(r.query_text),
-      }));
+      const clusterQueries = [];
+      for (const r of clusterRes.rows) {
+        clusterQueries.push({ query: r.query_text, intent: await frozenIntentFor(r.query_id, r.query_text) });
+      }
 
       // Fetch Kill Criteria
       let kcRes = await query<any>(

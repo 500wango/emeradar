@@ -36,6 +36,8 @@ export interface LiveScanResult {
 /** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
 export const SCREENER_LONGTAIL_LIMIT = 15;
 
+import { classifyQueryIntent } from './query-intent';
+
 export class LiveScanService {
   /**
    * Scans a target keyword using live Google Autocomplete + SERP competitive weakness analysis
@@ -214,12 +216,12 @@ export class LiveScanService {
       for (const sug of storedSuggestions) {
         const clusterQueryId = `qry_${randomBytes(6).toString('hex')}`;
         await client.query(
-          `INSERT INTO queries (id, query_text, market_country, research_language, tier)
-           VALUES ($1, $2, $3, $4, 'B')
+          `INSERT INTO queries (id, query_text, market_country, research_language, tier, intent)
+           VALUES ($1, $2, $3, $4, 'B', $5)
            ON CONFLICT (query_text, market_country, research_language)
            DO UPDATE SET tier = LEAST(queries.tier, EXCLUDED.tier)
            RETURNING id`,
-          [clusterQueryId, sug, marketCountry, language]
+          [clusterQueryId, sug, marketCountry, language, classifyQueryIntent(sug)]
         );
         const existingQuery = await client.query<{ id: string }>(
           `SELECT id FROM queries WHERE query_text = $1 AND market_country = $2 AND research_language = $3`,
