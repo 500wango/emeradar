@@ -68,7 +68,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 - **T2.1 规格已冻结**（迁移 `0011`）：`ev-1.1` 成为生效规格，`ev-1.0` 保留给无快照的老 Episode；新增 `UNEVALUABLE` 终态与 `unevaluableShare`。**但这只关上了「事后定口径」的口子，没有让 H1 可被检验**：`src_volume`（T2.2，需要选定供应商）与 Trends 时间序列的采集器都还没有，序列表 `external_demand_observations` 现在是空的，所以此刻开出的 Episode 到 T+30 会全部是 `UNEVALUABLE`。要让 Gate 0 有意义，必须在首批 v2 Episode 开出之前让两路序列开始逐日写入。
 - **T2.6 被存储设计卡住，不是缺脚本**：账本只存 `features_hash`（`featureMetrics` 的指纹），完整的评分输入（SERP 条目、需求与商业特征、前一日状态）没有落库，`opportunity_snapshots.metrics` 里也只有一部分特征。`recompute`（05 §8）要做到逐行 bit-for-bit，必须先把完整的 `FullOpportunityScoreInput` 随每日快照封存（与 `features_hash` 同口径哈希，且不可改写）；在那之前写脚本只能拿残缺输入算出伪差异，或者拿输出和自己比。建议作为独立任务排在 M2，先决于「每日夜间 1% 抽样重算」的告警承诺。
 - **T2.2 供应商已选定、管线已接，待凭证**：选 DataForSEO（见 04 §7.1）；`ExternalDemandCollector` + 每日任务 `ingest-external-demand` 已落地并有测试。**未用真实账号验证**，准入八项里条款审阅、合规、100 条抽样、展示权限仍未做；没配凭证时任务跳过、不写值，Episode 如实记 `UNEVALUABLE`。上一条关于「两路采集器都没有」的说法因此更新为：采集器有了，缺的是凭证与人工核对。
-- **T2.5 未开始**。
+- **T2.5 公式已落地，成本表未填**：`packages/collectors/src/cost-model.ts` 把 04 §6.1 写成纯函数（含「已核验项目 query 每周补 9 页而非 1 个 Top 100 请求」这个旧公式低估约 10 倍的修正），回归测试覆盖各项系数。**没有任何默认单价**——单价 `c_*`、`r_dedup`、`r_headless` 要由 Gate 0 用真实报价与实测值填入，目前没有，所以 04 §6.3 的成本表和「是否达到 $1/用户、$20/500 用户」的结论都**没有产出**，不能当作已验证。
 
 | # | 任务 | 改动 | 验收 |
 |---|------|------|------|

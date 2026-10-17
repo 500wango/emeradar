@@ -6,3 +6,4 @@ export * from './crawl-collector';
 export * from './discovery';
 export * from './checkout-referrals-collector';
 export * from './external-demand-collector';
+export * from './cost-model';
