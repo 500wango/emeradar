@@ -526,7 +526,6 @@ export const en: TranslationDictionary = {
       '3 tracked projects with GSC sync',
       '5 alert rules for verdict changes',
       '30 full reports / month',
-      'Best for: validating your first idea',
     ],
 
     planProTitle: 'Builder Pro',

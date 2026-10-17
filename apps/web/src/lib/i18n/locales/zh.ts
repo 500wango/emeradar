@@ -526,7 +526,6 @@ export const zh: TranslationDictionary = {
       '3 个追踪项目 + GSC 数据',
       '5 条警报规则',
       '30 份完整报告/月',
-      '最适合：验证你的第一个想法',
     ],
 
     planProTitle: 'Builder Pro',

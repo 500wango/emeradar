@@ -371,17 +371,17 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         {/* Builder Pro — the highlighted tier. Highlight is a hairline weight
             difference plus a corner tag, not a gradient or a drop shadow. */}
         <Panel brackets className="relative flex flex-col border-accent/60 p-8">
-          <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="accent">PRO</Badge>
+              {p.proEarlyBirdBadge && <Badge tone="warn">{p.proEarlyBirdBadge}</Badge>}
+            </div>
             <Badge tone="accent" size="sm">
               {p.popularBadge}
             </Badge>
           </div>
 
           <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="accent">PRO</Badge>
-              {p.proEarlyBirdBadge && <Badge tone="warn">{p.proEarlyBirdBadge}</Badge>}
-            </div>
             <h3 className="mt-5 font-display text-2xl font-extrabold text-fg">{p.planProTitle}</h3>
             <p className="mt-2 min-h-[36px] text-xs leading-relaxed text-fg-subtle">{p.planProDesc}</p>
 
