@@ -261,6 +261,11 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
           <Stat value={overview.discoveryStats.negativeFeedback7d} unit="条" label="负面反馈" tone="warn" />
           <Stat value={overview.discoveryStats.candidates} unit="条" label="候选池" />
         </div>
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          <Stat value={overview.discoveryStats.activeSources} unit="个" label="启用源" />
+          <Stat value={overview.discoveryStats.sourcesWithRuns24h} unit="个" label="24h 有运行" />
+          <Stat value={overview.discoveryStats.candidateMarkets} unit="个" label="候选市场" />
+        </div>
       </Panel>
 
       {/* Interactive Trigger Hub */}

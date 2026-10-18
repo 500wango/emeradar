@@ -80,6 +80,18 @@ export class AdminPipelineService {
     const negativeFeedback7d =
       (fb.NOT_OPPORTUNITY ?? 0) + (fb.ALREADY_BUILT ?? 0) + (fb.CANNOT_BUILD ?? 0);
     const feedback7d = helpfulFeedback7d + negativeFeedback7d;
+    const coverageRes = await query<{
+      active_sources: number;
+      sources_with_runs_24h: number;
+      candidate_markets: number;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::int FROM sources WHERE is_active = true) AS active_sources,
+         (SELECT COUNT(DISTINCT source_id)::int FROM collector_runs
+           WHERE started_at > NOW() - INTERVAL '24 hours') AS sources_with_runs_24h,
+         (SELECT COUNT(DISTINCT market_country)::int FROM opportunities
+           WHERE status = 'CANDIDATE') AS candidate_markets`
+    );
 
     // 2. Today's API costs from cost_ledger
     const costRes = await query<{ total_cost: string }>(
@@ -223,6 +235,9 @@ export class AdminPipelineService {
         helpfulFeedback7d,
         negativeFeedback7d,
         negativeRate7d: feedback7d > 0 ? negativeFeedback7d / feedback7d : 0,
+        activeSources: coverageRes.rows[0]?.active_sources ?? 0,
+        sourcesWithRuns24h: coverageRes.rows[0]?.sources_with_runs_24h ?? 0,
+        candidateMarkets: coverageRes.rows[0]?.candidate_markets ?? 0,
       },
       costTodayUsd,
       dailyBudgetLimitUsd: 20.0,

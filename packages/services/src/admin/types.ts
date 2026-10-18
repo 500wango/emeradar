@@ -54,6 +54,10 @@ export interface AdminPipelineOverview {
     negativeFeedback7d: number;
     /** 0–1；7 天没有反馈时为 0。 */
     negativeRate7d: number;
+    /** 覆盖：启用的源、24h 有运行的源、候选覆盖的市场数。 */
+    activeSources: number;
+    sourcesWithRuns24h: number;
+    candidateMarkets: number;
   };
   costTodayUsd: number;
   dailyBudgetLimitUsd: number;
