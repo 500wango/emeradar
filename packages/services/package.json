@@ -9,13 +9,14 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@emeradar/collectors": "workspace:*",
     "@emeradar/core": "workspace:*",
     "@emeradar/db": "workspace:*",
-    "@emeradar/scoring": "workspace:*",
     "@emeradar/ledger": "workspace:*",
-    "@emeradar/report": "workspace:*",
-    "@emeradar/collectors": "workspace:*",
     "@emeradar/llm": "workspace:*",
+    "@emeradar/report": "workspace:*",
+    "@emeradar/scoring": "workspace:*",
+    "aws4fetch": "^1.0.20",
     "nodemailer": "^10.1.0"
   },
   "devDependencies": {

@@ -61,9 +61,11 @@ export async function runSeed(): Promise<void> {
     console.log('[seed] Inserting Sources...');
     await client.query(`
       INSERT INTO sources (id, type, name, tos_risk_level) VALUES
-      ('src_google_autocomplete', 'AUTOCOMPLETE', 'Google Autocomplete Suggestions', 'LOW'),
-      ('src_serp_google', 'SERP', 'Google Organic SERP Engine', 'LOW'),
-      ('src_commercial_web', 'COMMERCIAL', 'Web Commercial & Pricing Scanner', 'LOW');
+      ('src_ac', 'AUTOCOMPLETE', 'Google Autocomplete (AIsa DataForSEO)', 'MEDIUM'),
+      ('src_serp', 'SERP', 'Google SERP (SerpAPI / AIsa DataForSEO)', 'MEDIUM'),
+      ('src_crawl', 'COMMERCIAL', 'Commercial pricing crawler', 'MEDIUM'),
+      ('src_llm', 'OTHER', 'LLM narrative generation', 'LOW'),
+      ('src_checkout_referral', 'COMMERCIAL', 'Checkout referral radar', 'MEDIUM');
     `);
 
     // 4. Seed Prompts

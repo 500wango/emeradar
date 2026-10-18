@@ -81,19 +81,41 @@ describe('AutocompleteCollector', () => {
     }
   });
 
-  it('should collect suggestions, generate snapshot, evidence and raw hash', async () => {
-    const ctx = createMockContext();
-    const outcome = await collector.collect(ctx, {
-      queryId: 'q_1',
-      queryText: 'cron generator',
-      opportunityId: 'opp_cron_gen',
-    });
+  it('should collect suggestions via AIsa DataForSEO, generate snapshot, evidence and raw hash', async () => {
+    const originalFetch = globalThis.fetch;
+    const oldKey = process.env.AISA_API_KEY;
+    process.env.AISA_API_KEY = 'test_aisa_key';
+    let seenBody: any = null;
+    globalThis.fetch = (async (_url: any, opts: any) => {
+      seenBody = JSON.parse(opts.body);
+      return new Response(
+        JSON.stringify({
+          tasks: [
+            {
+              status_code: 20000,
+              result: [{ items: [{ suggestion: 'cron generator free' }, { suggestion: 'cron job monitor' }] }],
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json', 'x-aisa-customer-cost-micros-usd': '500' } }
+      );
+    }) as any;
 
-    assert.ok(outcome.status === 'OK' || outcome.status === 'FAILED');
-    if (outcome.status === 'FAILED') {
-      assert.equal(outcome.errorCode, 'AC_FETCH_ERROR');
-    }
-    if (outcome.status === 'OK') {
+    try {
+      const ctx = createMockContext();
+      const outcome = await collector.collect(ctx, {
+        queryId: 'q_1',
+        queryText: 'cron generator',
+        opportunityId: 'opp_cron_gen',
+      });
+
+      assert.equal(outcome.status, 'OK', 'AIsa autocomplete 没有被正确解析');
+      if (outcome.status === 'FAILED') {
+        assert.equal(outcome.errorCode, 'AC_FETCH_ERROR');
+      }
+      assert.deepEqual(seenBody[0].keyword, 'cron generator');
+      assert.equal(seenBody[0].location_code, 2840);
+      if (outcome.status === 'OK') {
       assert.equal(outcome.snapshots.length, 1);
       assert.equal(outcome.snapshots[0].entityType, 'AUTOCOMPLETE');
       assert.ok(outcome.snapshots[0].data.suggestions.length > 0);
@@ -108,6 +130,12 @@ describe('AutocompleteCollector', () => {
 
       assert.ok(outcome.cost.costUsd > 0);
       assert.equal(outcome.cost.category, 'AUTOCOMPLETE');
+      assert.equal(outcome.snapshots[0].data.provider, 'AISA_DATAFORSEO');
+    }
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (oldKey === undefined) delete process.env.AISA_API_KEY;
+      else process.env.AISA_API_KEY = oldKey;
     }
   });
 });
@@ -208,6 +236,7 @@ describe('SerpCollector', () => {
         assert.equal(serpData.items[1].domain, 'cronhub.io');
         // 名次取 rank_group（自然结果内部序号），不是把 SERP 特性也算进去的 rank_absolute。
         assert.equal(serpData.items[0].rank, 1);
+        assert.equal(serpData.provider, 'AISA_DATAFORSEO');
       }
       assert.equal(seenUrl, 'https://api.aisa.one/apis/v1/dataforseo/serp/google/organic/live/regular');
       assert.equal(seenAuth, 'Bearer test_aisa_key');

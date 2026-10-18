@@ -28,6 +28,8 @@ import {
   writeFailedCommercialSnapshot,
 } from './commercial-assembly';
 import { computeCrowding, storeCrowding } from '../crowding.service';
+import { runCollector } from '../collector-run.service';
+import { storeRawPayload } from '../raw-payload.service';
 
 const SKIP_COMMERCIAL_DOMAINS = [
   'github.com',
@@ -90,13 +92,15 @@ export async function observeOpportunity(
   const primary = qryRes.rows[0];
   if (!primary) return null;
 
-  const acOutcome = await collectors.autocomplete.collect(ctx, {
-    queryId: primary.id,
-    queryText: primary.query_text,
-    opportunityId: opp.id,
-    marketCountry: opp.market_country,
-    language: opp.research_language,
-  });
+  const acOutcome = await runCollector('src_ac', primary.id, () =>
+    collectors.autocomplete.collect(ctx, {
+      queryId: primary.id,
+      queryText: primary.query_text,
+      opportunityId: opp.id,
+      marketCountry: opp.market_country,
+      language: opp.research_language,
+    })
+  );
 
   // Spend is recorded for every billable outcome, not only successes: a 429 or a
   // timeout still costs the provider call.
@@ -108,12 +112,13 @@ export async function observeOpportunity(
     const snap = acOutcome.snapshots[0];
     if (snap) {
       await query(
-        `INSERT INTO autocomplete_observations (query_id, observed_date, suggestions, depth)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO autocomplete_observations (query_id, observed_date, suggestions, depth, provider)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (query_id, observed_date) DO UPDATE SET
            suggestions = EXCLUDED.suggestions,
-           depth = EXCLUDED.depth`,
-        [primary.id, obsDate, snap.data.suggestions, snap.data.depth]
+           depth = EXCLUDED.depth,
+           provider = EXCLUDED.provider`,
+        [primary.id, obsDate, snap.data.suggestions, snap.data.depth, snap.data.provider ?? 'UNKNOWN']
       );
     }
   }
@@ -203,35 +208,52 @@ export async function observeOpportunity(
   const wantsDeepSerp = (trackedRes.rows[0]?.n ?? 0) > 0 && (weeklyDepthRes.rows[0]?.n ?? 0) === 0;
   const serpDepth = wantsDeepSerp ? 100 : undefined;
 
-  let serpOutcome = await collectors.serp.collect(ctx, {
-    queryId: primary.id,
-    queryText: primary.query_text,
-    opportunityId: opp.id,
-    marketCountry: opp.market_country,
-    researchLanguage: opp.research_language,
-    depth: serpDepth,
+  const serpOutcome = await runCollector('src_serp', primary.id, async () => {
+    const collectOnce = () =>
+      collectors.serp.collect(ctx, {
+        queryId: primary.id,
+        queryText: primary.query_text,
+        opportunityId: opp.id,
+        marketCountry: opp.market_country,
+        researchLanguage: opp.research_language,
+        depth: serpDepth,
+      });
+
+    let outcome = await collectOnce();
+    // A billable provider call costs money whether or not it returned data.
+    if (outcome.status !== 'SKIPPED' && outcome.cost) {
+      await CostLedgerService.recordCost(outcome.cost);
+    }
+    if (outcome.status === 'FAILED' && outcome.retryable) {
+      console.warn(
+        `[pipeline:collector] Retrying SERP collection for query "${primary.query_text}" (${outcome.message})...`
+      );
+      await new Promise((r) => setTimeout(r, 1000));
+      outcome = await collectOnce();
+      if (outcome.status !== 'SKIPPED' && outcome.cost) {
+        await CostLedgerService.recordCost(outcome.cost);
+      }
+    }
+    return outcome;
   });
 
-  // A billable provider call costs money whether or not it returned data, so the
-  // first attempt is recorded before any retry replaces the outcome object.
-  if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
-    await CostLedgerService.recordCost(serpOutcome.cost);
-  }
-
-  // Collector retry with backoff if retryable failure occurs
-  if (serpOutcome.status === 'FAILED' && serpOutcome.retryable) {
-    console.warn(`[pipeline:collector] Retrying SERP collection for query "${primary.query_text}" (${serpOutcome.message})...`);
-    await new Promise((r) => setTimeout(r, 1000));
-    serpOutcome = await collectors.serp.collect(ctx, {
-      queryId: primary.id,
-      queryText: primary.query_text,
-      opportunityId: opp.id,
-      marketCountry: opp.market_country,
-      researchLanguage: opp.research_language,
-      depth: serpDepth,
-    });
-    if (serpOutcome.status !== 'SKIPPED' && serpOutcome.cost) {
-      await CostLedgerService.recordCost(serpOutcome.cost);
+  // 原始响应归档（R2）。失败不阻断观测：账本仍可用归一化行计算，只是失去回放能力。
+  let serpRawPayloadId: string | null = null;
+  const serpRunId = (serpOutcome as { collectorRunId?: string }).collectorRunId;
+  if (serpOutcome.status === 'OK' && serpOutcome.raw && serpRunId) {
+    try {
+      const stored = await storeRawPayload({
+        collectorRunId: serpRunId,
+        obsDate,
+        content: serpOutcome.raw.content,
+        mimeType: serpOutcome.raw.mimeType,
+      });
+      serpRawPayloadId = stored?.id ?? null;
+    } catch (error) {
+      console.warn(
+        `[pipeline:collector] raw payload archive failed for query "${primary.query_text}":`,
+        error instanceof Error ? error.message : error
+      );
     }
   }
 
@@ -262,12 +284,14 @@ export async function observeOpportunity(
       organicItems = serpSnap.data.items || [];
       rankIndex = serpSnap.data.rankIndex;
       const snapRes = await query<{ id: string }>(
-        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider, raw_payload_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (query_id, obs_date) DO UPDATE SET
            weak_result_ratio = EXCLUDED.weak_result_ratio,
            depth = EXCLUDED.depth,
-           result_count = EXCLUDED.result_count
+           result_count = EXCLUDED.result_count,
+           provider = EXCLUDED.provider,
+           raw_payload_id = COALESCE(EXCLUDED.raw_payload_id, serp_snapshots.raw_payload_id)
          RETURNING id`,
         [
           serpSnap.key,
@@ -280,6 +304,8 @@ export async function observeOpportunity(
           // 而不是把谎话写进一列专门用来防谎话的字段。
           serpSnap.data.depth,
           serpSnap.data.resultCount,
+          serpSnap.data.provider ?? 'UNKNOWN',
+          serpRawPayloadId,
         ]
       );
       const snapshotId = snapRes.rows[0]?.id || serpSnap.key;
@@ -752,14 +778,17 @@ async function crawlCommercialDomains(
     // 07 §7 validates persistence weekly; re-fetching the same domains daily buys nothing.
     if (await hasFreshCommercialSnapshot(domain, obsDate, COMMERCIAL_STALENESS_DAYS)) continue;
 
-    const outcome = await crawl.collect(ctx, {
-      targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
-      domain,
-      targetUrl,
-      opportunityId,
-    });
+    const outcome = await runCollector('src_crawl', `${opportunityId}:${domain}`, () =>
+      crawl.collect(ctx, {
+        targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
+        domain,
+        targetUrl,
+        opportunityId,
+      })
+    );
 
-    if (outcome.status === 'FAILED' && outcome.cost) {
+    // 成功与失败都计费；旧代码只在失败时记，成功抓取的成本从账本里消失了。
+    if (outcome.status !== 'SKIPPED' && outcome.cost) {
       await CostLedgerService.recordCost(outcome.cost);
     }
 

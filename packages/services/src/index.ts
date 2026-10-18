@@ -36,6 +36,8 @@ export {
 export * from './track-record.service';
 export * from './prediction-episode.service';
 export * from './crowding.service';
+export * from './collector-run.service';
+export * from './raw-payload.service';
 export * from './custom-query-radar.service';
 export * from './external-demand.service';
 export * from './query-intent';

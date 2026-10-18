@@ -17,6 +17,11 @@ export interface AutocompleteTarget {
   researchLanguage?: string;
 }
 
+/** DataForSEO 的 `location_code`。研究市场目前只有 US（2840）；其它市场不猜代码。 */
+function locationCode(marketCountry: string): number | undefined {
+  return (marketCountry || 'US').toUpperCase() === 'US' ? 2840 : undefined;
+}
+
 export class AutocompleteCollector
   implements Collector<AutocompleteTarget[], AutocompleteTarget>
 {
@@ -27,7 +32,11 @@ export class AutocompleteCollector
     ratePerSecond: 5,
   };
 
-  private costPerQueryUsd = 0.0005; // ~$0.50 per 1,000 autocomplete requests
+  /**
+   * 兜底单价（AIsa 响应头缺失时使用）。真实成本优先读
+   * `x-aisa-customer-cost-micros-usd`，避免账本与供应商账单对不上。
+   */
+  private costPerQueryUsd = 0.0005;
 
   async plan(
     ctx: RunContext,
@@ -53,48 +62,58 @@ export class AutocompleteCollector
       };
     }
 
+    if (!process.env.AISA_API_KEY) {
+      return {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'AC_NOT_CONFIGURED',
+        message: 'AISA_API_KEY is required for Google Autocomplete; the direct scrape fallback was removed.',
+      };
+    }
+
     try {
       // 2. Depth 0: Fetch base seed suggestions
-      const baseSuggestions = await this.fetchSuggestions(
+      const base = await this.fetchSuggestions(
         item.queryText,
         item.marketCountry,
         item.researchLanguage || item.language
       );
-      if (!baseSuggestions) {
+      if (!base) {
         return {
           status: 'FAILED',
           retryable: true,
           errorCode: 'AC_FETCH_ERROR',
-          message: 'Autocomplete returned no live suggestions.',
+          message: 'AIsa Google Autocomplete returned no usable suggestions.',
         };
       }
 
-      const allSuggestions = new Set<string>(baseSuggestions);
+      const allSuggestions = new Set<string>(base.suggestions);
+      let totalCostUsd = base.costUsd;
 
       // 3. Hierarchical Early-Pruning Rule (04 §2 / 19 §3 Epic 0.2)
       // If base seed yields < 3 suggestions, branch is cold; early prune depth 1 expansion.
       let depthReached = 0;
       let totalRequests = 1;
 
-      if (baseSuggestions.length >= 3) {
+      if (base.suggestions.length >= 3) {
         depthReached = 1;
         // Expand top modifiers: 'free', 'online', 'tool', 'vs', '2026'
         const modifiers = ['free', 'online', 'tool', '2026', 'alternative'];
         for (const mod of modifiers) {
           if (!ctx.budget.canSpend(this.costPerQueryUsd)) break;
-          const subSuggestions = await this.fetchSuggestions(
+          const sub = await this.fetchSuggestions(
             `${item.queryText} ${mod}`,
             item.marketCountry,
             item.researchLanguage || item.language
           );
           totalRequests++;
-          for (const s of subSuggestions ?? []) {
-            allSuggestions.add(s);
+          if (sub) {
+            totalCostUsd += sub.costUsd;
+            for (const s of sub.suggestions) allSuggestions.add(s);
           }
         }
       }
 
-      const totalCostUsd = totalRequests * this.costPerQueryUsd;
       const suggestionsList = Array.from(allSuggestions);
 
       // 4. Assemble Draft Snapshot
@@ -108,6 +127,7 @@ export class AutocompleteCollector
             suggestions: suggestionsList,
             depth: depthReached,
             requestCount: totalRequests,
+            provider: 'AISA_DATAFORSEO',
           },
         },
       ];
@@ -123,6 +143,7 @@ export class AutocompleteCollector
           title: `Autocomplete cluster expansions for "${item.queryText}"`,
           snippet: suggestionsList.slice(0, 5).join('; '),
           payload: {
+            provider: 'AISA_DATAFORSEO',
             suggestionsCount: suggestionsList.length,
             depth: depthReached,
             topSuggestions: suggestionsList.slice(0, 10),
@@ -164,32 +185,54 @@ export class AutocompleteCollector
     }
   }
 
+  /**
+   * Google Autocomplete via AIsa's DataForSEO proxy
+   * (`POST /apis/v1/dataforseo/serp/google/autocomplete/live/advanced`).
+   *
+   * 旧实现直接抓 `suggestqueries.google.com`：没有授权、ToS 风险高、且是 D 轴单点。
+   * 现在没有 key 就直接失败，不再静默降级到自采。
+   */
   private async fetchSuggestions(
     query: string,
     marketCountry = 'US',
     language = 'en'
-  ): Promise<string[] | null> {
+  ): Promise<{ suggestions: string[]; costUsd: number } | null> {
+    const apiKey = process.env.AISA_API_KEY;
+    if (!apiKey) return null;
     try {
-      const gl = (marketCountry || 'US').toLowerCase();
-      const hl = (language || 'en').slice(0, 2).toLowerCase();
-      const url = `https://suggestqueries.google.com/complete/search?client=chrome&gl=${gl}&hl=${hl}&q=${encodeURIComponent(
-        query
-      )}`;
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        signal: AbortSignal.timeout(4000),
-      });
-
+      const res = await fetch(
+        'https://api.aisa.one/apis/v1/dataforseo/serp/google/autocomplete/live/advanced',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify([
+            {
+              keyword: query,
+              location_code: locationCode(marketCountry),
+              language_code: (language || 'en').slice(0, 2).toLowerCase(),
+              client: 'chrome',
+            },
+          ]),
+          signal: AbortSignal.timeout(20_000),
+        }
+      );
       if (!res.ok) return null;
-
-      const data = await res.json();
-      if (Array.isArray(data) && Array.isArray(data[1]) && data[1].length > 0) {
-        return data[1].map((s: any) => String(s));
-      }
-      return null;
+      const payload = await res.json();
+      const task = payload?.tasks?.[0];
+      // DataForSEO 的失败也是 HTTP 200，必须看 status_code。
+      if (!task || Number(task.status_code) !== 20000) return null;
+      const items = task.result?.[0]?.items;
+      if (!Array.isArray(items)) return null;
+      const suggestions = items
+        .map((row: any) => (typeof row?.suggestion === 'string' ? row.suggestion.trim() : ''))
+        .filter((value: string) => value.length > 0);
+      if (suggestions.length === 0) return null;
+      const costMicros = Number(res.headers.get('x-aisa-customer-cost-micros-usd'));
+      const costUsd = Number.isFinite(costMicros) && costMicros > 0 ? costMicros / 1e6 : this.costPerQueryUsd;
+      return { suggestions, costUsd };
     } catch {
       return null;
     }

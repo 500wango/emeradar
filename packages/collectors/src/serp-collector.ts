@@ -48,6 +48,24 @@ export const SERP_DEFAULT_DEPTH = 10;
 /** 参与评分的名次上限（05 §3.3）。深于它的部分只进 `rankIndex`。 */
 export const SERP_SCORING_DEPTH = 10;
 
+/** Google-only SERP providers. Brave is deliberately absent: its index is not Google. */
+export type SerpProvider = 'SERPAPI' | 'AISA_DATAFORSEO';
+
+export interface SerpFetchResult {
+  provider: SerpProvider;
+  items: Array<{
+    rank: number;
+    url: string;
+    domain: string;
+    title: string;
+    snippet: string;
+    resultType: ResultType;
+    ageDays?: number;
+    relevance?: number;
+    publishedAt?: Date;
+  }>;
+}
+
 /**
  * 名次索引里的一行。只带匹配所需的三列——完整条目（摘要、分类、弱点判定）只对
  * 评分用的前 10 名有意义，给 11–100 也编一套摘要，等于假装我们对它们做了分析。
@@ -146,19 +164,20 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
 
     const depth = Math.min(SERP_DEPTH, Math.max(SERP_SCORING_DEPTH, item.depth ?? SERP_DEFAULT_DEPTH));
     try {
-      const rawItems = await this.fetchSerp(
+      const fetched = await this.fetchSerp(
         item.queryText,
         item.marketCountry || 'US',
         item.researchLanguage || 'en',
         depth
       );
-      if (!rawItems || rawItems.length === 0) {
+      const rawItems = fetched?.items;
+      if (!fetched || !rawItems || rawItems.length === 0) {
         return {
           status: 'FAILED',
           retryable: true,
           errorCode: 'SERP_UNAVAILABLE',
           message:
-            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI), AISA_API_KEY (AIsa.one → DataForSEO Google), or BRAVE_API_KEY. A failed fetch is not scored.',
+            'No Google organic SERP provider returned results. Set SERP_API_KEY (SerpAPI) or AISA_API_KEY (AIsa.one → DataForSEO Google). A failed fetch is not scored; Brave is not a Google fallback.',
         };
       }
 
@@ -220,6 +239,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             snapshotId,
             queryId: item.queryId,
             obsDate: ctx.obsDate,
+            provider: fetched.provider,
             weakResultRatio: weakRatio,
             weaknessScore: weaknessResult.score,
             /** 请求的深度（`serp_snapshots.depth`）。 */
@@ -250,6 +270,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           )}%).`,
           payload: {
             queryText: item.queryText,
+            provider: fetched.provider,
             top10Count: items.length,
             weakCount,
             weakRatio,
@@ -264,6 +285,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
         query: item.queryText,
         marketCountry: item.marketCountry,
         obsDate: ctx.obsDate,
+        provider: fetched.provider,
         items,
       });
 
@@ -338,35 +360,17 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     marketCountry: string,
     language: string,
     depth: number
-  ): Promise<
-    Array<{
-      rank: number;
-      url: string;
-      domain: string;
-      title: string;
-      snippet: string;
-      resultType: ResultType;
-      ageDays?: number;
-      relevance?: number;
-      publishedAt?: Date;
-    }> | null
-  > {
+  ): Promise<SerpFetchResult | null> {
     const serpApiKey = process.env.SERP_API_KEY;
     if (serpApiKey) {
       const fromSerpApi = await this.fetchSerpApi(query, marketCountry, language, serpApiKey, depth);
-      if (fromSerpApi && fromSerpApi.length > 0) return fromSerpApi;
+      if (fromSerpApi && fromSerpApi.length > 0) return { provider: 'SERPAPI', items: fromSerpApi };
     }
 
     const aisaKey = process.env.AISA_API_KEY;
     if (aisaKey) {
       const fromAIsa = await this.fetchAIsaGoogle(query, marketCountry, language, aisaKey, depth);
-      if (fromAIsa && fromAIsa.length > 0) return fromAIsa;
-    }
-
-    const braveKey = process.env.BRAVE_API_KEY;
-    if (braveKey) {
-      const fromBrave = await this.fetchBrave(query, marketCountry, braveKey, depth);
-      if (fromBrave && fromBrave.length > 0) return fromBrave;
+      if (fromAIsa && fromAIsa.length > 0) return { provider: 'AISA_DATAFORSEO', items: fromAIsa };
     }
 
     return null;
@@ -441,38 +445,6 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             title: String(r.title || ''),
             snippet: String(r.snippet || ''),
             resultType: this.inferResultType(urlStr, r.title || '', r.snippet || ''),
-          };
-        })
-        .filter((row: { url: string }) => row.url.startsWith('http'));
-    } catch {
-      return null;
-    }
-  }
-
-  private async fetchBrave(query: string, marketCountry: string, apiKey: string, depth: number) {
-    try {
-      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
-        query
-      )}&count=20&country=${encodeURIComponent(marketCountry)}`;
-      const res = await fetch(url, {
-        headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const results = data.web?.results;
-      if (!Array.isArray(results)) return null;
-      return results
-        .slice(0, depth)
-        .map((r: any, idx: number) => {
-          const urlStr = String(r.url || '');
-          return {
-            rank: idx + 1,
-            url: urlStr,
-            domain: this.extractDomain(urlStr),
-            title: String(r.title || ''),
-            snippet: String(r.description || ''),
-            resultType: this.inferResultType(urlStr, r.title || '', r.description || ''),
           };
         })
         .filter((row: { url: string }) => row.url.startsWith('http'));
