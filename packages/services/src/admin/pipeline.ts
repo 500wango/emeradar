@@ -133,6 +133,26 @@ export class AdminPipelineService {
        LIMIT 12`
     );
 
+    // 4b. Stale-data degradation events (04 §2 / ADR-021)
+    const staleRes = await query<{
+      id: string;
+      obs_date: string;
+      opportunity_id: string;
+      slug: string;
+      title: string;
+      source: 'AUTOCOMPLETE' | 'SERP' | 'COMMERCIAL';
+      domain: string;
+      reference_id: string | null;
+      observed_at: string | null;
+    }>(
+      `SELECT e.id::text, e.obs_date::text, e.opportunity_id, o.slug, o.title,
+              e.source, e.domain, e.reference_id, e.observed_at::text
+         FROM stale_data_events e
+         JOIN opportunities o ON o.id = e.opportunity_id
+        ORDER BY e.obs_date DESC, e.created_at DESC
+        LIMIT 20`
+    ).catch(() => ({ rows: [] as any[] }));
+
     // 5. Latest discovery signals
     const signalsRes = await query<{
       id: string;
@@ -186,6 +206,17 @@ export class AdminPipelineService {
         startedAt: r.started_at,
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
+      })),
+      recentStaleEvents: staleRes.rows.map((r: any) => ({
+        id: r.id,
+        obsDate: r.obs_date,
+        opportunityId: r.opportunity_id,
+        opportunitySlug: r.slug,
+        opportunityTitle: r.title,
+        source: r.source,
+        domain: r.domain,
+        referenceId: r.reference_id,
+        observedAt: r.observed_at,
       })),
       latestDiscoverySignals: signalsRes.rows.map((r) => ({
         id: r.id,

@@ -1022,6 +1022,7 @@ export const zh: TranslationDictionary = {
     decisionBasisTitle: '判定依据（账本留存）',
     staleDataTitle: '本次判定使用了宽限期内的旧快照',
     staleDataDesc: '部分采集源在过去 72 小时内失败。系统沿用了最近一次成功快照继续评分，并已在账本标记 STALE_DATA；这不是当天的新观测。',
+    staleDataSources: '降级引用',
     decisionBasisNotRetained:
       '此记录早于「判定依据留存」功能：账本只封存了裁决结果，没有留下当时的规则轨迹与评分标志。结论本身仍然有效，但无法回溯“为什么是它”。自账本 v2 起，此后每一期判定都可复核。',
     decisionBasisCompensatedTitle: '这是一条补偿判定',

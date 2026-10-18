@@ -91,6 +91,24 @@ export default async function OpportunityWorkspacePage({
   const basisRawVerdict: string | null = latestVerdict?.raw_verdict ?? null;
   const basisRawDiffers = basisRetained && basisRawVerdict && basisRawVerdict !== latestVerdict?.verdict;
 
+  const staleEventsRes =
+    latestVerdict?.obs_date && basisFlags.includes('STALE_DATA')
+      ? await query<{
+          source: string;
+          domain: string;
+          reference_id: string | null;
+          observed_at: string | null;
+        }>(
+          `SELECT source, domain, reference_id, observed_at::text
+             FROM stale_data_events
+            WHERE opportunity_id = $1 AND obs_date = $2::date
+            ORDER BY source, domain
+            LIMIT 12`,
+          [opportunity.id, latestVerdict.obs_date]
+        )
+      : { rows: [] as Array<{ source: string; domain: string; reference_id: string | null; observed_at: string | null }> };
+  const staleEvents = staleEventsRes.rows;
+
   const isBuildNow = opportunity.verdict === 'BUILD_NOW';
   const isEarlyBet = opportunity.verdict === 'EARLY_BET';
   const publishable =
@@ -280,6 +298,22 @@ export default async function OpportunityWorkspacePage({
             <p className="mt-1 text-xs leading-relaxed text-fg-muted">
               {t('report.staleDataDesc')}
             </p>
+            {staleEvents.length > 0 && (
+              <div className="mt-3 border-t border-warn/30 pt-2">
+                <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-warn">
+                  {t('report.staleDataSources')}
+                </p>
+                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-fg-muted">
+                  {staleEvents.map((event, index) => (
+                    <li key={`${event.source}-${event.domain}-${index}`} className="break-all">
+                      <span className="text-fg-subtle">{event.source}</span>
+                      {event.domain ? ` · ${event.domain}` : ''}
+                      {event.reference_id ? ` · ${event.reference_id.slice(0, 16)}…` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

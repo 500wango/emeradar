@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   ExternalLink,
   Radio,
+  History,
 } from 'lucide-react';
 import { AdminPipelineOverview } from '@emeradar/services';
 import { safeExternalUrl } from '@/lib/format';
@@ -25,6 +26,12 @@ import { Stat } from '@/components/ui/Stat';
 
 interface PipelineOpsClientProps {
   initialOverview: AdminPipelineOverview;
+}
+
+function staleSourceTone(source: string): BadgeTone {
+  if (source === 'COMMERCIAL') return 'warn';
+  if (source === 'SERP') return 'info';
+  return 'neutral';
 }
 
 /**
@@ -439,6 +446,66 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                     </td>
                     <td className="py-3 text-fg-subtle">
                       {run.finishedAt ? new Date(run.finishedAt).toLocaleString('zh-CN') : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      {/* STALE_DATA events */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+            <History className="h-4 w-4 text-warn" />
+            <span>宽限期降级记录 (STALE_DATA)</span>
+          </h2>
+          <span className="font-mono text-[11px] text-fg-subtle">
+            {overview.recentStaleEvents?.length || 0} 条
+          </span>
+        </div>
+
+        {!overview.recentStaleEvents || overview.recentStaleEvents.length === 0 ? (
+          <p className="py-4 text-xs text-fg-subtle">
+            暂无降级记录；采集失败且 72h 内有旧快照时才会出现。
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">DATE</th>
+                  <th className="pb-3 font-semibold">OPPORTUNITY</th>
+                  <th className="pb-3 font-semibold">SOURCE</th>
+                  <th className="pb-3 font-semibold">DOMAIN</th>
+                  <th className="pb-3 font-semibold">REFERENCE</th>
+                  <th className="pb-3 font-semibold">OBSERVED</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line font-mono">
+                {overview.recentStaleEvents.map((event) => (
+                  <tr key={event.id} className="transition hover:bg-surface-2">
+                    <td className="py-3 text-fg-subtle">{event.obsDate}</td>
+                    <td className="max-w-xs truncate py-3">
+                      <a
+                        href={`/opportunities/${event.opportunitySlug}`}
+                        className="text-accent hover:underline"
+                        title={event.opportunityTitle}
+                      >
+                        {event.opportunityTitle}
+                      </a>
+                    </td>
+                    <td className="py-3">
+                      <Badge tone={staleSourceTone(event.source)}>{event.source}</Badge>
+                    </td>
+                    <td className="py-3 text-fg-muted">{event.domain || '—'}</td>
+                    <td className="py-3 text-fg-subtle" title={event.referenceId ?? undefined}>
+                      {event.referenceId ? `${event.referenceId.slice(0, 12)}…` : '—'}
+                    </td>
+                    <td className="py-3 text-fg-subtle">
+                      {event.observedAt ? new Date(event.observedAt).toLocaleString('zh-CN') : '—'}
                     </td>
                   </tr>
                 ))}

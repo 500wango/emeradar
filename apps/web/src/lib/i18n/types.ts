@@ -973,6 +973,7 @@ export interface TranslationDictionary {
     decisionBasisTitle: string;
     staleDataTitle: string;
     staleDataDesc: string;
+    staleDataSources: string;
     decisionBasisNotRetained: string;
     decisionBasisCompensatedTitle: string;
     decisionBasisCompensatedDesc: string;

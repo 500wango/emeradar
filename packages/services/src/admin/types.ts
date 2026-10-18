@@ -82,6 +82,17 @@ export interface AdminPipelineOverview {
     finishedAt: string | null;
     errorMessage: string | null;
   }>;
+  recentStaleEvents: Array<{
+    id: string;
+    obsDate: string;
+    opportunityId: string;
+    opportunitySlug: string;
+    opportunityTitle: string;
+    source: 'AUTOCOMPLETE' | 'SERP' | 'COMMERCIAL';
+    domain: string;
+    referenceId: string | null;
+    observedAt: string | null;
+  }>;
   latestDiscoverySignals: Array<{
     id: string;
     title: string;
