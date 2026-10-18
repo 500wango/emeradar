@@ -294,7 +294,7 @@ function SettingsContent() {
           used: entitlements.currentProjectsCount,
           limit: entitlements.maxProjects,
           tone: 'signal' as const,
-          note: t('settings.slotsRemaining', {
+          note: t('settings.projectsRemaining', {
             count: Math.max(0, entitlements.maxProjects - entitlements.currentProjectsCount),
           }),
         },

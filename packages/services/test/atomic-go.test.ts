@@ -223,13 +223,6 @@ describe('原子 GO：并发、配额与幂等', () => {
       assert.strictEqual(project.rows[0].credential_status, 'UNVERIFIED');
       assert.strictEqual(await quotaUsed(userId), 1, `${userId} 的配额没有被扣一次`);
     }
-
-    // GO 不再写任何槽位状态：认领表与汇总缓存都该保持为空。
-    const claims = await query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM slot_claims WHERE opportunity_id = ANY($1::text[])`,
-      [[...OPP_CONTEND]]
-    );
-    assert.strictEqual(claims.rows[0].count, 0, 'GO 仍然在写槽位认领');
   });
 
   it('免费层没有 GO 权限：403 PLAN_REQUIRED，且不留下任何痕迹', async (t) => {

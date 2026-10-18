@@ -51,9 +51,9 @@ export async function runSeed(): Promise<void> {
     console.log('[seed] Inserting Plans...');
     await client.query(`
       INSERT INTO plans (code, name, price_usd_monthly, entitlements) VALUES
-      ('FREE', 'Free Starter', 0.00, '{"view_cards_monthly": 10, "generate_reports_monthly": 1, "export_reports_monthly": 0, "max_projects": 1, "max_alerts": 1, "feed_delay_days": 45, "api_access": false}'),
-      ('PRO', 'Builder Pro', 29.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 30, "export_reports_monthly": 30, "max_projects": 50, "max_alerts": 20, "feed_delay_days": 0, "api_access": false}'),
-      ('TEAM', 'Scale Team', 149.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 100, "export_reports_monthly": 100, "max_projects": 100, "max_alerts": 100, "feed_delay_days": 0, "api_access": false}');
+      ('FREE', 'Free Starter', 0.00, '{"view_cards_monthly": 10, "generate_reports_monthly": 1, "export_reports_monthly": 0, "max_projects": 0, "max_alerts": 0, "feed_realtime": false, "feed_selected_weekly": 1, "launch_kit_export": false, "api_access": false}'),
+      ('PRO', 'Builder Pro', 29.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 30, "export_reports_monthly": 30, "max_projects": 50, "max_alerts": 20, "feed_realtime": true, "feed_selected_weekly": 0, "launch_kit_export": true, "api_access": false}'),
+      ('TEAM', 'Scale Team', 149.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 100, "export_reports_monthly": 100, "max_projects": 100, "max_alerts": 100, "feed_realtime": true, "feed_selected_weekly": 0, "launch_kit_export": true, "api_access": false}');
     `);
 
     // 2. Seed Sources

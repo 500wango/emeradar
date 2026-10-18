@@ -185,7 +185,7 @@ export class DecisionService {
 
       // 2) 配额。放第一位：免费层在这里拿到 PLAN_REQUIRED，额度用尽拿到
       //    QUOTA_EXCEEDED，两者都不该被后面的任何失败盖过去。
-      const quota = await EntitlementService.reserveAtomicGoQuota(client, userId);
+      await EntitlementService.reserveAtomicGoQuota(client, userId);
 
       // 3) 决策。与项目同事务：一条决策至多一个项目（I6），而"有项目没决策"会让
       //    这条项目的来源无法被审计。
@@ -202,8 +202,8 @@ export class DecisionService {
       await client.query(
         `INSERT INTO projects
            (id, user_id, opportunity_id, decision_id, report_id, title, domain, build_type,
-            status, launch_date, target_keywords, credential_status, go_quota_period_start)
-         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','UNVERIFIED',$8)`,
+            status, launch_date, target_keywords, credential_status)
+         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','UNVERIFIED')`,
         [
           projectId,
           userId,
@@ -212,7 +212,6 @@ export class DecisionService {
           input.reportId ?? null,
           opportunity.title,
           input.archetype,
-          quota.periodStart,
         ]
       );
 

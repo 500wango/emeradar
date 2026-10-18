@@ -12,7 +12,6 @@ export * from './output-guarantee.service';
 export * from './launch-kit.service';
 export * from './ranking.service';
 export * from './public-url';
-export * from './publication-locales';
 export * from './decision.service';
 export * from './alert.service';
 /**

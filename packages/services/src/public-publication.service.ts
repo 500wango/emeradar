@@ -301,20 +301,4 @@ export class PublicPublicationService {
     }
     return decision;
   }
-
-  /**
-   * **一次性清理**：删掉 v3.0 买断留下的打码投影。
-   *
-   * v3.1 没有打码，这些行（`slug` 形如 `stealth-lock-<lockId>`）是纯粹的遗留物；它们
-   * 仍标着 `PUBLISHED` 时，一条早已不存在的"保护期页面"会继续对外 200。方法刻意
-   * **不挂在发布流程里**：删除是一次运维动作，不该让每轮 S8 都扫一遍全表。
-   *
-   * 返回删除的行数。阶段 F 的 `0020` 会连 `stealth_locks` / `stealth_lock_displays`
-   * 一起拆掉，届时这个方法可以随之删除。
-   */
-  static async clearMaskedProjections(): Promise<number> {
-    const res = await query(`DELETE FROM public_pages WHERE slug LIKE 'stealth-lock-%'`);
-    return res.rowCount ?? 0;
-  }
-
 }

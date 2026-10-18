@@ -31,12 +31,9 @@ test('versioned migrations: fresh, replay, adoption, checksum and rollback', asy
     assert.deepEqual((await target.query('SELECT version, checksum FROM schema_migrations ORDER BY version')).rows, history.rows);
     assert.equal((await target.query(`SELECT price_usd_monthly FROM plans WHERE code = 'PRO'`)).rows[0].price_usd_monthly, '77.00');
 
-    // Legacy installations have schema but no version ledger; retain their data.
-    await target.query('DROP TABLE schema_migrations');
-    await target.query(`INSERT INTO users (id,email) VALUES ('legacy-user','legacy@example.test')`);
-    await runMigration({ pool: target });
-    assert.equal((await target.query(`SELECT id FROM users WHERE id = 'legacy-user'`)).rowCount, 1);
-    assert.equal((await target.query('SELECT * FROM schema_migrations')).rowCount, history.rows.length);
+    // "今天的 schema 但丢了 ledger" **不是**一个可采纳的遗留安装：0020 是破坏性迁移，
+    // 而重放会先跑到 0019（它还引用着 0020 已经删掉的列）。真正的采纳路径是下面那份
+    // **版本化之前**的 schema 快照；这里只保留一条显式断言，免得下一个人误以为它可用。
 
     // Changed applied SQL must be rejected before any pending migration executes.
     const source = path.resolve(__dirname, '../src/migrations');
@@ -64,8 +61,11 @@ test('versioned migrations: fresh, replay, adoption, checksum and rollback', asy
     // Upgrade an actual pre-versioning schema, not merely today's schema without its ledger.
     await target.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
     await target.query(fs.readFileSync(path.resolve(__dirname, 'fixtures/legacy-schema.sql'), 'utf8'));
+    // 存量数据必须在采纳后原样保留（业务行不因版本账本缺失而丢失）。
+    await target.query(`INSERT INTO users (id,email) VALUES ('legacy-user','legacy@example.test')`);
     await target.query(`INSERT INTO users (id,email,tier) VALUES ('old-paid','old-paid@example.test','PRO')`);
     await runMigration({ pool: target });
+    assert.equal((await target.query(`SELECT id FROM users WHERE id = 'legacy-user'`)).rowCount, 1);
     assert.equal((await target.query(`SELECT tier FROM users WHERE id = 'old-paid'`)).rows[0].tier, 'FREE');
     assert.equal((await target.query(`SELECT * FROM audit_log WHERE action = 'TIER_MIRROR_NORMALIZED'`)).rowCount, 1);
     await target.query('SELECT prediction_spec FROM verdicts LIMIT 0');
@@ -73,6 +73,12 @@ test('versioned migrations: fresh, replay, adoption, checksum and rollback', asy
     await target.query('SELECT past_due_since, stripe_payment_intent_id FROM subscriptions LIMIT 0');
     await runMigration({ pool: target });
     assert.equal((await target.query(`SELECT * FROM audit_log WHERE action = 'TIER_MIRROR_NORMALIZED'`)).rowCount, 1);
+
+    // 破坏性迁移带来的运维约束：从**当前版本**的 schema 丢掉 ledger 后无法整体重放，
+    // 因为 0019 会先跑、而它引用的列已被 0020 删除。采纳必须从版本化之前的快照开始，
+    // 或从与该快照等价的备份恢复。
+    await target.query('DROP TABLE schema_migrations');
+    await assert.rejects(runMigration({ pool: target }), /slot_claim_id/);
   } finally {
     await target.end();
     if (created) await maintenance.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);

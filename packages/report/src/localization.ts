@@ -574,7 +574,7 @@ export function formatPricingModel(
       case 'SUBSCRIPTION':
         return '订阅制 (月付/年付)';
       case 'ONE_TIME':
-        return '一次性买断';
+        return '一次性付费';
       case 'FREEMIUM':
         return '免费增值 (基础免费+高级付费)';
       case 'USAGE_BASED':

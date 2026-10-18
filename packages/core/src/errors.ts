@@ -15,9 +15,8 @@ export interface RFC9457ErrorPayload {
   }>;
   /**
    * 按 `code` 定义的补充信息。放进错误体而不是塞进 `detail` 字符串里，是因为
-   * 调用方要**用它做判断**而不只是显示：`SLOT_TAKEN` 的 `alternatives[]` 决定前端
-   * 是提示"换个形态"还是"换条机会"，而从一句话里正则抠出候选形态是在逼调用方
-   * 解析人类可读文本。
+   * 调用方要**用它做判断**而不只是显示：`ALREADY_GO` 的 `project_id` 决定前端是
+   * 跳转既有项目还是重试，而从一句话里正则抠出 id 是在逼调用方解析人类可读文本。
    */
   details?: Record<string, unknown>;
 }
@@ -164,18 +163,10 @@ export const ErrorCode = {
   PLAN_REQUIRED: 'PLAN_REQUIRED',
   QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
   /**
-   * 槽位被别人占了（`claimed == capacity`）。与 `QUOTA_EXCEEDED` 必须严格区分：
-   * 前者换一个形态或换一条机会就有救，后者是用户自己这个月的额度用完了。
-   * 前端据此给完全不同的引导（10 §1.1、16 §3.3）。
-   */
-  SLOT_TAKEN: 'SLOT_TAKEN',
-  /**
    * 同一 (用户, 机会, 裁决) 已经 GO 过。v3.1 的重复 GO 是幂等的：响应带既有
    * `details.project_id`，配额不再重复扣减（01 §1.8 第 5 条、ADR-018）。
    */
   ALREADY_GO: 'ALREADY_GO',
-  /** 存在质押逾期未处理的项目，须先处理才能发起新的 GO。 */
-  STAKE_REQUIRED: 'STAKE_REQUIRED',
   /** 质押凭证的 HTTP 探针校验未通过（页面不可达 / 与机会主词相关性不足）。 */
   CREDENTIAL_UNVERIFIED: 'CREDENTIAL_UNVERIFIED',
   /** Phase 1 席位已满（Pro 30 / Founding 50，PRD v2.2 Q6、Q12）；结账页应显示候补。 */

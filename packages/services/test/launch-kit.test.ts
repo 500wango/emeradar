@@ -103,10 +103,6 @@ async function seedFixture() {
        VALUES ($1, $2, $3, 'TRACKED', 'US', 'en-US')`,
       [opportunityId, slug, `${slug} opportunity`]
     );
-    await query(
-      `INSERT INTO opportunity_slots (opportunity_id, archetype, capacity) VALUES ($1, $2, 2)`,
-      [opportunityId, archetype]
-    );
     // 卡片上的列几乎都是 NOT NULL：报告要引用它，GO 也要 JOIN 它。
     await query(
       `INSERT INTO opportunity_cards (

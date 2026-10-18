@@ -392,9 +392,6 @@ export interface TranslationDictionary {
     showingRange: string;
     addToCompare: string;
     targetQuery: string;
-    builderSlots: string;
-    slotsFull: string;
-    slotsClaimed: string;
     commercialUnverified: string;
     productConcept: string;
     whyNow: string;
@@ -433,7 +430,6 @@ export interface TranslationDictionary {
     outcome30d: string;
     outcome60d: string;
     observedMetric: string;
-    maskedUnlockAt: string;
     noEpisodes: string;
     cohortTitle: string;
     cohortDesc: string;
@@ -729,7 +725,7 @@ export interface TranslationDictionary {
     billingLegacy: string;
     changePlan: string;
     liveScans: string;
-    slotsRemaining: string;
+    projectsRemaining: string;
     generationsRemaining: string;
     exportsRemaining: string;
     rulesActive: string;
@@ -871,25 +867,13 @@ export interface TranslationDictionary {
     passReasonOutsideTimeBudget: string;
     passReasonNotMySkill: string;
     passReasonOther: string;
-    stealthBtn: string;
-    stealthPending: string;
-    stealthHint: string;
-    stealthSuccess: string;
-    stealthFailed: string;
-    stealthUnavailableClaimed: string;
-    stealthHeldByYou: string;
-    stealthHeldByOther: string;
     watchFailed: string;
     goFailed: string;
     passReasonRequired: string;
     passFailed: string;
     exportLocked: string;
     goPending: string;
-    goNoSlot: string;
-    goSlotTaken: string;
-    goSlotTakenAlternatives: string;
-    goSlotsExhausted: string;
-    trackPickerLabel: string;
+    goNoArchetype: string;
     upgradePlan: string;
   };
   report: {
@@ -1044,7 +1028,6 @@ export interface TranslationDictionary {
     rowCommercial: string;
     rowWindow: string;
     rowConfidence: string;
-    rowCrowding: string;
     rowExecution: string;
     rowKill: string;
     killTriggered: string;
@@ -1101,7 +1084,6 @@ export interface TranslationDictionary {
     alreadyOnFile: string;
     primaryQuery: string;
     openRecord: string;
-    stealthLocked: string;
   };
   onboarding: {
     eyebrow: string;

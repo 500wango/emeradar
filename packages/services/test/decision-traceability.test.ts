@@ -67,15 +67,6 @@ async function seedFixture() {
        VALUES ($1, $2, $3, 'TRACKED', '2026-01-01')`,
       [opportunityId, slug, slug]
     );
-    // 槽位行由 observe 路径在发布时物化；这个夹具直接 INSERT 机会，所以要自己补。
-    // 不补的话任何 GO 都会得到 400「这个形态没开放」——那是夹具的缺口，不是被测行为。
-    if (opportunityId !== OPP_SHARED) {
-      await query(
-        `INSERT INTO opportunity_slots (opportunity_id, archetype, capacity)
-         VALUES ($1, 'TOOL', 2), ($1, 'PSEO_SITE', 2)`,
-        [opportunityId]
-      );
-    }
     await query(
       `INSERT INTO opportunity_cards (
          opportunity_id, slug, primary_query, verdict, lifecycle,
@@ -298,7 +289,7 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     assert.strictEqual(decisions.rows[0].count, 2, '旁路写入了额外的 GO 决策');
   });
 
-  it('GO 不占槽位、不建认领：并发 GO 各扣各的配额', async (t) => {
+  it('GO 只写 Project 壳：不产生凭证行，凭证状态停在 UNVERIFIED', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { DecisionService } = harness.services;
 
@@ -308,18 +299,19 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
       verdictId: VERDICT_OTHER,
     });
 
-    // v3.1 没有槽位：即使用户在同一条机会上第二次 GO（换一条裁决），也不该有认领行。
-    const claims = await harness.db.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM slot_claims WHERE project_id = $1`,
+    // v3.1 的 GO 只有三件事：配额、决策、Project 壳。凭证是之后的自愿动作。
+    const credentials = await harness.db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM project_credentials WHERE project_id = $1`,
       [started.projectId]
     );
-    assert.strictEqual(claims.rows[0].count, 0, 'GO 仍然在写槽位认领');
+    assert.strictEqual(credentials.rows[0].count, 0, 'GO 事务里仍然写了凭证');
 
-    const slots = await harness.db.query<{ claimed: number }>(
-      `SELECT COALESCE(SUM(claimed), 0)::int AS claimed FROM opportunity_slots WHERE opportunity_id = $1`,
-      [OPP_OTHER]
+    const project = await harness.db.query<{ credential_status: string; launch_date: Date | null }>(
+      `SELECT credential_status, launch_date FROM projects WHERE id = $1`,
+      [started.projectId]
     );
-    assert.strictEqual(slots.rows[0].claimed, 0, 'GO 仍然在递增槽位汇总');
+    assert.strictEqual(project.rows[0].credential_status, 'UNVERIFIED');
+    assert.strictEqual(project.rows[0].launch_date, null);
   });
 
   it('重复 GO 不会立出第二个项目（不变量 I6）', async (t) => {
@@ -439,8 +431,8 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     // 与之相对：落过项的决策不能删。这不是限制，而是**记录完整性**——删它会级联
     // 掉用户的项目，而项目是用户真正交付的东西。
     //
-    // v3.1 之前这条保护来自 `slot_claims.project_id`；GO 不再建认领之后，依据换成
-    // `projects.decision_id` 的 NO ACTION（0019 第 6 节）。
+    // 这条保护的物理依据是 `projects.decision_id` 的 NO ACTION（0019 第 6 节）：
+    // 删除一条被项目引用的决策会失败，项目不会跟着静默消失。
     const claimed = (
       await query<{ decision_id: string }>(
         `SELECT decision_id FROM projects WHERE user_id = $1 AND opportunity_id = $2`,

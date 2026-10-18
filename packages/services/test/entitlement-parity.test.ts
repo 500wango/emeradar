@@ -142,7 +142,8 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const day3 = await EntitlementService.getUserEntitlements(PAST_DUE_DAY3);
     assert.strictEqual(day3.planCode, 'PRO', '宽限期内被提前断供');
-    assert.strictEqual(day3.maxProjects, 10);
+    // 0020 起 PRO 的项目上限是 50（20 §6）。
+    assert.strictEqual(day3.maxProjects, 50);
     // 宽限期内没有任何"下一次续费"，周期末端已经在过去。
     assert.strictEqual(day3.renewsAt, null, '宽限期内报出了一个已经过去的续费日');
 
@@ -177,7 +178,7 @@ describe('权益口径：订阅表是唯一事实源', () => {
 
     const shown = await EntitlementService.getUserEntitlements(PAST_DUE_DAY3);
     assert.strictEqual(shown.exportReportsMonthlyLimit, 30, '快照定义过的键没有被尊重');
-    assert.strictEqual(shown.maxProjects, 10, '快照没定义的键没有回落目录 —— 付费用户被按 0 个项目处理');
+    assert.strictEqual(shown.maxProjects, 50, '快照没定义的键没有回落目录 —— 付费用户被按 0 个项目处理');
     assert.strictEqual(shown.maxAlerts, 20);
   });
 

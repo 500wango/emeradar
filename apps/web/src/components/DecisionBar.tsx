@@ -92,7 +92,7 @@ export function DecisionBar({
       return;
     }
     if (!archetype) {
-      setError(t('opportunityDetail.goNoSlot'));
+      setError(t('opportunityDetail.goNoArchetype'));
       return;
     }
     setPending('go');
@@ -114,7 +114,6 @@ export function DecisionBar({
         // 每类失败给的是**不同的下一步**，所以不能糊成一句"操作失败"：
         //   自己没额度 → 换套餐（RFC9457 的 `upgrade` 是 `{required_plan, url}`）
         //   重复点击 → 直接去那条项目（配额没有被再扣一次）
-        // v3.1 没有槽位，`SLOT_TAKEN` 不再可能出现。
         if (data.upgrade?.url) setUpgradeUrl(String(data.upgrade.url));
         if (data.code === 'ALREADY_GO' && data.details?.project_id) {
           router.push(`/projects/${data.details.project_id}`);
