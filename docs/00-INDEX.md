@@ -41,6 +41,7 @@ Status: Living doc ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1：GO = 配额
 | 30 | REVIEW-REMEDIATION-PLAN | 2026-10-17 设计审查的整改项（R1–R20）、裁决事项（Q1–Q15，已合入 PRD v2.2）与重排的开发计划 | 产品、全员 |
 | 31 | IMPLEMENTATION-PLAN | 30 的整改项落到代码：按里程碑拆分的任务、涉及文件、迁移与验收 | 后端、前端、全员 |
 | 32 | STRIPE-WEBHOOK-SETUP | Stripe 接入：endpoint 与事件清单、密钥切换顺序、可重跑的验证命令 | 后端、运维 |
+| 33 | V3.1-CODE-SYNC-WORK-ORDER | 把 PRD v3.1 拆成可执行的代码拆除/改造施工单（阶段 A–F、验收、已知陷阱） | 后端、前端、DSH |
 
 ## 2. 依赖关系
 
