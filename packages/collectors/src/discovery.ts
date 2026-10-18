@@ -249,3 +249,129 @@ export class AIsaSearchDiscoverySource implements DiscoverySource {
     };
   }
 }
+
+/**
+ * AnySearch 统一搜索（`POST https://api.anysearch.com/v1/search`）。
+ *
+ * 和 AIsa Smart Search 一样，这是多源网页搜索，不是 Google SERP；只能用于
+ * discovery / Why Now，不能进 W 轴。响应形状：
+ * `{ code: 0, data: { results: [{ title, url, snippet?, content? }] } }`。
+ *
+ * 匿名访问有每日免费额度但按 IP 限流；生产默认要求 `ANYSEARCH_API_KEY`，
+ * 只有显式 `ANYSEARCH_ALLOW_ANONYMOUS=true` 才允许无 key 运行。
+ * 种子查询来自 `ANYSEARCH_QUERIES`，未配置时回退 `AISA_SEARCH_QUERIES`。
+ */
+export class AnySearchDiscoverySource implements DiscoverySource {
+  readonly sourceId = 'src_anysearch';
+  readonly provider = 'ANYSEARCH';
+
+  constructor(
+    private readonly queries: string[],
+    private readonly apiKey = process.env.ANYSEARCH_API_KEY,
+    private readonly endpoint = 'https://api.anysearch.com/v1/search',
+    private readonly maxResults = 10
+  ) {}
+
+  async discover(): Promise<DiscoveryResult | DiscoveryFailure> {
+    if (!this.apiKey && process.env.ANYSEARCH_ALLOW_ANONYMOUS !== 'true') {
+      return {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'ANYSEARCH_NOT_CONFIGURED',
+        message: 'ANYSEARCH_API_KEY is required unless ANYSEARCH_ALLOW_ANONYMOUS=true.',
+      };
+    }
+    if (this.queries.length === 0) {
+      return {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'ANYSEARCH_NO_QUERIES',
+        message: 'ANYSEARCH_QUERIES is empty; refusing to search without a query.',
+      };
+    }
+
+    const items: DiscoveryItem[] = [];
+    const seen = new Set<string>();
+    const rawPayloads: unknown[] = [];
+    let requests = 0;
+
+    try {
+      for (const query of this.queries.slice(0, 10)) {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+        const response = await fetch(this.endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            query,
+            max_results: Math.min(10, Math.max(1, this.maxResults)),
+            zone: 'intl',
+            language: 'en',
+          }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (!response.ok) {
+          throw new Error(`AnySearch returned ${response.status} for "${query}"`);
+        }
+        requests++;
+        const payload = (await response.json()) as any;
+        rawPayloads.push(payload);
+        if (payload?.code !== 0) {
+          throw new Error(`AnySearch business error ${payload?.code ?? 'unknown'}: ${payload?.message ?? ''}`);
+        }
+        const rows = payload?.data?.results;
+        if (!Array.isArray(rows)) {
+          throw new Error('AnySearch response does not expose data.results[]');
+        }
+        for (const row of rows) {
+          const sourceUrl = typeof row?.url === 'string' ? row.url : null;
+          if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) continue;
+          if (seen.has(sourceUrl)) continue;
+          seen.add(sourceUrl);
+          const title =
+            typeof row?.title === 'string' && row.title.trim().length > 0
+              ? row.title.trim()
+              : sourceUrl;
+          const excerpt =
+            typeof row?.snippet === 'string' && row.snippet.trim().length > 0
+              ? row.snippet.slice(0, 500)
+              : typeof row?.content === 'string'
+              ? row.content.slice(0, 500)
+              : undefined;
+          const canonical = JSON.stringify({ url: sourceUrl, title, excerpt: excerpt ?? null });
+          items.push({
+            sourceItemId: sha256(sourceUrl),
+            provider: this.provider,
+            sourceUrl,
+            title,
+            excerpt,
+            collectedAt: new Date(),
+            contentHash: sha256(canonical),
+            requestHash: requestHash(this.endpoint),
+            metadata: { query },
+          });
+        }
+      }
+    } catch (error) {
+      return {
+        status: 'FAILED',
+        retryable: true,
+        errorCode: 'ANYSEARCH_ERROR',
+        message: (error as Error).message,
+      };
+    }
+
+    const rawContent = JSON.stringify({ source: this.provider, queries: this.queries, payloads: rawPayloads });
+    return {
+      status: 'OK',
+      items,
+      raw: { content: rawContent, contentHash: sha256(rawContent), mimeType: 'application/json' },
+      cost: {
+        sourceId: this.sourceId,
+        costUsd: 0,
+        category: 'INFRA',
+        units: requests,
+      },
+    };
+  }
+}
