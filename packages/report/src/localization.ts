@@ -281,8 +281,6 @@ export function formatScoringFlag(flag: string, locale: Locale = 'en-US'): strin
     switch (flag) {
       case 'M_NEGATIVE':
         return '商业轴强负面信号（官方免费替代、定价下线或付费转免费）';
-      case 'CROWDED_LOCKED':
-        return '赛道拥挤且头部排位已被锁定，新进入者难以切入';
       case 'FAST_TRACK':
         return '快速通道：历史样本虽短，信号强度已足以放行';
       case 'LOW_CONFIDENCE':
@@ -310,8 +308,6 @@ export function formatScoringFlag(flag: string, locale: Locale = 'en-US'): strin
   switch (flag) {
     case 'M_NEGATIVE':
       return 'Strong negative commercial signal (free first-party replacement, withdrawn pricing, or paid-to-free migration)';
-    case 'CROWDED_LOCKED':
-      return 'Niche crowded and head positions locked by incumbents';
     case 'FAST_TRACK':
       return 'Fast track: signal strength justified publication despite a short history';
     case 'LOW_CONFIDENCE':

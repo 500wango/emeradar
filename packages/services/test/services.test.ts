@@ -42,7 +42,7 @@ describe('Services Layer Integration Tests', () => {
     assert.strictEqual(freeEnt.tier, 'FREE');
     assert.strictEqual(freeEnt.exportReportsMonthlyLimit, 0);
     assert.strictEqual(freeEnt.apiAccess, false);
-    assert.strictEqual(freeEnt.feedDelayDays, 45);
+    assert.strictEqual(freeEnt.feedSelectedWeekly, true);
     assert.strictEqual(freeEnt.opportunityDetailFull, false);
     assert.strictEqual(freeEnt.deepReportExport, false);
 
@@ -50,7 +50,7 @@ describe('Services Layer Integration Tests', () => {
     assert.strictEqual(proEnt.tier, 'PRO');
     assert.strictEqual(proEnt.exportReportsMonthlyLimit, 30);
     assert.strictEqual(proEnt.apiAccess, false); // API access is closed for the launch tier contract.
-    assert.strictEqual(proEnt.feedDelayDays, 0);
+    assert.strictEqual(proEnt.feedSelectedWeekly, false);
     assert.strictEqual(proEnt.opportunityDetailFull, true);
     assert.strictEqual(proEnt.deepReportExport, true);
   });

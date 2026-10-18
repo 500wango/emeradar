@@ -371,8 +371,12 @@ export interface TranslationDictionary {
     weeklyFresh: string;
     weeklyHistorical: string;
     weeklyNone: string;
-    weeklyReasonCrowded: string;
-    weeklyReasonClosing: string;
+    weeklyReason: {
+      WINDOW_CLOSING: string;
+      PASS: string;
+      LIFECYCLE_CLOSED: string;
+      INACTIVE_14D: string;
+    };
     weeklyUpgrade: string;
     noEmerging: string;
     confidenceLabel: string;

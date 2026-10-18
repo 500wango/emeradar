@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
     const offset = Math.max(0, Number.parseInt(searchParams.get('offset') || '0', 10) || 0);
 
     // Free 层：每周 1 条精选，而不是延迟 N 天的整本 Feed（13 §3.2）。
-    if (ent.feedDelayDays > 0) {
+    // v3.1 已经没有「延迟 45 天」这个维度：免费层看的就是那一周案例。
+    if (ent.feedSelectedWeekly) {
       return NextResponse.json(await listFreeWeeklyFeed({ verdict, archetype, executionClass, minD, search }));
     }
 
@@ -38,7 +39,6 @@ export async function GET(request: NextRequest) {
       search,
       limit,
       offset,
-      minAgeDays: ent.feedDelayDays,
     });
 
     return NextResponse.json(data);

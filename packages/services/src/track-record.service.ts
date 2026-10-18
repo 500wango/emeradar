@@ -8,6 +8,7 @@ import {
   buildRowHashInput,
   LedgerRowRecord,
 } from '@emeradar/ledger';
+import { evaluateLostFirstMoverValue, loadLostValueFacts } from './publication-policy';
 
 /**
  * 单边样本不出比率 —— docs/16 §3.1a 的强制口径，导出的纯函数便于直接测。
@@ -72,22 +73,13 @@ export class TrackRecordService {
    */
   static async getPublicTrackRecord(): Promise<any> {
     // 1. 汇总纳入 v2 纪元内**全部**已发布 Episode，不再按天数延迟（PRD v2.2 Q11、06 §11）：
-    //    只统计已满额或已关窗的机会会系统性剔除无人认领的失误。逐行明细另行披露：
-    //    失去抢跑价值（槽位满额 / 当前为 WINDOW_CLOSING）、完成 T+90 评估、或买断已期满
-    //    三者先到者；买断保护期内以打码形式出现。有界，未登录请求扫不了整本账本。
+    //    只统计已失去抢跑价值的机会会系统性剔除无人认领的失误。逐行明细另行披露：
+    //    「失去抢跑价值」或「完成 T+90 评估」两者先到者。判据与公开投影同源
+    //    （`evaluateLostFirstMoverValue`），但方向相反：这里的披露只决定**明细**是否
+    //    对外出现，`stats` 与 `cohorts` 永远用全量（命中与失误都必须留在统计里）。
+    //    有界，未登录请求扫不了整本账本。
     const episodesRes = await query<any>(
-      `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug,
-              (
-                e.outcome_90d IN ('HIT','MISS')
-                OR COALESCE((SELECT SUM(s.capacity) > 0 AND SUM(s.claimed) >= SUM(s.capacity)
-                               FROM opportunity_slots s WHERE s.opportunity_id = e.opportunity_id), false)
-                OR COALESCE((SELECT lv.verdict = 'WINDOW_CLOSING' FROM verdicts lv
-                              WHERE lv.opportunity_id = e.opportunity_id
-                              ORDER BY lv.obs_date DESC LIMIT 1), false)
-                OR EXISTS (SELECT 1 FROM stealth_locks sl
-                            WHERE sl.opportunity_id = e.opportunity_id
-                              AND sl.provider_payment_id IS NOT NULL)
-              ) AS disclosed
+      `SELECT e.*, o.title as opportunity_title, o.slug as opportunity_slug
        FROM prediction_episodes e
        JOIN opportunities o ON o.id = e.opportunity_id
        JOIN verdicts v ON v.id = e.verdict_id
@@ -100,6 +92,16 @@ export class TrackRecordService {
     );
 
     const episodes = episodesRes.rows;
+    // 逐行披露判据：T+90 出结果，或这条机会已经失去抢跑价值。一次取齐事实，避免
+    // 每个 Episode 一次往返（最多 500 行）。
+    const episodeFacts = await loadLostValueFacts(episodes.map((e: any) => e.opportunity_id));
+    for (const episode of episodes) {
+      const facts = episodeFacts.get(episode.opportunity_id);
+      episode.disclosed =
+        episode.outcome_90d === 'HIT' ||
+        episode.outcome_90d === 'MISS' ||
+        (facts ? evaluateLostFirstMoverValue(facts).eligible : false);
+    }
     const evaluated = episodes.filter(
       (e) => e.outcome_30d === 'HIT' || e.outcome_30d === 'MISS'
     );

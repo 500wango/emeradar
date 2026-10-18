@@ -26,9 +26,9 @@ export default async function FeedPage({
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect('/login?next=%2Ffeed');
   const ent = await EntitlementService.getUserEntitlements(session.user.id);
-  const feedDelayDays = ent.feedDelayDays;
   const planLabel = ent.planCode;
-  const realtime = feedDelayDays === 0;
+  // v3.1 没有「延迟 45 天」这个维度：Free 就是每周一条精选，付费层是实时 Feed。
+  const realtime = !ent.feedSelectedWeekly;
   const params = searchParams ? await searchParams : {};
   const verdictParam = firstParam(params.verdict);
   const archetypeParam = firstParam(params.archetype);
@@ -87,9 +87,7 @@ export default async function FeedPage({
         // 历史案例必须明示原入选日期，不得伪装成本周新案例（30 Q10）。
         const weekly: WeeklySelectedCase | null = 'weekly' in feed ? (feed.weekly as WeeklySelectedCase | null) : null;
         const since = weekly ? new Date(weekly.eligibleSince).toLocaleDateString(isZh ? 'zh-CN' : 'en-US') : '';
-        const reason = weekly
-          ? t(weekly.eligibleReason === 'CROWDED_LOCKED' ? 'feed.weeklyReasonCrowded' : 'feed.weeklyReasonClosing')
-          : '';
+        const reason = weekly ? t(`feed.weeklyReason.${weekly.eligibleReason}`) : '';
         return (
           <Panel className="mt-8 p-5">
             <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">{t('feed.weeklyBadge')}</p>

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { ids } = parseInput(compareSchema, await request.json().catch(() => ({})));
-    const items = await OpportunityService.compareOpportunities(ids, { minAgeDays: entitlements.feedDelayDays });
+    const items = await OpportunityService.compareOpportunities(ids);
     return NextResponse.json({ items });
   } catch (error: any) {
     if (error instanceof AppError) return NextResponse.json(error.toRFC9457(), { status: error.status });

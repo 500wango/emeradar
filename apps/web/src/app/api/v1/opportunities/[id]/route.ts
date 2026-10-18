@@ -27,9 +27,8 @@ export async function GET(
         { status: 403 }
       );
     }
-    const data = await OpportunityService.getOpportunityDetail(id, {
-      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
-    });
+    // Free 的详情访问只有一条路：本周精选（上面已判过），不再套任何天数延迟。
+    const data = await OpportunityService.getOpportunityDetail(id);
     return NextResponse.json(data);
   } catch (error: any) {
     if (error instanceof AppError) {

@@ -17,7 +17,11 @@ export interface UserEntitlementsInfo {
   maxAlerts: number;
   currentAlertsCount: number;
   apiAccess: boolean;
-  feedDelayDays: number;
+  /**
+   * Free 层的 Feed 是「每周一条精选案例」，而不是 v3.0 的「延迟整本 Feed 45 天」。
+   * 付费层为 false（实时 Feed）。
+   */
+  feedSelectedWeekly: boolean;
   opportunityDetailFull: boolean;
   deepReportExport: boolean;
   liveScanDailyLimit: number;
@@ -216,11 +220,9 @@ export class EntitlementService {
     const apiAccess = isAdmin || !!ent.api_access;
     const opportunityDetailFull = isAdmin || planCode !== 'FREE';
     const deepReportExport = isAdmin || planCode !== 'FREE';
-    const feedDelayDays = isAdmin
-      ? 0
-      : typeof ent.feed_delay_days === 'number'
-      ? ent.feed_delay_days
-      : 0;
+    // 目录里的 `feed_selected_weekly` 是 v3.1 的口径；键还没写进 plans 之前（0020 之前）
+    // 按套餐判定，与 `opportunityDetailFull` 同源——Free 走周案例，付费层走实时。
+    const feedSelectedWeekly = isAdmin ? false : Boolean(ent.feed_selected_weekly ?? planCode === 'FREE');
 
     // Quota window = the billing period (docs/13 §4.2), not the calendar month.
     // A subscription anchors it on its own period start; everyone else (the free
@@ -293,7 +295,7 @@ export class EntitlementService {
       maxAlerts,
       currentAlertsCount: alertCount,
       apiAccess,
-      feedDelayDays,
+      feedSelectedWeekly,
       opportunityDetailFull,
       deepReportExport,
       liveScanDailyLimit: scanLimit,

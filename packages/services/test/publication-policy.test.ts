@@ -2,14 +2,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CANNIBALIZATION_MAX_JACCARD,
+  INACTIVE_WINDOW_DAYS,
   SERP_TOP_N,
-  WINDOW_CLOSING_FRESHNESS_DAYS,
   evaluateCannibalization,
+  evaluateLostFirstMoverValue,
   jaccard,
   normalizeSerpUrl,
-  slotFullness,
-  windowClosingState,
+  windowClosingEnteredOn,
   type CannibalizationIndex,
+  type LostValueFacts,
 } from '../src';
 
 /**
@@ -52,177 +53,109 @@ function partnerSharing(shared: number): string[] {
   return [...urlsFrom('a', shared), ...urlsFrom('b', SERP_TOP_N - shared)];
 }
 
-describe('槽位满额（15 §3 第 1 条）', () => {
-  // 入参是**按机会汇总后**的计数（`loadSlotTotals` 的返回值），跨形态的求和在 SQL 的
-  // `SUM` 里完成。所以这里的"多形态"用例直接给汇总值——被测的是"汇总值够不够判满额"，
-  // 而不是再实现一遍求和。
-  it('没有槽位行**不算**满额——这是 0 容忍的那条线', () => {
-    // 一条没有槽位行的机会，`SUM` 在 SQL 里被 `COALESCE` 成 0。裸比较会把"一个槽位都
-    // 没开"读成"已满额"，于是把一条还没开始抢的机会公开出去。15 §8 把这件事列为
-    // 0 容忍的 P0。
-    const empty = slotFullness({ slotRows: 0, capacity: 0, claimed: 0 });
-    assert.equal(empty.full, false);
-    assert.equal(empty.slotRows, 0);
-    assert.equal(empty.capacity, 0);
-    assert.equal(empty.claimed, 0);
+/** 判据事实的默认值：最新一条 WATCH、生命周期 EARLY_WINDOW、从未活跃过。 */
+function facts(overrides: Partial<LostValueFacts> = {}): LostValueFacts {
+  return {
+    latestVerdict: 'WATCH',
+    latestVerdictDate: '2026-10-18',
+    lifecycle: 'EARLY_WINDOW',
+    lastActiveVerdictDate: null,
+    ...overrides,
+  };
+}
+
+/** 以 2026-10-18 为"今天"的参考时刻。 */
+const TODAY = new Date('2026-10-18T00:00:00Z');
+const daysAgo = (n: number): string =>
+  new Date(TODAY.getTime() - n * 86_400_000).toISOString().slice(0, 10);
+
+describe('「已失去抢跑价值」的四条判据（15 §3、01 §1.8 第 5 条）', () => {
+  it('活跃的 BUILD_NOW / EARLY_BET 一律不公开，哪怕生命周期已经写成竞争态', () => {
+    for (const latest of ['BUILD_NOW', 'EARLY_BET']) {
+      const res = evaluateLostFirstMoverValue(
+        facts({ latestVerdict: latest, lifecycle: 'CONTESTED', lastActiveVerdictDate: daysAgo(0) }),
+        TODAY
+      );
+      assert.equal(res.eligible, false);
+      assert.equal(res.basis, null);
+    }
   });
 
-  it('单形态满额即满额', () => {
-    assert.deepEqual(slotFullness({ slotRows: 1, capacity: 2, claimed: 2 }), {
-      slotRows: 1,
-      capacity: 2,
-      claimed: 2,
-      full: true,
-    });
-  });
-
-  it('多形态要**全部**满额——任一形态有空槽就还没耗尽抢跑价值', () => {
-    // 多队列正是 ADR-018 的意图：不同形态的认领者互不挤占，所以只要还有一条队能进人，
-    // 这条机会就还有抢跑价值。两个形态各 2 个坑：3/4 未满，4/4 才满。
-    assert.equal(slotFullness({ slotRows: 2, capacity: 4, claimed: 3 }).full, false);
-    assert.equal(slotFullness({ slotRows: 2, capacity: 4, claimed: 4 }).full, true);
-  });
-
-  it('`slotRows` 是数据、不是数组长度', () => {
-    // 曾经把这里写成"传入行数组、用 rows.length 当 slotRows"，于是 slotRows 恒为 1 ——
-    // 一条一个槽位都没有的机会会报出 slotRows = 1，凭据直接说谎。
-    const totals = slotFullness({ slotRows: 3, capacity: 6, claimed: 6 });
-    assert.equal(totals.slotRows, 3);
-    assert.equal(totals.full, true);
-  });
-
-  it('claimed >= capacity 即可（对汇总缓存漂移取保守方向）', () => {
-    // 0003 的 CHECK 让 `==` 与 `>=` 等价，但缓存漂移时宁可判成"已满"。
-    assert.equal(slotFullness({ slotRows: 1, capacity: 2, claimed: 3 }).full, true);
-  });
-});
-
-describe('14 天内新进 WINDOW_CLOSING（15 §3 第 1 条）', () => {
-  /** 按倒序（最新在前）造账本尾部，与 observe-opportunity.ts:474-518 的读取约定一致。 */
-  const run = (verdicts: Array<[string, string]>) =>
-    verdicts.map(([obs_date, verdict]) => ({ obs_date, verdict }));
-
-  it('空账本不算在关窗期', () => {
-    const state = windowClosingState([]);
-    assert.equal(state.current, false);
-    assert.equal(state.enteredOn, null);
-    assert.equal(state.fresh, false);
-    assert.equal(state.freshnessDays, WINDOW_CLOSING_FRESHNESS_DAYS);
-  });
-
-  it('当前不是 WINDOW_CLOSING 就不算——即使曾经是', () => {
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WATCH'],
-        ['2026-10-13', 'WINDOW_CLOSING'],
-      ])
+  it('最新裁决是 WINDOW_CLOSING / PASS → 公开，且凭据写出是哪一条', () => {
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ latestVerdict: 'WINDOW_CLOSING' }), TODAY),
+      { eligible: true, basis: 'WINDOW_CLOSING' }
     );
-    assert.equal(state.current, false);
-    assert.equal(state.enteredOn, null);
-    assert.equal(state.fresh, false);
-  });
-
-  it('只看**当前这一段**的起始日，不看更早的那一段', () => {
-    // 离开后再进入算一次新的进入（06 §6 的 Episode 也是这个口径）。若把最早的那一段
-    // 当成进入日，一条反复关窗的机会会被永久判成"刚进窗"。
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WINDOW_CLOSING'],
-        ['2026-10-13', 'WINDOW_CLOSING'],
-        ['2026-10-12', 'WATCH'],
-        ['2026-10-11', 'WINDOW_CLOSING'], // 更早的那一段，不算
-      ])
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ latestVerdict: 'PASS' }), TODAY),
+      { eligible: true, basis: 'PASS' }
     );
-    assert.equal(state.current, true);
-    assert.equal(state.enteredOn, '2026-10-13');
-    assert.equal(state.ageDays, 1);
-    assert.equal(state.fresh, true);
   });
 
-  it('4 天前进窗 → 新鲜', () => {
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WINDOW_CLOSING'],
-        ['2026-10-13', 'WINDOW_CLOSING'],
-        ['2026-10-12', 'WINDOW_CLOSING'],
-        ['2026-10-11', 'WINDOW_CLOSING'],
-        ['2026-10-10', 'WINDOW_CLOSING'],
-        ['2026-10-09', 'BUILD_NOW'],
-      ])
+  it('生命周期进入 CONTESTED / MATURE / DEAD → 公开（LIFECYCLE_CLOSED）', () => {
+    for (const lifecycle of ['CONTESTED', 'MATURE', 'DEAD']) {
+      assert.deepEqual(
+        evaluateLostFirstMoverValue(facts({ latestVerdict: 'WATCH', lifecycle }), TODAY),
+        { eligible: true, basis: 'LIFECYCLE_CLOSED' }
+      );
+    }
+    // 仍在 FORMING / EARLY_WINDOW 时这一条不成立；把最后一条活跃裁决放在昨天，
+    // 让"14 天没动过"那条也不成立，结论才只剩下"未失去价值"。
+    for (const lifecycle of ['FORMING', 'EARLY_WINDOW']) {
+      assert.equal(
+        evaluateLostFirstMoverValue(facts({ lifecycle, lastActiveVerdictDate: daysAgo(1) }), TODAY).basis,
+        null
+      );
+    }
+  });
+
+  it('14 天边界（含端点）：最后一条活跃裁决在 14 天前放行，13 天前仍阻断', () => {
+    assert.equal(INACTIVE_WINDOW_DAYS, 14);
+    // 窗口是 [today-13, today]：落在 today-14 才在窗口之外。
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ lastActiveVerdictDate: daysAgo(14) }), TODAY),
+      { eligible: true, basis: 'INACTIVE_14D' }
     );
-    assert.equal(state.enteredOn, '2026-10-10');
-    assert.equal(state.ageDays, 4);
-    assert.equal(state.fresh, true);
-  });
-
-  it('**恰好 14 天**算新鲜（含端点）', () => {
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WINDOW_CLOSING'],
-        ['2026-09-30', 'WINDOW_CLOSING'],
-        ['2026-09-29', 'BUILD_NOW'],
-      ])
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ lastActiveVerdictDate: daysAgo(13) }), TODAY),
+      { eligible: false, basis: null }
     );
-    assert.equal(state.enteredOn, '2026-09-30');
-    assert.equal(state.ageDays, 14);
-    assert.equal(state.fresh, true);
-  });
-
-  it('15 天前进窗就不新鲜了', () => {
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WINDOW_CLOSING'],
-        ['2026-09-29', 'WINDOW_CLOSING'],
-        ['2026-09-28', 'BUILD_NOW'],
-      ])
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ lastActiveVerdictDate: daysAgo(0) }), TODAY),
+      { eligible: false, basis: null }
     );
-    assert.equal(state.ageDays, 15);
-    assert.equal(state.fresh, false);
   });
 
-  it('**粘滞陷阱**：裁决仍是 WINDOW_CLOSING，但已经关了 25 天', () => {
-    // verdict.ts:219-223 的迟滞让 WINDOW_CLOSING 能带 30 天上限地延续。所以
-    // `verdict === 'WINDOW_CLOSING'` 单独不足以证明"14 天内新进入"——只看它会把一个
-    // 25 天前就关窗的机会当成刚关窗，把一条早已没有抢跑价值的页面当成准实时精选。
-    const state = windowClosingState(
-      run([
-        ['2026-10-14', 'WINDOW_CLOSING'],
-        ['2026-09-19', 'WINDOW_CLOSING'],
-        ['2026-09-18', 'BUILD_NOW'],
-      ])
+  it('从未出现过活跃裁决 → 算作 INACTIVE_14D；日期读不出来时判否（取严）', () => {
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ lastActiveVerdictDate: null }), TODAY),
+      { eligible: true, basis: 'INACTIVE_14D' }
     );
-    assert.equal(state.current, true);
-    assert.equal(state.ageDays, 25);
-    assert.equal(state.fresh, false);
-  });
-
-  it('整段被 LIMIT 截断时判否（方向正确）', () => {
-    // 30 行全是 WINDOW_CLOSING：真入口更早，算出来的 ageDays 只会偏小，而下限仍 > 14。
-    const rows = Array.from({ length: 30 }, (_, i) => ({
-      obs_date: new Date(Date.UTC(2026, 9, 14) - i * 86_400_000).toISOString().slice(0, 10),
-      verdict: 'WINDOW_CLOSING',
-    }));
-    const state = windowClosingState(rows);
-    assert.equal(state.ageDays, 29);
-    assert.equal(state.fresh, false);
-  });
-
-  it('只有一行且是 WINDOW_CLOSING → 今天刚进窗', () => {
-    const state = windowClosingState(run([['2026-10-14', 'WINDOW_CLOSING']]));
-    assert.equal(state.current, true);
-    assert.equal(state.ageDays, 0);
-    assert.equal(state.fresh, true);
-  });
-
-  it('日期读不出来时判否，不去猜', () => {
-    const state = windowClosingState(
-      run([
-        ['not-a-date', 'WINDOW_CLOSING'],
-        ['also-bad', 'BUILD_NOW'],
-      ])
+    assert.deepEqual(
+      evaluateLostFirstMoverValue(facts({ lastActiveVerdictDate: 'not-a-date' }), TODAY),
+      { eligible: false, basis: null }
     );
-    assert.equal(state.ageDays, null);
-    assert.equal(state.fresh, false);
+  });
+
+  it('优先级固定：裁决面的事实在生命周期之前', () => {
+    const res = evaluateLostFirstMoverValue(
+      facts({ latestVerdict: 'WINDOW_CLOSING', lifecycle: 'CONTESTED' }),
+      TODAY
+    );
+    assert.equal(res.basis, 'WINDOW_CLOSING');
+  });
+
+  it('窗口关闭段的进入时点只由连续 WINDOW_CLOSING 决定', () => {
+    assert.equal(windowClosingEnteredOn([]), null);
+    assert.equal(windowClosingEnteredOn([{ obs_date: '2026-10-18', verdict: 'WATCH' }]), null);
+    assert.equal(
+      windowClosingEnteredOn([
+        { obs_date: '2026-10-18', verdict: 'WINDOW_CLOSING' },
+        { obs_date: '2026-10-17', verdict: 'WINDOW_CLOSING' },
+        { obs_date: '2026-10-16', verdict: 'BUILD_NOW' },
+      ]),
+      '2026-10-17'
+    );
   });
 });
 

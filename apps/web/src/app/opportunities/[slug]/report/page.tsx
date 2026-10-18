@@ -42,10 +42,7 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
 
   let detail: any;
   try {
-    detail = await OpportunityService.getOpportunityDetail(slug, {
-      // 精选案例按定义是准实时的，不再套 45 天延迟；其余路径保持原过滤。
-      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
-    });
+    detail = await OpportunityService.getOpportunityDetail(slug);
   } catch {
     notFound();
   }

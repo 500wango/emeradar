@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
+import { AuthService, OpportunityService } from '@emeradar/services';
 import { getServerI18n } from '@/lib/i18n/server';
 import { AxisBadge, Badge, VerdictBadge, type Verdict } from '@/components/ui/Badge';
 import { buttonVariants } from '@/components/ui/Button';
@@ -22,7 +22,6 @@ export default async function ComparePage({ searchParams }: { searchParams?: Pro
   if (!session) redirect('/login?next=%2Fcompare');
 
   const { t } = await getServerI18n();
-  const entitlements = await EntitlementService.getUserEntitlements(session.user.id);
   const rawIds = firstParam(searchParams ? (await searchParams).ids : undefined) || '';
   const ids = [...new Set(rawIds.split(',').map((id) => id.trim()).filter(Boolean))];
   let items: Awaited<ReturnType<typeof OpportunityService.compareOpportunities>> = [];
@@ -30,7 +29,7 @@ export default async function ComparePage({ searchParams }: { searchParams?: Pro
 
   if (ids.length >= 2) {
     try {
-      items = await OpportunityService.compareOpportunities(ids, { minAgeDays: entitlements.feedDelayDays });
+      items = await OpportunityService.compareOpportunities(ids);
     } catch (compareError: any) {
       error = compareError.message || t('compare.errorDefault');
     }

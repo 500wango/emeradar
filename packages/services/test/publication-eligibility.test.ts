@@ -3,41 +3,35 @@ import assert from 'node:assert';
 import { makeDisposableDb } from './helpers/disposable-db';
 
 /**
- * `docs/15 §3` 的准实时精选准入判据（Epic 1.7，PRD §7.1 废除 T+45 天延迟后的新口径）。
+ * `docs/15 §3` 的公开准入判据（v3.1：**已失去抢跑价值**）。
  *
- * 这些用例只能用夹具验，原因值得写下来：**dev 库里两套判据都选不出任何一条机会**。
- * 那儿 `public_pages` 是 0 行（seed 会清空它），343 条机会全部 ≤14 天、槽位全为
- * `claimed = 0`、卡片只有 `FORMING` / `EARLY_WINDOW`。所以"本地跑起来什么都没变"是
+ * 这些用例只能用夹具验，原因值得写下来：**dev 库里这条判据几乎选不出任何一条机会**
+ * （`public_pages` 是 0 行，机会全部 ≤14 天且仍活跃）。所以"本地跑起来什么都没变"是
  * 预期的，不能据此推断实现没生效。
  *
  * **每个用例用自己的机会 id。** `verdicts` 挂着只追加触发器，夹具写进去的行永远删不掉
- * ——所以两个用例共用一条机会会在第二个用例上撞主键，而失败原因与被测行为无关。
- * 同理，牵涉「已收录集合」的用例开头都会清一次 `public_pages`，否则结论取决于执行顺序。
+ * ——共用一条机会会在第二个用例上撞主键，而失败原因与被测行为无关。牵涉「已收录集合」
+ * 的用例开头都会清一次 `public_pages`，否则结论取决于执行顺序。
  *
- * 用例的价值分布：
- *
- *   1. **硬阻断**——15 §8 把「仍有空余槽位的 BUILD_NOW 出现在公开投影」列为 0 容忍的
- *      P0。旧判据恰恰放过它（只等 45 天，不问槽位），所以这是换判据最直接的收益。
- *   2. **两个分支各自正确**——满额与刚关窗是两条独立的路，凭据必须写对是哪一条。
- *   3. **14 天的时间边界，以及"粘滞"这个陷阱**——`WINDOW_CLOSING` 能带 30 天上限地
- *      延续，所以"裁决是它"与"14 天内新进入"是两件事。
- *   4. **蚕食防护从零实现**——四种状态各自对应不同处置，`VACUOUS` 与 `NOT_EVALUATED`
- *      尤其不能合并。
- *   5. **买断优先没有被新代码挤掉**——打码分支必须仍然早于准入判定。
+ * 用例按 18 §4.1「公开资格」四行组织：活跃阻断、失去价值即公开、14 天边界、
+ * 非单调撤回。
  */
 
 const harness = makeDisposableDb('emeradar_publication_eligibility_test');
 
 const KEYWORD = 'quixotic-zebra-undertaking';
 
-/** 一条机会 + 卡片。`verdict` 同时写进卡片；账本序列由 `seedVerdicts` 单独给。 */
-async function seedOpportunity(opts: {
+interface SeedOptions {
   id: string;
   verdict: string;
-  wBand?: string;
+  lifecycle?: string;
   mBand?: string;
+  wBand?: string;
   firstObservedDaysAgo?: number;
-}): Promise<void> {
+}
+
+/** 一条机会 + 卡片。`verdict` 同时写进卡片；账本序列由 `seedVerdicts` 单独给。 */
+async function seedOpportunity(opts: SeedOptions): Promise<void> {
   const { query } = harness.db;
   const slug = opts.id.replace(/_/g, '-');
   await query(
@@ -51,14 +45,22 @@ async function seedOpportunity(opts: {
        d_basis_points, m_basis_points, w_basis_points, d_band, m_band, w_band,
        confidence, recommended_archetype, execution_class, why_now_summary,
        top_idea, first_observed_at
-     ) VALUES ($1, $2, $3, $4, 'EARLY_WINDOW',
-       7000, 6000, 5000, 'HIGH', $5, $6,
+     ) VALUES ($1, $2, $3, $4, $5,
+       7000, 6000, 5000, 'HIGH', $6, $7,
        'HIGH', 'TOOL', 'WEEKEND', $3, $3, NOW())`,
-    [opts.id, slug, KEYWORD, opts.verdict, opts.mBand ?? 'MEDIUM', opts.wBand ?? 'MEDIUM']
+    [
+      opts.id,
+      slug,
+      KEYWORD,
+      opts.verdict,
+      opts.lifecycle ?? 'EARLY_WINDOW',
+      opts.mBand ?? 'MEDIUM',
+      opts.wBand ?? 'MEDIUM',
+    ]
   );
 }
 
-/** 账本尾部按倒序给：`[[daysAgo, verdict], ...]`。 */
+/** 账本：`[[daysAgo, verdict], ...]`，0 表示今天。 */
 async function seedVerdicts(opportunityId: string, rows: Array<[number, string]>): Promise<void> {
   const { query } = harness.db;
   for (const [daysAgo, verdict] of rows) {
@@ -66,46 +68,51 @@ async function seedVerdicts(opportunityId: string, rows: Array<[number, string]>
     await query(
       `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
          lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence, prev_hash, row_hash)
-       VALUES ($1, $2, CURRENT_DATE - $3::int, '1.0', $4, 'EARLY_WINDOW',
+       VALUES ($1, $2, CURRENT_DATE - $3::int, 'sc-1.3.0', $4, 'EARLY_WINDOW',
          7000, 6000, 5000, 'HIGH', $5, $6)`,
       [id, opportunityId, daysAgo, verdict, '0'.repeat(64), id.padEnd(64, '0').slice(0, 64)]
     );
   }
 }
 
-/** 槽位。`capacity`/`claimed` 显式写，因为"满额"正是被测的东西。 */
-async function seedSlots(opportunityId: string, capacity: number, claimed: number): Promise<void> {
-  await harness.db.query(
-    `INSERT INTO opportunity_slots (opportunity_id, archetype, capacity, claimed)
-     VALUES ($1, 'TOOL', $2, $3)`,
-    [opportunityId, capacity, claimed]
-  );
-}
-
 /**
- * 满额的机会。它会被判成 `WINDOW_CLOSING`（verdict.ts:170-174），但一次 W 降档都没有。
- *
- * `wcSinceDaysAgo` 用来把这条机会的关窗段做旧：满额旁路进入 `WINDOW_CLOSING` 的机会
- * 与"14 天内新进窗"完全无关，做旧之后凭据里 `windowClosing.fresh` 应当是 false，而
- * 准入仍然成立——这正是"满额与刚关窗是两条独立的路"。
+ * 「已失去抢跑价值」的一条机会。四种 basis 各给一个入口：
+ *   · closing   —— 最新裁决 WINDOW_CLOSING（30 天前活跃过一次）；
+ *   · pass      —— 最新裁决 PASS；
+ *   · lifecycle —— 最新裁决 WATCH、生命周期 CONTESTED、昨天还活跃（只靠第 2 条成立）；
+ *   · inactive  —— 最新裁决 WATCH、生命周期 EARLY_WINDOW、最后活跃在 14 天前。
  */
-async function seedCrowded(
+async function seedLost(
   id: string,
-  opts: { wBand?: string; mBand?: string; firstObservedDaysAgo?: number; wcSinceDaysAgo?: number } = {}
+  basis: 'closing' | 'pass' | 'lifecycle' | 'inactive',
+  opts: { mBand?: string; wBand?: string } = {}
 ): Promise<void> {
-  await seedOpportunity({ id, verdict: 'WINDOW_CLOSING', ...opts });
-  await seedSlots(id, 2, 2);
-  const since = opts.wcSinceDaysAgo;
-  await seedVerdicts(
-    id,
-    since === undefined
-      ? [[0, 'WINDOW_CLOSING']]
-      : [
-          [0, 'WINDOW_CLOSING'],
-          [since, 'WINDOW_CLOSING'],
-          [since + 1, 'BUILD_NOW'],
-        ]
-  );
+  if (basis === 'closing') {
+    await seedOpportunity({ id, verdict: 'WINDOW_CLOSING', ...opts });
+    await seedVerdicts(id, [
+      [0, 'WINDOW_CLOSING'],
+      [30, 'BUILD_NOW'],
+    ]);
+  } else if (basis === 'pass') {
+    await seedOpportunity({ id, verdict: 'PASS', ...opts });
+    await seedVerdicts(id, [
+      [0, 'PASS'],
+      [2, 'WATCH'],
+      [5, 'BUILD_NOW'],
+    ]);
+  } else if (basis === 'lifecycle') {
+    await seedOpportunity({ id, verdict: 'WATCH', lifecycle: 'CONTESTED', ...opts });
+    await seedVerdicts(id, [
+      [0, 'WATCH'],
+      [1, 'BUILD_NOW'],
+    ]);
+  } else {
+    await seedOpportunity({ id, verdict: 'WATCH', ...opts });
+    await seedVerdicts(id, [
+      [0, 'WATCH'],
+      [14, 'BUILD_NOW'],
+    ]);
+  }
 }
 
 /** 给机会挂一条 PRIMARY query，并写一份最新 SERP 快照。 */
@@ -154,13 +161,13 @@ function partnerSharing(shared: number): string[] {
   return [...urlsFrom('a', shared), ...urlsFrom('b', 10 - shared)];
 }
 
-/** 跑一次发布，并把**非打码**那一行读回来。 */
+/** 跑一次发布，并把机会页那一行读回来。 */
 async function publish(opportunityId: string) {
   const decision = await harness.services.PublicPublicationService.publishOpportunity(opportunityId);
   const row = (
     await harness.db.query<{ status: string; indexable: boolean; eligibility: any; content: any }>(
       `SELECT status, indexable, eligibility, content FROM public_pages
-        WHERE opportunity_id = $1 AND locale = 'en-US' AND slug NOT LIKE 'stealth-lock-%'`,
+        WHERE opportunity_id = $1 AND locale = 'en-US'`,
       [opportunityId]
     )
   ).rows[0];
@@ -176,134 +183,102 @@ after(async () => {
   await harness.teardown();
 });
 
-describe('条件① 抢跑价值已耗尽（15 §3 第 1 条）', () => {
-  it('**硬阻断**：仍有空槽的 BUILD_NOW 不得公开（15 §8 的 0 容忍线）', async (t) => {
+describe('条件① 已失去抢跑价值（15 §3 第 1 条、18 §4.1）', () => {
+  it('**活跃阻断**：最新裁决仍是 BUILD_NOW / EARLY_BET 时永不公开，哪怕生命周期已写成竞争态', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedOpportunity({ id: 'opp_a1', verdict: 'BUILD_NOW' });
-    await seedSlots('opp_a1', 2, 1);
+    await seedOpportunity({ id: 'opp_a1', verdict: 'BUILD_NOW', lifecycle: 'CONTESTED' });
     await seedVerdicts('opp_a1', [[0, 'BUILD_NOW']]);
 
     const { decision, row } = await publish('opp_a1');
     assert.equal(decision.eligible, false);
     assert.equal(row.status, 'DRAFT');
     assert.equal(row.eligibility.admission.basis, null);
-    assert.deepEqual(row.eligibility.blockedBy, ['OPEN_SLOTS']);
-    // 凭据里必须留下当时的槽位状态，否则事后无法回答"为什么这条没公开"。
-    assert.deepEqual(row.eligibility.admission.crowdedLocked, {
-      slotRows: 1,
-      capacity: 2,
-      claimed: 1,
-      full: false,
-    });
+    assert.deepEqual(row.eligibility.blockedBy, ['ACTIVE_WINDOW']);
+    assert.equal(row.eligibility.admission.latestVerdict, 'BUILD_NOW');
   });
 
-  it('满额即公开——哪怕只有 3 天大、W 档还是 HIGH（旧判据两处都会挡）', async (t) => {
+  it('**失去价值即公开**：四种 basis 各走一次，凭据写出是哪一条', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    // 两处刻意踩在旧判据的禁区内：首见日 3 天前（< 45）、w_band = HIGH（不在旧白名单里）。
-    // 关窗段做旧到 20 天前，好让下面的断言说明"两条路彼此独立"。
-    await seedCrowded('opp_a2', { wBand: 'HIGH', firstObservedDaysAgo: 3, wcSinceDaysAgo: 20 });
 
-    const { decision, row } = await publish('opp_a2');
-    assert.equal(decision.eligible, true, '满额就该公开——这正是 15 §3 自己的例子');
-    assert.equal(row.status, 'PUBLISHED');
-    assert.equal(row.eligibility.admission.basis, 'CROWDED_LOCKED');
-    assert.equal(row.eligibility.admission.crowdedLocked.full, true);
-    // 这条机会的关窗段已经 20 天了，"14 天内新进窗"**不成立**，可它照样公开了 ——
-    // 两个分支互相独立。这条同时钉住"两分支不可由 verdict 区分"：verdict 都是
-    // WINDOW_CLOSING，凭据写了 CROWDED_LOCKED 而不是 WINDOW_CLOSING。
-    assert.equal(row.eligibility.admission.windowClosing.current, true);
-    assert.equal(row.eligibility.admission.windowClosing.fresh, false);
+    const cases: Array<
+      ['opp_a2_closing' | 'opp_a2_pass' | 'opp_a2_life' | 'opp_a2_idle', 'closing' | 'pass' | 'lifecycle' | 'inactive', string]
+    > = [
+      ['opp_a2_closing', 'closing', 'WINDOW_CLOSING'],
+      ['opp_a2_pass', 'pass', 'PASS'],
+      ['opp_a2_life', 'lifecycle', 'LIFECYCLE_CLOSED'],
+      ['opp_a2_idle', 'inactive', 'INACTIVE_14D'],
+    ];
+    for (const [id, kind, expected] of cases) {
+      await seedLost(id, kind);
+      const { decision, row } = await publish(id);
+      assert.equal(decision.eligible, true, `${id} 应当已失去抢跑价值`);
+      assert.equal(row.status, 'PUBLISHED');
+      assert.equal(row.eligibility.admission.basis, expected);
+      assert.deepEqual(row.eligibility.blockedBy, []);
+    }
   });
 
-  it('一个槽位行都没有 ≠ 满额', async (t) => {
+  it('**14 天边界（含端点）**：最后一条活跃裁决在 14 天前放行，13 天前仍阻断', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedOpportunity({ id: 'opp_a3', verdict: 'BUILD_NOW' });
-    await seedVerdicts('opp_a3', [[0, 'BUILD_NOW']]);
 
-    const { decision, row } = await publish('opp_a3');
-    assert.equal(decision.eligible, false, '0 >= 0 不是满额');
-    assert.equal(row.eligibility.admission.crowdedLocked.slotRows, 0);
-    assert.equal(row.eligibility.admission.crowdedLocked.full, false);
-    assert.deepEqual(row.eligibility.blockedBy, ['OPEN_SLOTS']);
+    await seedOpportunity({ id: 'opp_a3a', verdict: 'WATCH' });
+    await seedVerdicts('opp_a3a', [
+      [0, 'WATCH'],
+      [14, 'BUILD_NOW'],
+    ]);
+    const allowed = await publish('opp_a3a');
+    assert.equal(allowed.decision.eligible, true);
+    assert.equal(allowed.row.eligibility.admission.basis, 'INACTIVE_14D');
+    assert.equal(allowed.row.eligibility.admission.lastActiveVerdictDate, isoDaysAgo(14));
+
+    await seedOpportunity({ id: 'opp_a3b', verdict: 'WATCH' });
+    await seedVerdicts('opp_a3b', [
+      [0, 'WATCH'],
+      [13, 'BUILD_NOW'],
+    ]);
+    const blocked = await publish('opp_a3b');
+    assert.equal(blocked.decision.eligible, false);
+    assert.deepEqual(blocked.row.eligibility.blockedBy, ['ACTIVE_WINDOW']);
+    assert.equal(blocked.row.status, 'DRAFT');
   });
 
-  it('刚进关窗期（槽位仍开着）也公开，凭据写进入日', async (t) => {
+  it('**非单调撤回**：公开后重新活跃 → 同一轮发布立刻翻回 DRAFT', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
+
+    // 第一步：窗口关闭 → 公开。
     await seedOpportunity({ id: 'opp_a4', verdict: 'WINDOW_CLOSING' });
-    await seedSlots('opp_a4', 2, 0); // 槽位开着，凭的是刚关窗
     await seedVerdicts('opp_a4', [
-      [0, 'WINDOW_CLOSING'],
-      [4, 'WINDOW_CLOSING'],
-      [5, 'BUILD_NOW'],
+      [2, 'WINDOW_CLOSING'],
+      [3, 'BUILD_NOW'],
     ]);
+    const first = await publish('opp_a4');
+    assert.equal(first.decision.eligible, true);
+    assert.equal(first.row.status, 'PUBLISHED');
 
-    const { decision, row } = await publish('opp_a4');
-    assert.equal(decision.eligible, true);
-    assert.equal(row.status, 'PUBLISHED');
-    assert.equal(row.eligibility.admission.basis, 'WINDOW_CLOSING');
-    assert.equal(row.eligibility.admission.windowClosing.ageDays, 4);
-    assert.equal(row.eligibility.admission.windowClosing.fresh, true);
-    assert.equal(row.eligibility.admission.windowClosing.freshnessDays, 14);
-  });
+    // 第二步：新的裁决把它打回活跃（BUILD_NOW）。同一轮 S8 重算资格 → DRAFT。
+    await seedVerdicts('opp_a4', [[1, 'BUILD_NOW']]);
+    const revoked = await publish('opp_a4');
+    assert.equal(revoked.decision.eligible, false);
+    assert.equal(revoked.row.status, 'DRAFT', '重新活跃的机会必须从公开页撤回');
+    assert.deepEqual(revoked.row.eligibility.blockedBy, ['ACTIVE_WINDOW']);
 
-  it('**14 天边界**：恰好 14 天算新鲜，15 天不算', async (t) => {
-    if (!harness.available) return t.skip(harness.skipReason);
-    await resetPublicPages();
-
-    await seedOpportunity({ id: 'opp_a5a', verdict: 'WINDOW_CLOSING' });
-    await seedSlots('opp_a5a', 2, 0);
-    await seedVerdicts('opp_a5a', [
-      [0, 'WINDOW_CLOSING'],
-      [14, 'WINDOW_CLOSING'],
-      [15, 'BUILD_NOW'],
-    ]);
-    const fresh = await publish('opp_a5a');
-    assert.equal(fresh.row.eligibility.admission.windowClosing.ageDays, 14);
-    assert.equal(fresh.decision.eligible, true, '含端点：14 天仍算刚进窗');
-    assert.equal(fresh.row.status, 'PUBLISHED');
-
-    await seedOpportunity({ id: 'opp_a5b', verdict: 'WINDOW_CLOSING' });
-    await seedSlots('opp_a5b', 2, 0);
-    await seedVerdicts('opp_a5b', [
-      [0, 'WINDOW_CLOSING'],
-      [15, 'WINDOW_CLOSING'],
-      [16, 'BUILD_NOW'],
-    ]);
-    const stale = await publish('opp_a5b');
-    assert.equal(stale.row.eligibility.admission.windowClosing.ageDays, 15);
-    assert.equal(stale.decision.eligible, false, '15 天前关的窗不是"刚"进窗');
-    assert.deepEqual(stale.row.eligibility.blockedBy, ['OPEN_SLOTS']);
-  });
-
-  it('**粘滞陷阱**：裁决仍是 WINDOW_CLOSING，但已经关了 25 天 → 不公开', async (t) => {
-    if (!harness.available) return t.skip(harness.skipReason);
-    await resetPublicPages();
-    // verdict.ts:219-223 的迟滞让 WINDOW_CLOSING 能延续到 30 天。只看"裁决是不是它"
-    // 会把这条 25 天前就关窗的机会当成准实时精选——而它早已没有抢跑价值可言。
-    await seedOpportunity({ id: 'opp_a6', verdict: 'WINDOW_CLOSING' });
-    await seedSlots('opp_a6', 2, 0);
-    await seedVerdicts('opp_a6', [
-      [0, 'WINDOW_CLOSING'],
-      [25, 'WINDOW_CLOSING'],
-      [26, 'BUILD_NOW'],
-    ]);
-
-    const { decision, row } = await publish('opp_a6');
-    assert.equal(row.eligibility.admission.windowClosing.current, true, '裁决确实还是它');
-    assert.equal(row.eligibility.admission.windowClosing.fresh, false, '但它不是"刚"进窗');
-    assert.equal(decision.eligible, false);
+    // 第三步：再关窗（更新的裁决） → 重新公开。状态是"当前事实"，不是单向棘轮。
+    await seedVerdicts('opp_a4', [[0, 'WINDOW_CLOSING']]);
+    const again = await publish('opp_a4');
+    assert.equal(again.decision.eligible, true);
+    assert.equal(again.row.status, 'PUBLISHED');
   });
 });
 
 describe('条件② 证据充足性（15 §3 第 2 条）', () => {
-  it('满额但 M 轴 INSUFFICIENT → 不公开', async (t) => {
+  it('已失去价值但 M 轴 INSUFFICIENT → 不公开', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedCrowded('opp_b1', { mBand: 'INSUFFICIENT' });
+    await seedLost('opp_b1', 'closing', { mBand: 'INSUFFICIENT' });
 
     const { decision, row } = await publish('opp_b1');
     assert.equal(decision.eligible, false);
@@ -313,9 +288,9 @@ describe('条件② 证据充足性（15 §3 第 2 条）', () => {
 });
 
 describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
-  /** 满额候选 + 一条已收录的参照页，两者的 PRIMARY 各有一份 SERP 快照。 */
+  /** 已失去价值的候选 + 一条已收录的参照页，两者的 PRIMARY 各有一份 SERP 快照。 */
   async function seedCannibalizationFixture(candidateId: string, neighbourId: string, overlap: number) {
-    await seedCrowded(candidateId);
+    await seedLost(candidateId, 'closing');
     await seedPrimaryWithSerp(candidateId, urlsFrom('a', 10));
     await seedOpportunity({ id: neighbourId, verdict: 'BUILD_NOW' });
     await seedPrimaryWithSerp(neighbourId, partnerSharing(overlap));
@@ -350,7 +325,7 @@ describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
   it('没有已收录页 → VACUOUS（而不是"数据缺失"）', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedCrowded('opp_c3');
+    await seedLost('opp_c3', 'closing');
     await seedPrimaryWithSerp('opp_c3', urlsFrom('a', 10));
 
     const { decision, row } = await publish('opp_c3');
@@ -360,14 +335,14 @@ describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
     assert.equal(decision.eligible, true, '没有可蚕食的对象就该放行');
   });
 
-  it('已收录页但 indexable = false（打码页）不计入参照集合', async (t) => {
+  it('已收录页但 indexable = false（未过质检）不计入参照集合', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
     await seedCannibalizationFixture('opp_c4', 'opp_c4n', 10); // 10/10，若被计入必然阻断
     await harness.db.query(`UPDATE public_pages SET indexable = false WHERE opportunity_id = $1`, ['opp_c4n']);
 
     const { decision, row } = await publish('opp_c4');
-    // 口径是"会被 Google 收录的页"（与 sitemap.ts 同款）：打码页与未过质检的页不进集合。
+    // 口径是"会被 Google 收录的页"（与 sitemap.ts 同款）。
     assert.equal(row.eligibility.cannibalization.status, 'VACUOUS');
     assert.equal(decision.eligible, true);
   });
@@ -375,7 +350,7 @@ describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
   it('候选拿不到 SERP 快照 → NOT_EVALUATED，fail-closed 且显式登记', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedCrowded('opp_c5'); // 候选**没有** PRIMARY query / SERP
+    await seedLost('opp_c5', 'closing'); // 候选**没有** PRIMARY query / SERP
     await seedOpportunity({ id: 'opp_c5n', verdict: 'BUILD_NOW' });
     await seedPrimaryWithSerp('opp_c5n', urlsFrom('z', 10));
     await seedPublishedPage('opp_c5n');
@@ -388,20 +363,21 @@ describe('条件③ 蚕食防护（15 §3 第 3 条）', () => {
   });
 });
 
-describe('资格凭据的形状（03 §15）', () => {
-  it('含四块凭据，且**不再**含已废除的 delayDays / ageDays', async (t) => {
+describe('资格凭据的形状（03 §15、18 §4.1）', () => {
+  it('凭据写出 basis 与三个事实，且不再含已废除的 delayDays / ageDays', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedCrowded('opp_d1', { wBand: 'HIGH' });
+    await seedLost('opp_d1', 'closing');
 
     const { row } = await publish('opp_d1');
     const eligibility = row.eligibility;
     assert.equal(eligibility.version, 1);
     assert.equal(typeof eligibility.evaluatedAt, 'string');
     assert.equal(eligibility.eligible, true);
-    assert.equal(eligibility.admission.basis, 'CROWDED_LOCKED');
-    assert.ok(eligibility.admission.crowdedLocked, '缺当时槽位状态就无法事后复核');
-    assert.ok(eligibility.admission.windowClosing);
+    assert.equal(eligibility.admission.basis, 'WINDOW_CLOSING');
+    assert.equal(eligibility.admission.latestVerdict, 'WINDOW_CLOSING');
+    assert.equal(eligibility.admission.lifecycle, 'EARLY_WINDOW');
+    assert.equal(typeof eligibility.admission.lastActiveVerdictDate, 'string');
     assert.ok(eligibility.evidence);
     assert.deepEqual(eligibility.blockedBy, []);
     // 这两个键留着等于在凭据里写下一个已经不存在的判据。
@@ -409,14 +385,17 @@ describe('资格凭据的形状（03 §15）', () => {
     assert.equal('ageDays' in eligibility, false);
   });
 
-  it('**反向契约**：本轮的公开页不打码——真实词根照常写进 content', async (t) => {
+  it('公开页正文写真实词根：v3.1 没有任何打码路径', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();
-    await seedCrowded('opp_d2', { wBand: 'HIGH' });
+    await seedLost('opp_d2', 'pass');
 
     const { row } = await publish('opp_d2');
-    // 与买断轮相反的断言方向：这里**必须**能扫到词根，否则说明准入路径被误打码了。
-    assert.ok(JSON.stringify(row.content).includes(KEYWORD), '准实时精选是正常公开投影，不得打码');
+    assert.ok(JSON.stringify(row.content).includes(KEYWORD));
     assert.equal(row.content.isStealthMasked, undefined);
   });
 });
+
+function isoDaysAgo(n: number): string {
+  return new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+}

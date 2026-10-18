@@ -51,10 +51,9 @@ export default async function OpportunityWorkspacePage({
 
   let data: any;
   try {
-    data = await OpportunityService.getOpportunityDetail(slug, {
-      // 精选案例按定义是准实时的，不再套 45 天延迟；其余路径保持原过滤。
-      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
-    });
+    // Free 的访问资格已在上面判过（本周精选那一条）；v3.1 没有天数延迟，所以这里
+    // 不再传 `minAgeDays`。
+    data = await OpportunityService.getOpportunityDetail(slug);
   } catch {
     notFound();
   }

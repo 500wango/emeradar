@@ -8,7 +8,7 @@ import { WINDOW_CLOSING_FRESHNESS_DAYS } from '@emeradar/scoring';
  * `public-publication.service`**：写入方要 import 判据，判据再反过来 import 写入方
  * 就成环。
  *
- * 拆出来的另一半收益是**可测**：`slotFullness` / `windowClosingState` / `jaccard` /
+ * 拆出来的另一半收益是**可测**：`evaluateLostFirstMoverValue` / `jaccard` /
  * `evaluateCannibalization` 都是纯函数，不碰库就能把边界钉死（见
  * `test/publication-policy.test.ts`），而 `evaluateOpportunity` 要跑一次真实 PostgreSQL
  * 才验得了。
@@ -17,8 +17,9 @@ import { WINDOW_CLOSING_FRESHNESS_DAYS } from '@emeradar/scoring';
  * ——没有 config 表、没有 Zod 校验、没有 env。所以这里按仓库一贯做法落成编译期常量，
  * 紧挨消费者并引规格章节，与 `verdict.ts:10` 同一种写法。
  *
- * 注意：本文件的槽位判据（`slotFullness` / `loadSlotTotals`）在 v3.1 已失效，
- * 阶段 D 会整体换成「已失去抢跑价值」。阶段 C 只保证编译，不提前删读取。
+ * v3.1 的准入判据是「已失去抢跑价值」（15 §3、01 §1.8）：当前裁决为
+ * `WINDOW_CLOSING` / `PASS`、生命周期已进入竞争态，或连续 14 天没有出现过
+ * `BUILD_NOW` / `EARLY_BET`。活跃的 BUILD_NOW / EARLY_BET **永不公开**。
  */
 
 /** 15 §3 第 3 条 的 `publication.cannibalization_max_jaccard`，默认 0.7。 */
@@ -38,98 +39,173 @@ function dayMs(date: string): number {
   return Date.parse(`${date}T00:00:00Z`);
 }
 
-export interface SlotTotals {
-  slotRows: number;
-  capacity: number;
-  claimed: number;
-}
-
-export interface SlotFullness extends SlotTotals {
-  full: boolean;
+/**
+ * 「今天」的日历日起点，按 UTC 毫秒表示。
+ *
+ * 用**本地**日历字段而不是 `toISOString().slice(0,10)`：`lastActiveVerdictDate` 来自
+ * 数据库的 `CURRENT_DATE`（服务器时区），而 UTC+08:00 的凌晨会让两者相差一天——
+ * 14 天窗口的边界正好落在那一天上。两侧必须用同一套日历。
+ */
+export function startOfLocalDay(date: Date): number {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 /**
- * 「槽位已满额」= `Σclaimed >= Σcapacity`（15 §3 第 1 条、ADR-018、05 §5.3）。
+ * 「已失去抢跑价值」的四个判据（15 §3、01 §1.8 第 5 条、§2.4）。
  *
- * 入参是**按机会汇总后**的计数（`loadSlotTotals` 的返回值，跨形态的求和由 SQL 的
- * `SUM` 完成）——函数本身不再做第二次累加，那会让"跨形态求和"有两份实现。注意它是
- * 单个对象而不是行数组：`slotRows` 是"这条机会有几个形态的槽位行"，它是**数据**而
- * 不是数组长度，混淆这两者会让 `slotRows` 恒等于 1。
- *
- * **`slotRows > 0` 那半条不能省。** 一条没有槽位行的机会，`SUM` 在 SQL 里已经被
- * `COALESCE` 成 0，于是裸比较 `0 >= 0` 会把"这条机会一个槽位都没开"读成"已满额"，
- * 把一条还没开始抢的机会公开出去——而 15 §8 把这件事列为 **0 容忍的 P0**。
- *
- * 用 `>=` 而非 `==`：`0003:52-59` 的 `CHECK (claimed <= capacity)` 让两者等价，而
- * `>=` 对"汇总缓存与真值漂移"（不变量 I11 的夜间一致性检查兜底的那种）更抗——漂移
- * 时宁可判成"已满"（对公开而言是保守方向）也不要把满额读成有空槽。
+ * 顺序即优先级：裁决面的事实优先于生命周期，生命周期优先于"14 天没动过"。
  */
-export function slotFullness(totals: SlotTotals): SlotFullness {
-  const capacity = Number(totals.capacity ?? 0);
-  const claimed = Number(totals.claimed ?? 0);
-  const slotRows = Number(totals.slotRows ?? 0);
-  return {
-    slotRows,
-    capacity,
-    claimed,
-    full: slotRows > 0 && capacity > 0 && claimed >= capacity,
-  };
+export type LostFirstMoverBasis = 'WINDOW_CLOSING' | 'PASS' | 'LIFECYCLE_CLOSED' | 'INACTIVE_14D';
+
+/** 连续这么多天（含端点）没有 `BUILD_NOW` / `EARLY_BET`，就认为窗口已经沉寂。 */
+export const INACTIVE_WINDOW_DAYS = 14;
+
+/** 已进入竞争态的三种生命周期（05 生命周期图）。 */
+export const CLOSED_LIFECYCLES = ['CONTESTED', 'MATURE', 'DEAD'] as const;
+
+/** 判据需要的三个事实，一次查询取齐（见 `loadLostValueFacts`）。 */
+export interface LostValueFacts {
+  /** 最新一条裁决（`ORDER BY obs_date DESC`）。 */
+  latestVerdict: string | null;
+  /** 最新一条裁决的观测日（`YYYY-MM-DD`）。 */
+  latestVerdictDate: string | null;
+  lifecycle: string | null;
+  /** 最近一条 `BUILD_NOW` / `EARLY_BET` 的观测日；从未出现过则是 `null`。 */
+  lastActiveVerdictDate: string | null;
 }
 
-export interface WindowClosingState {
-  /** 当前（账本最新一行）的裁决是否就是 `WINDOW_CLOSING`。 */
-  current: boolean;
-  /** 当前这一段连续 `WINDOW_CLOSING` 的最早观测日；`current` 为假时是 `null`。 */
-  enteredOn: string | null;
-  /** 从 `enteredOn` 到最新观测日的天数；判不出来时是 `null`。 */
-  ageDays: number | null;
-  freshnessDays: number;
-  /** 是否落在「14 天内新进入」的窗口内——**含端点**。 */
-  fresh: boolean;
+export interface LostFirstMoverValue {
+  eligible: boolean;
+  basis: LostFirstMoverBasis | null;
+  facts: LostValueFacts;
+}
+
+export interface LostValueEvaluation {
+  eligible: boolean;
+  basis: LostFirstMoverBasis | null;
+}
+
+function emptyFacts(): LostValueFacts {
+  return { latestVerdict: null, latestVerdictDate: null, lifecycle: null, lastActiveVerdictDate: null };
 }
 
 /**
- * 「14 天内新进入 `WINDOW_CLOSING`」（15 §3 第 1 条）——从**账本**的连续同值段读进入时点。
+ * 「已失去抢跑价值」的**唯一**判据（15 §3、01 §1.8 第 5 条）。
  *
- * 规格的括注写的是 `wDroppedWithin(prev.datedWBandHistory, 14)`，但那是「W 档是否在
- * 14 天内下降过」的**代理**，不是「何时进入 `WINDOW_CLOSING`」。三处会读错，都是硬的：
+ * 三条判据任一成立即可公开；顺序固定，凭据记第一条命中的：
  *
- *   1. **满额旁路**。`verdict.ts:170-174` 把满额的机会也判成 `WINDOW_CLOSING`，**一次
- *      W 降档都没有**——`wDroppedWithin` 恒为 false。这类机会的进入时点只能从账本读。
- *   2. **粘滞**。`verdict.ts:219-223` 让 `WINDOW_CLOSING` 带 30 天上限地延续，所以
- *      `verdict == 'WINDOW_CLOSING'` **单独不足以**证明「14 天内新进入」：它会把一个
- *      29 天前就关窗的机会当成刚关窗。两个条件必须一起用。
- *   3. **当日进窗**。评分侧构造历史时用的是 `obs_date < today`（不含今天），用它会在
- *      降档当天判否、次日才放行。而 `observeOpportunity`（写账本，`pipeline.ts:220`）
- *      **早于** S8 发布循环（`pipeline.ts:520`），今天的行已经在了——当日进窗就该当日发。
+ *   1. 最新裁决是 `WINDOW_CLOSING` 或 `PASS`——窗口已经关了，或机会已经被否掉；
+ *   2. 生命周期是 `CONTESTED` / `MATURE` / `DEAD`——竞争已经发生，不再是无人区；
+ *   3. 连续 14 天（含端点）没有任何一条 `BUILD_NOW` / `EARLY_BET`。
  *
- * `rows` 必须**按 obs_date 倒序**（最新在前），与 `observe-opportunity.ts:474-518` 的
- * 读取约定一致。参考日取 `rows[0].obs_date` 而不是挂钟："同一输入必得同一结果"，
- * 也与 `wDroppedWithin` 的 `asOf` 缺省语义一致。
+ * **先判活跃**：最新裁决是 `BUILD_NOW` / `EARLY_BET` 时一律不公开，哪怕生命周期
+ * 已经写成 `CONTESTED`。这是 15 §8 那条 0 容忍指标的正面要求——活跃窗口的正文、
+ * slug 与词根都不能出现在免费层。
  *
- * 行数是有限的（`LIMIT 30`）：若入口真在 14 天内，边界必落在前 15 行内；若整段超过
- * 30 行，算出的 `ageDays` 只会偏小而下限仍远大于 14 —— 结论（判否）不变。
+ * 第 3 条的窗口是 `[today-13, today]`（"14 天含端点"）：最近一条活跃裁决落在
+ * `today-13` 仍在窗口内（不公开），落在 `today-14` 才放行。用注入的 `today` 而不是
+ * 读几次挂钟，同一个输入必得同一个结论。
  */
-export function windowClosingState(rows: Array<{ obs_date: string; verdict: string }>): WindowClosingState {
-  const freshnessDays = WINDOW_CLOSING_FRESHNESS_DAYS;
-  const head = rows[0];
-  if (!head || head.verdict !== 'WINDOW_CLOSING') {
-    return { current: false, enteredOn: null, ageDays: null, freshnessDays, fresh: false };
+export function evaluateLostFirstMoverValue(
+  facts: LostValueFacts,
+  today: Date = new Date()
+): LostValueEvaluation {
+  const latest = facts.latestVerdict;
+  if (latest === 'BUILD_NOW' || latest === 'EARLY_BET') {
+    return { eligible: false, basis: null };
+  }
+  if (latest === 'WINDOW_CLOSING') return { eligible: true, basis: 'WINDOW_CLOSING' };
+  if (latest === 'PASS') return { eligible: true, basis: 'PASS' };
+  if (facts.lifecycle && (CLOSED_LIFECYCLES as readonly string[]).includes(facts.lifecycle)) {
+    return { eligible: true, basis: 'LIFECYCLE_CLOSED' };
   }
 
-  // 从最新往回走，直到裁决不再是 WINDOW_CLOSING。最后停住的那一行即本段最早的一天。
+  const todayMs = startOfLocalDay(today);
+  const cutoffMs = todayMs - (INACTIVE_WINDOW_DAYS - 1) * 86_400_000;
+  if (!facts.lastActiveVerdictDate) {
+    // 从来没有活跃过：14 天里当然没有活跃裁决。
+    return { eligible: true, basis: 'INACTIVE_14D' };
+  }
+  const lastMs = dayMs(facts.lastActiveVerdictDate);
+  if (Number.isNaN(lastMs)) {
+    // 日期读不出来就不放行——失败方向取严，与 15 §8 的 0 容忍一致。
+    return { eligible: false, basis: null };
+  }
+  return lastMs < cutoffMs
+    ? { eligible: true, basis: 'INACTIVE_14D' }
+    : { eligible: false, basis: null };
+}
+
+/**
+ * 批量取判据事实。一条机会一次往返不够，但一次发布/周精选会问几十条，逐条查会把
+ * 「一天一条 SQL」变成「一轮几十条」——所以这里按 id 数组一次取齐。
+ */
+export async function loadLostValueFacts(opportunityIds: string[]): Promise<Map<string, LostValueFacts>> {
+  const unique = [...new Set(opportunityIds.filter(Boolean))];
+  const facts = new Map<string, LostValueFacts>();
+  if (unique.length === 0) return facts;
+
+  const res = await query<{
+    opportunity_id: string;
+    latest_verdict: string | null;
+    latest_verdict_date: string | null;
+    lifecycle: string | null;
+    last_active_verdict_date: string | null;
+  }>(
+    `SELECT o.id AS opportunity_id,
+            (SELECT v.verdict FROM verdicts v
+              WHERE v.opportunity_id = o.id
+              ORDER BY v.obs_date DESC, v.created_at DESC LIMIT 1) AS latest_verdict,
+            (SELECT to_char(v.obs_date, 'YYYY-MM-DD') FROM verdicts v
+              WHERE v.opportunity_id = o.id
+              ORDER BY v.obs_date DESC, v.created_at DESC LIMIT 1) AS latest_verdict_date,
+            (SELECT c.lifecycle FROM opportunity_cards c WHERE c.opportunity_id = o.id) AS lifecycle,
+            (SELECT to_char(MAX(v.obs_date), 'YYYY-MM-DD') FROM verdicts v
+              WHERE v.opportunity_id = o.id
+                AND v.verdict IN ('BUILD_NOW','EARLY_BET')) AS last_active_verdict_date
+       FROM opportunities o
+      WHERE o.id = ANY($1::text[])`,
+    [unique]
+  );
+
+  for (const row of res.rows) {
+    facts.set(row.opportunity_id, {
+      latestVerdict: row.latest_verdict ?? null,
+      latestVerdictDate: row.latest_verdict_date ?? null,
+      lifecycle: row.lifecycle ?? null,
+      lastActiveVerdictDate: row.last_active_verdict_date ?? null,
+    });
+  }
+  for (const id of unique) if (!facts.has(id)) facts.set(id, emptyFacts());
+  return facts;
+}
+
+/** 单条机会的「已失去抢跑价值」判定。 */
+export async function lostFirstMoverValue(
+  opportunityId: string,
+  today: Date = new Date()
+): Promise<LostFirstMoverValue> {
+  const facts = (await loadLostValueFacts([opportunityId])).get(opportunityId) ?? emptyFacts();
+  return { ...evaluateLostFirstMoverValue(facts, today), facts };
+}
+
+/**
+ * 当前这一段连续 `WINDOW_CLOSING` 的最早观测日；最新一行不是它时返回 `null`。
+ *
+ * 只服务周精选的「资格成立时点」（展示口径），不再承担准入判定：v3.1 的
+ * `WINDOW_CLOSING` **不要求新鲜**——窗口关了就是关了，20 天前关的窗和第 1 天关的
+ * 窗一样没有抢跑价值。
+ *
+ * `rows` 必须按 obs_date 倒序（最新在前）。
+ */
+export function windowClosingEnteredOn(
+  rows: Array<{ obs_date: string; verdict: string }>
+): string | null {
+  const head = rows[0];
+  if (!head || head.verdict !== 'WINDOW_CLOSING') return null;
   let i = 0;
   while (i + 1 < rows.length && rows[i + 1].verdict === 'WINDOW_CLOSING') i++;
-  const enteredOn = rows[i].obs_date;
-
-  const headMs = dayMs(head.obs_date);
-  const entryMs = dayMs(enteredOn);
-  if (Number.isNaN(headMs) || Number.isNaN(entryMs)) {
-    // 日期读不出来就判否，不去猜 —— 分支②只会**放行**公开，失败方向取严是正确的一侧。
-    return { current: true, enteredOn, ageDays: null, freshnessDays, fresh: false };
-  }
-  const ageDays = Math.round((headMs - entryMs) / 86_400_000);
-  return { current: true, enteredOn, ageDays, freshnessDays, fresh: ageDays <= freshnessDays };
+  return rows[i].obs_date;
 }
 
 /**
@@ -275,23 +351,6 @@ export function evaluateCannibalization(
 // DB loaders
 // ---------------------------------------------------------------------------
 
-/** 槽位汇总。读 `claimed` 这个汇总缓存而非 `COUNT(*)`，正是 `0003:81` 与 ADR-018 指定的做法。 */
-export async function loadSlotTotals(opportunityId: string): Promise<SlotTotals> {
-  const res = await query<{ slot_rows: number; capacity: number; claimed: number }>(
-    `SELECT COUNT(*)::int AS slot_rows,
-            COALESCE(SUM(capacity),0)::int AS capacity,
-            COALESCE(SUM(claimed),0)::int  AS claimed
-       FROM opportunity_slots WHERE opportunity_id = $1`,
-    [opportunityId]
-  );
-  const row = res.rows[0];
-  return {
-    slotRows: Number(row?.slot_rows ?? 0),
-    capacity: Number(row?.capacity ?? 0),
-    claimed: Number(row?.claimed ?? 0),
-  };
-}
-
 /**
  * 账本尾部若干行，**含今日**、按 obs_date 倒序。
  *
@@ -299,7 +358,7 @@ export async function loadSlotTotals(opportunityId: string): Promise<SlotTotals>
  * Date 对象，在 UTC+08:00 这类时区下再 `toISOString()` 会整体退一天——而"14 天内"
  * 的判据正是建立在这个日期上（`observe-opportunity.ts:471-473` 记着同一个坑）。
  *
- * `LIMIT 30` 的理由见 `windowClosingState`。
+ * `LIMIT 30` 的理由见 `windowClosingEnteredOn`。
  */
 export async function loadVerdictRun(
   opportunityId: string,

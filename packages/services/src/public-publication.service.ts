@@ -2,13 +2,12 @@ import { query } from '@emeradar/db';
 import {
   buildCannibalizationIndex,
   evaluateCannibalization,
+  evaluateLostFirstMoverValue,
+  loadLostValueFacts,
   loadPrimaryTopNUrls,
-  loadSlotTotals,
-  loadVerdictRun,
-  slotFullness,
-  windowClosingState,
   type CannibalizationIndex,
   type CannibalizationResult,
+  type LostFirstMoverBasis,
 } from './publication-policy';
 
 export interface PublicationDecision {
@@ -19,14 +18,14 @@ export interface PublicationDecision {
 }
 
 /**
- * `docs/10:236` 把公开接口的 `eligibility.reason` 定死成这两个值，所以它是一个
- * **对外契约**而不是内部枚举。v3.1 删掉了买断，打码从未成为这里的一种结果。
+ * `docs/10:236` 的 `eligibility.reason` 是**对外契约**：它说出这条机会凭哪一条
+ * 「已失去抢跑价值」被公开（15 §3、01 §1.8）。买断、槽位满额都不是它的一部分了。
  */
-export type PublicationEligibilityReason = 'CROWDED_LOCKED' | 'WINDOW_CLOSING';
+export type PublicationEligibilityReason = LostFirstMoverBasis;
 
-/** `docs/15 §3` 的三条硬条件 + 蚕食防护无法评估时的登记码。 */
+/** `docs/15 §3` 的硬条件 + 蚕食防护无法评估时的登记码。 */
 export type PublicationBlockReason =
-  | 'OPEN_SLOTS'
+  | 'ACTIVE_WINDOW'
   | 'M_INSUFFICIENT'
   | 'CANNIBALIZATION'
   | 'CANNIBALIZATION_DATA_MISSING';
@@ -109,28 +108,33 @@ export class PublicPublicationService {
     if (!res.rows[0]) return { eligible: false, indexable: false, eligibility: { reason: 'NOT_FOUND' }, qualityReport: {} };
     const row = res.rows[0];
 
-    // ---- §3 条件①：抢跑价值已耗尽（准入，D12）----
-    // 两个分支都从**权威源**读，而不是读被判出来的标志：
-    //   · 槽位满额 —— 直读 `opportunity_slots`，不用 `CROWDED_LOCKED` 标志。那个标志的
-    //     喂入数的是 `projects` 计数对比常量 5（旧口径），而 0003:83-85 明令禁止这条推导，
-    //     claim-policy.ts 自己也写着槽位表才是它的最终形态。
-    //   · 刚进关窗期 —— 读账本连续段，不用 `wDroppedWithin`：它是代理，且会被"满额旁路"
-    //     与"粘滞"同时骗过。三条理由完整写在 publication-policy.ts。
-    const fullness = slotFullness(await loadSlotTotals(opportunityId));
-    const windowClosing = windowClosingState(await loadVerdictRun(opportunityId));
-    const basis: PublicationEligibilityReason | null = fullness.full
-      ? 'CROWDED_LOCKED'
-      : windowClosing.fresh
-      ? 'WINDOW_CLOSING'
-      : null;
+    // ---- §3 条件①：抢跑价值已耗尽（准入）----
+    // 唯一判据是 `evaluateLostFirstMoverValue`（`publication-policy.ts`）：最新裁决为
+    // WINDOW_CLOSING / PASS、生命周期已进入竞争态、或连续 14 天没有出现过活跃裁决。
+    //
+    // 卡片查询里已经带了 `c.lifecycle`，这里直接把它喂给判据而不是再读一次卡片——
+    // 同一条机会的生命周期在同一时刻只应有一个答案。其余两个事实（最新裁决、最近一次
+    // 活跃日）由 `loadLostValueFacts` 一次取齐。
+    const facts = (await loadLostValueFacts([opportunityId])).get(opportunityId) ?? {
+      latestVerdict: null,
+      latestVerdictDate: null,
+      lifecycle: null,
+      lastActiveVerdictDate: null,
+    };
+    const lost = evaluateLostFirstMoverValue(
+      { ...facts, lifecycle: row.lifecycle ?? facts.lifecycle },
+      now
+    );
+    const basis: PublicationEligibilityReason | null = lost.basis;
 
     const blockedBy: PublicationBlockReason[] = [];
     const admissionNotEvaluated: string[] = [];
     let cannibalization: CannibalizationResult | null = null;
 
-    // 仍有空余槽位的 BUILD_NOW / EARLY_BET **一律不得公开**——15 §3 第 1 条 的硬阻断，
-    // 也是 15 §8 那条 0 容忍指标的正面要求。
-    if (!basis) blockedBy.push('OPEN_SLOTS');
+    // 仍然活跃（BUILD_NOW / EARLY_BET），或从未满足三条判据之一 → 不公开。
+    // `ACTIVE_WINDOW` 是 v3.1 唯一的准入阻断码：判据不再是"还有没有空槽"，而是
+    // "这条机会还有没有抢跑价值"。
+    if (!basis) blockedBy.push('ACTIVE_WINDOW');
 
     // ---- §3 条件②：证据充足性 ----
     // `opportunity_cards.m_band` 今天带 NOT NULL，但这里仍显式要求非空：约束将来放宽
@@ -159,10 +163,9 @@ export class PublicPublicationService {
      * 资格凭据（03 §15 的 `public_pages.eligibility`、15 §3 第 1 条、06 §5）。
      *
      * 这张快照存在的**唯一**目的是事后回答「为什么这条能被免费用户看到」。15 §8 把
-     * 「空槽窗口泄露率」列为 0 容忍，而 0 容忍必须配一份可复核的凭据，否则复核只能靠
-     * 重算——所以：`admission.basis` 写出**凭哪一条**入选（两分支不可由 verdict 区分，
-     * 因为满额的机会也被判成 `WINDOW_CLOSING`，见 verdict.ts:170-174）、`crowdedLocked`
-     * 带上当时的槽位状态（06 §5 明确要求）、`windowClosing.enteredOn` 写出哪天进窗、
+     * 「活跃窗口泄露」列为 0 容忍，而 0 容忍必须配一份可复核的凭据，否则复核只能靠
+     * 重算——所以：`admission.basis` 写出**凭哪一条**入选（四个 basis 之一），
+     * `latestVerdict` / `lifecycle` / `lastActiveVerdictDate` 带上当时的事实、
      * `cannibalization.maxJaccard` 写出为什么不算蚕食。
      *
      * 已废除的 `delayDays: 45` 与 `ageDays` 一并消失——留着它们等于在凭据里写下一个
@@ -177,13 +180,12 @@ export class PublicPublicationService {
       eligible,
       admission: {
         basis,
-        crowdedLocked: {
-          slotRows: fullness.slotRows,
-          capacity: fullness.capacity,
-          claimed: fullness.claimed,
-          full: fullness.full,
-        },
-        windowClosing,
+        // 凭据要能回答"凭什么说它已经失去抢跑价值"：三个事实原样落库，复核者不必
+        // 重算（重算会得到今天的答案，而不是当时的答案）。
+        latestVerdict: facts.latestVerdict,
+        latestVerdictDate: facts.latestVerdictDate,
+        lifecycle: row.lifecycle ?? facts.lifecycle,
+        lastActiveVerdictDate: facts.lastActiveVerdictDate,
       },
       evidence: { mBand: row.m_band, wBand: row.w_band, sufficient: mSufficient },
       cannibalization,
@@ -259,6 +261,9 @@ export class PublicPublicationService {
     }
 
     const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale, opts);
+    // 每轮都重算资格并写回状态，所以「重新活跃」会在**同一轮 S8** 把页翻回 DRAFT：
+    // 公开页查询带 `status = 'PUBLISHED'`，DRAFT 即 404。撤回与发布走同一条 upsert，
+    // 没有单独的撤回路径可以忘记调用（15 §8 的 0 容忍要求）。
     const status = decision.eligible ? 'PUBLISHED' : 'DRAFT';
     await query(
       `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable, content, eligibility, quality_report, published_at)
@@ -296,4 +301,20 @@ export class PublicPublicationService {
     }
     return decision;
   }
+
+  /**
+   * **一次性清理**：删掉 v3.0 买断留下的打码投影。
+   *
+   * v3.1 没有打码，这些行（`slug` 形如 `stealth-lock-<lockId>`）是纯粹的遗留物；它们
+   * 仍标着 `PUBLISHED` 时，一条早已不存在的"保护期页面"会继续对外 200。方法刻意
+   * **不挂在发布流程里**：删除是一次运维动作，不该让每轮 S8 都扫一遍全表。
+   *
+   * 返回删除的行数。阶段 F 的 `0020` 会连 `stealth_locks` / `stealth_lock_displays`
+   * 一起拆掉，届时这个方法可以随之删除。
+   */
+  static async clearMaskedProjections(): Promise<number> {
+    const res = await query(`DELETE FROM public_pages WHERE slug LIKE 'stealth-lock-%'`);
+    return res.rowCount ?? 0;
+  }
+
 }
