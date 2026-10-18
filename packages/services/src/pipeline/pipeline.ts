@@ -373,6 +373,15 @@ export async function runDailyPipeline(
       const match = publishable.find((item) => item.opportunityId === rule.opportunity_id);
       if (!match) continue;
 
+      // 04 §2 / ADR-021：STALE_DATA 期间不得投递 Verdict 变化类降级告警。
+      // 机会仍会按旧快照评分，但不能让一次采集故障读成"竞争格局变了"。
+      if (
+        (match.output.flags ?? []).includes('STALE_DATA') &&
+        (rule.rule_type === 'VERDICT_CHANGE' || rule.rule_type === 'WINDOW_CLOSING')
+      ) {
+        continue;
+      }
+
       // KILL_CRITERIA：任一 ACTIVE 谓词今天求值为真即触发；全部无法求值（指标缺失或
       // 谓词畸形）则为 null，不当作"没触发"。触发的谓词落 TRIGGERED，避免次日重复响。
       // 按机会缓存：谓词是机会级的，而首个订阅者的求值会把命中的行翻成 TRIGGERED，
