@@ -238,6 +238,7 @@ C_month_fast = U_active · s_per_user · (1 − r_dedup) · c_scan
 | 用途 | 端点 | 实测单价（2026-10-18） |
 |------|------|------|
 | `src_serp` Google 自然结果 Top 10 | `serp/google/organic/live/regular` | $0.002 / 次 |
+| `src_keyword_seed` 选题入口长尾词（只做入口筛选） | `dataforseo_labs/google/keyword_suggestions/live` | $0.018 / 次（limit 50） |
 | `src_volume` 月度搜索量 | `keywords_data/google_ads/search_volume/live` | $0.09 / 次（与词数无关，≤1000 词） |
 | `src_trends` | `keywords_data/google_trends/explore/live` | $0.011 / 次 |
 

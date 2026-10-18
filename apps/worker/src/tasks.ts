@@ -17,6 +17,7 @@ import {
   OutputGuaranteeService,
   RecomputeService,
   ingestExternalDemand,
+  seedKeywordCandidates,
   retryStripeAttributions,
 } from '@emeradar/services';
 import { query } from '@emeradar/db';
@@ -115,6 +116,22 @@ export const TASKS: TaskSpec[] = [
       // 这一步是让**存储的状态**追上它，见 sweepExpiredSubscriptions 的说明。
       const swept = await SubscriptionLifecycleService.sweepExpiredSubscriptions();
       console.log('[task] subscription sweep:', swept);
+    },
+  },
+  {
+    command: 'seed-keywords',
+    cron: '20 3 * * *',
+    description: '选题入口：工具意图种子 → Google 长尾词 → 新候选（词量只做入口筛选，不进评分）',
+    retryLimit: 1,
+    retryDelaySeconds: 300,
+    expireInSeconds: 900,
+    alertAfterFailures: 2,
+    async run(args, context) {
+      const result = await seedKeywordCandidates(scheduledDate(args, context));
+      console.log('[task] keyword seed result:', result);
+      if (!result.skipped && result.failures === result.seeds.length && result.seeds.length > 0) {
+        throw new Error(`所有种子请求都失败了（${result.failures}/${result.seeds.length}）`);
+      }
     },
   },
   {

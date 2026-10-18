@@ -121,7 +121,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     ratePerSecond: 2,
   };
 
-  private costPerQueryUsd = 0.003; // ~$3.00 per 1,000 SERP queries
+  private costPerQueryUsd = 0.002; // DataForSEO live/regular via AIsa: $0.002 per Top-10 page (2026-10-18)
 
   async plan(
     ctx: RunContext,

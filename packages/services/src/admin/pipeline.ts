@@ -7,7 +7,6 @@ import {
   generateDiscoveryIntents,
   validateDiscoveryIntents,
   runDailyPipeline,
-  incubateCandidatesFromDiscovery,
 } from '../pipeline';
 import type { AdminPipelineOverview } from './types';
 
@@ -251,18 +250,9 @@ export class AdminPipelineService {
           }
         }
 
-        // Automatic incubation into Candidate Opportunities
-        log('\n[pipeline] Incubating fresh candidates from raw signals into Candidate Pool...');
-        const candidates = await incubateCandidatesFromDiscovery(15);
-        if (candidates.length > 0) {
-          log(`[pipeline] Successfully incubated ${candidates.length} new candidate opportunities:`);
-          for (const c of candidates) {
-            log(` • [${c.archetype}] ${c.title} (Query: "${c.primaryQuery}")`);
-          }
-          log('\nAll new candidates are ready for review in "候选池治理 (/admin/candidates)"!');
-        } else {
-          log('[pipeline] All captured signals are already evaluated or present in candidate pool.');
-        }
+        // 新闻标题不再自动孵化成候选（2026-10-18）：它们描述的是新闻，不是搜索需求，
+        // 孵化出来的主 query 也没有 SERP 层级，永远发布不了。候选改由每日
+        // `seed-keywords` 从工具意图种子生成；这里采集到的条目只作 Why Now 的注意力证据。
 
         return {
           task,
@@ -276,14 +266,6 @@ export class AdminPipelineService {
         const created = await generateDiscoveryIntents(50);
         log(`[pipeline] Intent generation completed: ${created} new intent hypotheses generated.`);
 
-        log('\n[pipeline] Incubating candidates from newly identified intents...');
-        const candidates = await incubateCandidatesFromDiscovery(15);
-        if (candidates.length > 0) {
-          log(`[pipeline] Successfully promoted ${candidates.length} candidates into Candidate Pool:`);
-          for (const c of candidates) {
-            log(` • [${c.archetype}] ${c.title}`);
-          }
-        }
 
         return {
           task,

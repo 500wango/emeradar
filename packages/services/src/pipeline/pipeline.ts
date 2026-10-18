@@ -28,7 +28,7 @@ import {
   SerpEntrantRow,
   SerpEntrantSnapshot,
 } from '../alert-triggers';
-import { discoverAutocompleteCandidates } from './discover-candidates';
+import { attachAutocompleteClusters } from './discover-candidates';
 import { SlotService } from '../slot.service';
 import { stealthHiddenPredicate } from '../stealth-lock-policy';
 
@@ -159,9 +159,9 @@ export async function runDailyPipeline(
     crawl: new CrawlCollector(),
   };
 
-  const discoveredCandidates = await discoverAutocompleteCandidates(obsDate);
-  if (discoveredCandidates > 0) {
-    console.log(`[pipeline] Discovered ${discoveredCandidates} emerging candidates from autocomplete.`);
+  const attachedClusterQueries = await attachAutocompleteClusters(obsDate);
+  if (attachedClusterQueries > 0) {
+    console.log(`[pipeline] Attached ${attachedClusterQueries} autocomplete queries to opportunity clusters.`);
   }
 
   const oppsRes = await query<{

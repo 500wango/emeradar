@@ -9,3 +9,4 @@ export * from './generate-experiment-cards';
 export * from './incubate-candidates';
 export * from './pipeline';
 export * from './ingest-external-demand';
+export * from './seed-keyword-candidates';
