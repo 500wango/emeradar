@@ -102,12 +102,6 @@ export async function observeOpportunity(
     })
   );
 
-  // Spend is recorded for every billable outcome, not only successes: a 429 or a
-  // timeout still costs the provider call.
-  if (acOutcome.status !== 'SKIPPED' && acOutcome.cost) {
-    await CostLedgerService.recordCost(acOutcome.cost);
-  }
-
   if (acOutcome.status === 'OK') {
     const snap = acOutcome.snapshots[0];
     if (snap) {
@@ -208,34 +202,16 @@ export async function observeOpportunity(
   const wantsDeepSerp = (trackedRes.rows[0]?.n ?? 0) > 0 && (weeklyDepthRes.rows[0]?.n ?? 0) === 0;
   const serpDepth = wantsDeepSerp ? 100 : undefined;
 
-  const serpOutcome = await runCollector('src_serp', primary.id, async () => {
-    const collectOnce = () =>
-      collectors.serp.collect(ctx, {
-        queryId: primary.id,
-        queryText: primary.query_text,
-        opportunityId: opp.id,
-        marketCountry: opp.market_country,
-        researchLanguage: opp.research_language,
-        depth: serpDepth,
-      });
-
-    let outcome = await collectOnce();
-    // A billable provider call costs money whether or not it returned data.
-    if (outcome.status !== 'SKIPPED' && outcome.cost) {
-      await CostLedgerService.recordCost(outcome.cost);
-    }
-    if (outcome.status === 'FAILED' && outcome.retryable) {
-      console.warn(
-        `[pipeline:collector] Retrying SERP collection for query "${primary.query_text}" (${outcome.message})...`
-      );
-      await new Promise((r) => setTimeout(r, 1000));
-      outcome = await collectOnce();
-      if (outcome.status !== 'SKIPPED' && outcome.cost) {
-        await CostLedgerService.recordCost(outcome.cost);
-      }
-    }
-    return outcome;
-  });
+  const serpOutcome = await runCollector('src_serp', primary.id, () =>
+    collectors.serp.collect(ctx, {
+      queryId: primary.id,
+      queryText: primary.query_text,
+      opportunityId: opp.id,
+      marketCountry: opp.market_country,
+      researchLanguage: opp.research_language,
+      depth: serpDepth,
+    })
+  );
 
   // 原始响应归档（R2）。失败不阻断观测：账本仍可用归一化行计算，只是失去回放能力。
   let serpRawPayloadId: string | null = null;
@@ -786,11 +762,6 @@ async function crawlCommercialDomains(
         opportunityId,
       })
     );
-
-    // 成功与失败都计费；旧代码只在失败时记，成功抓取的成本从账本里消失了。
-    if (outcome.status !== 'SKIPPED' && outcome.cost) {
-      await CostLedgerService.recordCost(outcome.cost);
-    }
 
     if (outcome.status !== 'OK') {
       // Empty and failed reads must be recorded: without them, removal of a paid tier

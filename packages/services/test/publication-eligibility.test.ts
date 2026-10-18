@@ -397,5 +397,11 @@ describe('资格凭据的形状（03 §15、18 §4.1）', () => {
 });
 
 function isoDaysAgo(n: number): string {
-  return new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  // 必须与数据库的 CURRENT_DATE 用同一套本地日历。用 toISOString() 的 UTC 日期，
+  // 在本地凌晨（UTC 还是前一天）会得到差一天的期望值。
+  const date = new Date();
+  date.setDate(date.getDate() - n);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
