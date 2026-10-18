@@ -63,6 +63,8 @@ export interface VerdictInput {
   recentSerpSnapshotAvailable?: boolean;
   /** A critical collector failed for this batch while the caller carried on. */
   criticalSourceFailure?: boolean;
+  /** Sources whose latest success is 72h stale; the verdict is still published with this flag. */
+  staleSources?: string[];
   /** 本期观测日（`YYYY-MM-DD`），窗口判据的"今天"。 */
   obsDate?: string;
 }
@@ -82,6 +84,9 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   const negativeM = mSummary.hasStrongNegative;
   const rulesTriggered: string[] = [];
   const flags: string[] = [];
+  if (input.staleSources && input.staleSources.length > 0) {
+    flags.push('STALE_DATA');
+  }
 
   const isFastTrack = Boolean(input.fastTrack) || (historyDays >= 7 && historyDays < 14 && dBand !== 'INSUFFICIENT');
 

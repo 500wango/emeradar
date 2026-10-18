@@ -144,6 +144,27 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 
+  it('staleSources 打 STALE_DATA 标志，但不改变裁决', () => {
+    const base = {
+      dBand: 'HIGH' as const,
+      mSummary: {
+        band: 'HIGH' as const,
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 7800,
+      },
+      wBand: 'HIGH' as const,
+      confidence: 'HIGH' as const,
+      historyDays: 45,
+    };
+    const fresh = evaluateVerdict(base);
+    const stale = evaluateVerdict({ ...base, staleSources: ['SERP'] });
+    assert.ok(stale.flags.includes('STALE_DATA'));
+    assert.strictEqual(stale.verdict, fresh.verdict);
+  });
+
   // v3.1 黄金用例 3：补偿路径不接受"只有多站静态定价"的 MEDIUM。
   it('caps two decoration-priced domains at EARLY_BET: no compensation without traction or persistence (PRD v2.2 Q1)', () => {
     const res = evaluateVerdict({

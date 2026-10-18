@@ -12,7 +12,6 @@ import { Lifecycle, Verdict } from '@emeradar/core';
 import { RankingService } from '../ranking.service';
 import {
   AutocompleteCollector,
-  CostLedgerService,
   CrawlCollector,
   RunContext,
   SerpCollector,
@@ -30,6 +29,11 @@ import {
 import { computeCrowding, storeCrowding } from '../crowding.service';
 import { runCollector } from '../collector-run.service';
 import { storeRawPayload } from '../raw-payload.service';
+import {
+  hasStaleCommercialEvidence,
+  loadStaleAutocomplete,
+  loadStaleSerp,
+} from '../stale-data.service';
 
 const SKIP_COMMERCIAL_DOMAINS = [
   'github.com',
@@ -101,6 +105,11 @@ export async function observeOpportunity(
       language: opp.research_language,
     })
   );
+
+  const acStale = acOutcome.status === 'OK' ? null : await loadStaleAutocomplete(primary.id, obsDate);
+  const staleSources: string[] = [];
+  if (acStale) staleSources.push('AUTOCOMPLETE');
+  const acAvailable = acOutcome.status === 'OK' || Boolean(acStale);
 
   if (acOutcome.status === 'OK') {
     const snap = acOutcome.snapshots[0];
@@ -213,6 +222,10 @@ export async function observeOpportunity(
     })
   );
 
+  const serpStale = serpOutcome.status === 'OK' ? null : await loadStaleSerp(primary.id, obsDate);
+  if (serpStale) staleSources.push('SERP');
+  const serpAvailable = serpOutcome.status === 'OK' || Boolean(serpStale);
+
   // 原始响应归档（R2）。失败不阻断观测：账本仍可用归一化行计算，只是失去回放能力。
   let serpRawPayloadId: string | null = null;
   const serpRunId = (serpOutcome as { collectorRunId?: string }).collectorRunId;
@@ -233,7 +246,7 @@ export async function observeOpportunity(
     }
   }
 
-  if (serpOutcome.status !== 'OK') {
+  if (serpOutcome.status !== 'OK' && !serpStale) {
     const outcomeDetails = 'message' in serpOutcome ? (serpOutcome as any).message : (serpOutcome as any).reason;
     console.warn(
       `[pipeline:collector] SERP collection failed for query "${primary.query_text}": status=${serpOutcome.status}, reason=${outcomeDetails}`
@@ -260,14 +273,15 @@ export async function observeOpportunity(
       organicItems = serpSnap.data.items || [];
       rankIndex = serpSnap.data.rankIndex;
       const snapRes = await query<{ id: string }>(
-        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider, raw_payload_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider, raw_payload_id, weakness_score)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (query_id, obs_date) DO UPDATE SET
            weak_result_ratio = EXCLUDED.weak_result_ratio,
            depth = EXCLUDED.depth,
            result_count = EXCLUDED.result_count,
            provider = EXCLUDED.provider,
-           raw_payload_id = COALESCE(EXCLUDED.raw_payload_id, serp_snapshots.raw_payload_id)
+           raw_payload_id = COALESCE(EXCLUDED.raw_payload_id, serp_snapshots.raw_payload_id),
+           weakness_score = EXCLUDED.weakness_score
          RETURNING id`,
         [
           serpSnap.key,
@@ -282,6 +296,7 @@ export async function observeOpportunity(
           serpSnap.data.resultCount,
           serpSnap.data.provider ?? 'UNKNOWN',
           serpRawPayloadId,
+          serpSnap.data.weaknessScore ?? null,
         ]
       );
       const snapshotId = snapRes.rows[0]?.id || serpSnap.key;
@@ -325,6 +340,18 @@ export async function observeOpportunity(
         });
       }
     }
+  } else if (serpStale) {
+    serpWeakness = serpStale.weaknessScore;
+    weakResultRatio = serpStale.weakResultRatio;
+    organicItems = serpStale.items.map((item) => ({ domain: item.domain, url: item.url }));
+    rankIndex = serpStale.items.map((item) => ({
+      rank: item.rank,
+      url: item.url,
+      domain: item.domain,
+    }));
+    console.warn(
+      `[pipeline:collector] SERP stale fallback for query "${primary.query_text}" using ${serpStale.observedDate} snapshot`
+    );
   }
 
   const serpHistoryRes = await query<{ days: number; recent: boolean; days_since_last: number | null }>(
@@ -336,18 +363,21 @@ export async function observeOpportunity(
     [primary.id, obsDate]
   );
   const serpHistoryDays = serpHistoryRes.rows[0]?.days ?? 0;
-  const recentSerp = Boolean(serpHistoryRes.rows[0]?.recent);
+  // 72h 内复用的旧快照也算"最近可用"；否则今天的采集失败会让它永远过不了
+  // NO_RECENT_ORGANIC_SERP，STALE_DATA 就形同虚设。
+  const recentSerp = Boolean(serpHistoryRes.rows[0]?.recent) || Boolean(serpStale);
   // 05 §4.2：新鲜度按追踪层级判（A 3 天 / B 8 天），不再要求"当天"有快照。
   const daysSinceLastSerp = serpHistoryRes.rows[0]?.days_since_last ?? undefined;
   const serpTier = primary.tier;
 
-  await crawlCommercialDomains(
+  const crawlResult = await crawlCommercialDomains(
     organicItems,
     opp.id,
     obsDate,
     ctx,
     collectors.crawl
   );
+  if (crawlResult.stale) staleSources.push('COMMERCIAL');
 
   const commercialFacts = await buildCommercialRawSummary(
     opp.id,
@@ -494,7 +524,7 @@ export async function observeOpportunity(
   );
   const prev = prevRes.rows[0];
 
-  const independentSourceCount = (acOutcome.status === 'OK' ? 1 : 0) +
+  const independentSourceCount = (acAvailable ? 1 : 0) +
     (recentSerp ? 1 : 0) + (independentPricedDomains > 0 ? 1 : 0) + (attentionSourcesActive14d > 1 ? 1 : 0);
 
   // 逐日档位取自账本自身，不再 JOIN opportunity_cards：后者是"当前"快照，
@@ -594,13 +624,14 @@ export async function observeOpportunity(
     confidence: {
       nIndependentSources: independentSourceCount,
       totalEvidenceCount: Math.max(1, historyDays + (recentSerp ? 1 : 0)),
-      observedEvidenceCount: (acOutcome.status === 'OK' ? 1 : 0) + (recentSerp ? 1 : 0) + independentPricedDomains,
+      observedEvidenceCount: (acAvailable ? 1 : 0) + (recentSerp ? 1 : 0) + independentPricedDomains,
       medianEvidenceAgeDays,
       historyDays,
     },
     fastTrack: isFastTrack,
     // A failed collection this cycle is not evidence about the market (05 §5.0).
-    criticalSourceFailure: serpOutcome.status !== 'OK' || acOutcome.status !== 'OK',
+    criticalSourceFailure: !serpAvailable || !acAvailable,
+    staleSources,
     activityRatio90d,
     verifiedProductCount: crowding.verifiedProductCount,
     recommendation: {
@@ -740,8 +771,11 @@ async function crawlCommercialDomains(
   obsDate: string,
   ctx: RunContext,
   crawl: CrawlCollector
-): Promise<void> {
+): Promise<{ attempted: number; failed: number; stale: boolean }> {
   const considered = new Set<string>();
+  let attempted = 0;
+  let failed = 0;
+  let stale = false;
   for (const item of items) {
     const domain = item.domain.replace(/^www\./, '');
     if (!domain || considered.has(domain) || SKIP_COMMERCIAL_DOMAINS.some((skip) => domain === skip || domain.endsWith(`.${skip}`))) {
@@ -754,6 +788,7 @@ async function crawlCommercialDomains(
     // 07 §7 validates persistence weekly; re-fetching the same domains daily buys nothing.
     if (await hasFreshCommercialSnapshot(domain, obsDate, COMMERCIAL_STALENESS_DAYS)) continue;
 
+    attempted += 1;
     const outcome = await runCollector('src_crawl', `${opportunityId}:${domain}`, () =>
       crawl.collect(ctx, {
         targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
@@ -764,6 +799,8 @@ async function crawlCommercialDomains(
     );
 
     if (outcome.status !== 'OK') {
+      failed += 1;
+      if (await hasStaleCommercialEvidence(opportunityId, domain)) stale = true;
       // Empty and failed reads must be recorded: without them, removal of a paid tier
       // has nothing to diff against and robots-blocked targets stay in the coverage
       // denominator (07 §6.1, §11 step 5).
@@ -773,7 +810,6 @@ async function crawlCommercialDomains(
       continue;
     }
 
-    await CostLedgerService.recordCost(outcome.cost);
     const snap = outcome.snapshots[0];
     if (!snap) continue;
 
@@ -799,6 +835,7 @@ async function crawlCommercialDomains(
       );
     }
   }
+  return { attempted, failed, stale };
 }
 
 function commercialFetchStatus(

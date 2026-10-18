@@ -287,6 +287,8 @@ export function formatScoringFlag(flag: string, locale: Locale = 'en-US'): strin
         return '本次观测数据置信度偏低，结论稳定性弱于常规';
       case 'PARTIAL_DATA':
         return '三轴中存在证据不足的维度，判定建立在部分数据之上';
+      case 'STALE_DATA':
+        return '部分采集源在 72 小时宽限期内失败，本次判定沿用了最近一次成功快照';
       case 'BASELINE_PERIOD':
         return '仍处于历史基线积累期，尚未形成足够的时间序列';
       case 'W_DROPPING':
@@ -314,6 +316,8 @@ export function formatScoringFlag(flag: string, locale: Locale = 'en-US'): strin
       return 'Low observation confidence; the conclusion is less stable than usual';
     case 'PARTIAL_DATA':
       return 'One or more axes rest on insufficient evidence';
+    case 'STALE_DATA':
+      return 'A collector failed within the 72-hour grace window; this verdict reuses the most recent successful snapshot.';
     case 'BASELINE_PERIOD':
       return 'Still accumulating the historical baseline; no long time series yet';
     case 'W_DROPPING':

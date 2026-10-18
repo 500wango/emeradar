@@ -23,6 +23,8 @@ export interface FullOpportunityScoreInput {
   fastTrack?: boolean;
   /** 05 §5.0 publication-gate inputs, forwarded to evaluateVerdict as-is. */
   criticalSourceFailure?: boolean;
+  /** Sources served from the 72h stale snapshot (04 §2). Empty/undefined = fresh. */
+  staleSources?: string[];
   /**
    * Trailing 7-day observation volume over the 90-day peak window. Without it
    * the lifecycle DEAD transition is unreachable (LC-ANY-TO-DEAD).
@@ -74,6 +76,7 @@ export function calculateOpportunityScore(
     serpHistoryDays: input.window.serpHistoryDays,
     recentSerpSnapshotAvailable: input.window.recentSerpSnapshotAvailable,
     criticalSourceFailure: input.criticalSourceFailure,
+    staleSources: input.staleSources,
     obsDate: input.obsDate,
   });
 

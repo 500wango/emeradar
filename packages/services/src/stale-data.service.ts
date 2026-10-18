@@ -1,0 +1,105 @@
+import { query } from '@emeradar/db';
+
+/**
+ * 72h `STALE_DATA` 降级（04 §2、ADR-021）。
+ *
+ * 采集失败时，若最近一次成功快照在 72 小时内，就用它继续评分，并在账本上打
+ * `STALE_DATA`；超过 72h 才让该轴真正 `INSUFFICIENT`。这里只负责取旧事实，
+ * 判定与标记由调用方完成。
+ */
+export const STALE_WINDOW_HOURS = 72;
+
+export interface StaleAutocomplete {
+  observedDate: string;
+  suggestions: string[];
+  depth: number;
+}
+
+export interface StaleSerp {
+  snapshotId: string;
+  observedDate: string;
+  weakResultRatio: number;
+  weaknessScore: number;
+  depth: number;
+  resultCount: number;
+  items: Array<{ rank: number; url: string; domain: string; resultType: string }>;
+}
+
+export async function loadStaleAutocomplete(
+  queryId: string,
+  obsDate: string
+): Promise<StaleAutocomplete | null> {
+  const res = await query<{ observed_date: string; suggestions: string[]; depth: number }>(
+    `SELECT observed_date::text AS observed_date, suggestions, depth
+       FROM autocomplete_observations
+      WHERE query_id = $1
+        AND observed_date < $2::date
+        AND created_at >= NOW() - ($3 || ' hours')::interval
+      ORDER BY observed_date DESC
+      LIMIT 1`,
+    [queryId, obsDate, String(STALE_WINDOW_HOURS)]
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  return { observedDate: row.observed_date, suggestions: row.suggestions ?? [], depth: row.depth };
+}
+
+export async function loadStaleSerp(queryId: string, obsDate: string): Promise<StaleSerp | null> {
+  const res = await query<{
+    id: string;
+    observed_date: string;
+    weak_result_ratio: number;
+    weakness_score: number | null;
+    depth: number;
+    result_count: number;
+  }>(
+    `SELECT id, obs_date::text AS observed_date, weak_result_ratio::float8 AS weak_result_ratio,
+            weakness_score::float8 AS weakness_score, depth, result_count
+       FROM serp_snapshots
+      WHERE query_id = $1
+        AND obs_date < $2::date
+        AND created_at >= NOW() - ($3 || ' hours')::interval
+      ORDER BY obs_date DESC
+      LIMIT 1`,
+    [queryId, obsDate, String(STALE_WINDOW_HOURS)]
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+
+  const itemsRes = await query<{ rank: number; url: string; domain: string; result_type: string }>(
+    `SELECT rank, url, domain, result_type FROM serp_results
+      WHERE serp_snapshot_id = $1 ORDER BY rank`,
+    [row.id]
+  );
+  const ratio = Number(row.weak_result_ratio) || 0;
+  return {
+    snapshotId: row.id,
+    observedDate: row.observed_date,
+    weakResultRatio: ratio,
+    // 老快照没有分数，用比率近似；新快照一定写入真实分数。
+    weaknessScore: row.weakness_score !== null ? Number(row.weakness_score) : Math.round(ratio * 100 * 100) / 100,
+    depth: row.depth,
+    resultCount: row.result_count,
+    items: itemsRes.rows.map((item) => ({
+      rank: item.rank,
+      url: item.url,
+      domain: item.domain,
+      resultType: item.result_type,
+    })),
+  };
+}
+
+/** 某域名在 72h 内是否有可复用的商业证据（crawl 失败时用）。 */
+export async function hasStaleCommercialEvidence(opportunityId: string, domain: string): Promise<boolean> {
+  const res = await query<{ one: number }>(
+    `SELECT 1 AS one FROM evidence
+      WHERE opportunity_id = $1
+        AND lower(coalesce(domain, '')) = lower($2)
+        AND evidence_class = 'OBSERVED'
+        AND observed_at >= NOW() - ($3 || ' hours')::interval
+        AND source_type IN ('PAID_TIER_OBSERVED','PAYMENT_INFRA_DETECTED')
+      LIMIT 1`,
+    [opportunityId, domain, String(STALE_WINDOW_HOURS)]
+  );
+  return res.rows.length > 0;
+}
