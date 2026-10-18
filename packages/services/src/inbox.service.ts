@@ -30,6 +30,14 @@ export interface InboxItem {
   executionClass: string;
   /** 这是早期信号，不是裁决。 */
   stage: 'EARLY_SIGNAL';
+  /** 发现阶段够用的证据摘要：弱页、已验证定价、需求观测。 */
+  evidence: {
+    weakResultCount: number;
+    weakResults: Array<{ domain: string; url: string; rank: number }>;
+    pricedDomains: string[];
+    observationDays: number;
+    whyNow: string | null;
+  };
 }
 
 export interface InboxResponse {
@@ -70,15 +78,40 @@ export class InboxService {
               o.discovery_source, o.candidate_reason,
               o.recommended_archetype, o.execution_class,
               q.query_text AS primary_query,
-              COALESCE(obs.days_count, 0)::int AS observation_days
+              c.why_now_summary,
+              COALESCE(obs.days_count, 0)::int AS observation_days,
+              COALESCE(weak.weak_count, 0)::int AS weak_result_count,
+              COALESCE(weak.weak_results, '[]'::json) AS weak_results,
+              COALESCE(priced.domains, '[]'::json) AS priced_domains
          FROM opportunities o
          LEFT JOIN opportunity_queries oq ON oq.opportunity_id = o.id AND oq.role = 'PRIMARY'
          LEFT JOIN queries q ON q.id = oq.query_id
+         LEFT JOIN opportunity_cards c ON c.opportunity_id = o.id
          LEFT JOIN (
            SELECT query_id, COUNT(DISTINCT observed_date) AS days_count
              FROM autocomplete_observations
             GROUP BY query_id
          ) obs ON obs.query_id = q.id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS weak_count,
+                  json_agg(json_build_object('domain', sr.domain, 'url', sr.url, 'rank', sr.rank)
+                           ORDER BY sr.rank) AS weak_results
+             FROM (
+               SELECT sr.domain, sr.url, sr.rank
+                 FROM serp_results sr
+                 JOIN serp_snapshots ss ON ss.id = sr.serp_snapshot_id
+                WHERE ss.query_id = q.id AND sr.is_weak = true
+                ORDER BY ss.obs_date DESC, sr.rank
+                LIMIT 3
+             ) sr
+         ) weak ON true
+         LEFT JOIN LATERAL (
+           SELECT json_agg(DISTINCT e.domain) AS domains
+             FROM evidence e
+            WHERE e.opportunity_id = o.id
+              AND e.source_type = 'PAID_TIER_OBSERVED'
+              AND e.domain IS NOT NULL
+         ) priced ON true
         WHERE o.status = 'CANDIDATE'
           AND NOT EXISTS (
             SELECT 1 FROM opportunity_feedback f
@@ -106,6 +139,13 @@ export class InboxService {
         recommendedArchetype: row.recommended_archetype,
         executionClass: row.execution_class,
         stage: 'EARLY_SIGNAL' as const,
+        evidence: {
+          weakResultCount: row.weak_result_count,
+          weakResults: row.weak_results ?? [],
+          pricedDomains: row.priced_domains ?? [],
+          observationDays: row.observation_days,
+          whyNow: row.why_now_summary ?? row.candidate_reason ?? null,
+        },
       })),
       total,
       freeQuota: quota,

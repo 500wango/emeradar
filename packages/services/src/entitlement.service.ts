@@ -22,8 +22,12 @@ export interface UserEntitlementsInfo {
    * 付费层为 false（实时 Feed）。
    */
   feedSelectedWeekly: boolean;
-  /** `pulse_radar`：可以把自定义词加入 7 天雷达（Pro 起）。 */
+  /** 是否能使用 7 天雷达；Free 也有 1 条额度。 */
   pulseRadar: boolean;
+  /** 当前可同时激活的自定义雷达上限；Free = 1，付费 = 20。 */
+  customQueryRadarLimit: number;
+  /** 当前 ACTIVE 雷达数量。 */
+  currentCustomQueryRadars: number;
   opportunityDetailFull: boolean;
   deepReportExport: boolean;
   liveScanDailyLimit: number;
@@ -221,7 +225,11 @@ export class EntitlementService {
     const maxAlerts = isAdmin ? 9999 : (ent.max_alerts ?? 0);
     const apiAccess = isAdmin || !!ent.api_access;
     const opportunityDetailFull = isAdmin || planCode !== 'FREE';
-    const pulseRadar = isAdmin || Boolean(ent.pulse_radar);
+    const customQueryRadarLimit = isAdmin
+      ? 9999
+      : (ent.max_custom_query_radars ?? (planCode === 'FREE' ? 1 : 20));
+    // Free 也拥有 1 条雷达；真正的限制在数量上，而不是“有没有这个功能”。
+    const pulseRadar = isAdmin || Number.isFinite(customQueryRadarLimit);
     const deepReportExport = isAdmin || planCode !== 'FREE';
     // 目录里的 `feed_selected_weekly` 是 v3.1 的口径；`feed_realtime` 是它的反面
     // （Free false / 付费 true）。两个键都读，缺键时按套餐回退，与
@@ -290,6 +298,13 @@ export class EntitlementService {
     );
     const alertCount = parseInt(alertRes.rows[0]?.count ?? '0', 10);
 
+    const radarRes = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM custom_query_radars
+        WHERE user_id = $1 AND status = 'ACTIVE'`,
+      [userId]
+    );
+    const currentCustomQueryRadars = parseInt(radarRes.rows[0]?.count ?? '0', 10);
+
     const remaining = exportLimit === -1 ? 999999 : Math.max(0, exportLimit - used);
     const remainingGenerations = reportGenerationLimit === -1 ? 999999 : Math.max(0, reportGenerationLimit - generationUsed);
 
@@ -310,6 +325,8 @@ export class EntitlementService {
       apiAccess,
       feedSelectedWeekly,
       pulseRadar,
+      customQueryRadarLimit,
+      currentCustomQueryRadars,
       opportunityDetailFull,
       deepReportExport,
       liveScanDailyLimit: scanLimit,

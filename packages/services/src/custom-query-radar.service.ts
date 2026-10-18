@@ -30,9 +30,30 @@ export class CustomQueryRadarService {
     if (!ent.pulseRadar) {
       throw new EmeradarError(
         ErrorCode.PLAN_REQUIRED,
-        'The 7-day custom-query radar is available on Builder Pro and Team plans.',
+        'The 7-day custom-query radar is not available on this account.',
         403,
-        { upgradeUrl: '/pricing', currentPlan: 'FREE' }
+        { upgradeUrl: '/pricing', currentPlan: ent.planCode }
+      );
+    }
+
+    // 同一机会重复入雷达是 upsert，不占新额度；只有新增才检查上限。
+    const existing = await query<{ one: number }>(
+      `SELECT 1 AS one FROM custom_query_radars
+        WHERE user_id = $1 AND opportunity_id = $2 AND status = 'ACTIVE' LIMIT 1`,
+      [userId, opportunityId]
+    );
+    if (existing.rows.length === 0 && ent.currentCustomQueryRadars >= ent.customQueryRadarLimit) {
+      throw new EmeradarError(
+        ErrorCode.QUOTA_EXCEEDED,
+        ent.planCode === 'FREE'
+          ? 'Free includes 1 active custom-query radar. Upgrade to track more queries.'
+          : `Your plan allows ${ent.customQueryRadarLimit} active custom-query radars.`,
+        403,
+        {
+          upgradeUrl: '/pricing',
+          limit: ent.customQueryRadarLimit,
+          used: ent.currentCustomQueryRadars,
+        }
       );
     }
 

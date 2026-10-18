@@ -140,6 +140,20 @@ export function InboxClient({ initialData }: InboxClientProps) {
                 </p>
               )}
 
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-subtle">
+                <span>{isZh ? `${item.evidence.weakResultCount} 个弱页` : `${item.evidence.weakResultCount} weak pages`}</span>
+                <span>{isZh ? `${item.evidence.pricedDomains.length} 个已定价` : `${item.evidence.pricedDomains.length} priced`}</span>
+                <span>{isZh ? `${item.evidence.observationDays} 天观测` : `${item.evidence.observationDays}d observed`}</span>
+              </div>
+              {item.evidence.weakResults.length > 0 && (
+                <p className="mt-1 line-clamp-2 break-all font-mono text-[11px] text-fg-subtle">
+                  {item.evidence.weakResults
+                    .slice(0, 2)
+                    .map((result) => result.domain)
+                    .join(' · ')}
+                </p>
+              )}
+
               <div className="mt-auto flex flex-wrap gap-2 pt-5">
                 <Button
                   size="sm"

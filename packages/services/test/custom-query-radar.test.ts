@@ -6,7 +6,7 @@ import { makeDisposableDb } from './helpers/disposable-db';
  * 自定义词 7 天脉冲雷达（PRD F3 第 2 阶段、12 §2）。
  *
  * 即时初筛产出的 CANDIDATE 可以入雷达；雷达在 7 天内盯住它，一旦裁决晋升
- * BUILD_NOW 就推一条站内通知并落 CONFIRMED。Free 没有 `pulse_radar` 权益。
+ * BUILD_NOW 就推一条站内通知并落 CONFIRMED。Free 有 1 条雷达额度。
  */
 const harness = makeDisposableDb('emeradar_custom_query_radar_test');
 
@@ -15,6 +15,8 @@ const FREE = 'usr_radar_free';
 const OPP = 'opp_radar_candidate';
 const OPP_ACTIONABLE = 'opp_radar_actionable';
 const OPP_EXPIRING = 'opp_radar_expiring';
+const OPP_FREE_1 = 'opp_radar_free_1';
+const OPP_FREE_2 = 'opp_radar_free_2';
 
 async function seedOpportunity(id: string, verdict: string, status = 'CANDIDATE') {
   const { query } = harness.db;
@@ -50,6 +52,8 @@ before(async () => {
   await seedOpportunity(OPP, 'WATCH');
   await seedOpportunity(OPP_ACTIONABLE, 'BUILD_NOW', 'TRACKED');
   await seedOpportunity(OPP_EXPIRING, 'WATCH');
+  await seedOpportunity(OPP_FREE_1, 'WATCH');
+  await seedOpportunity(OPP_FREE_2, 'WATCH');
 });
 
 after(async () => {
@@ -71,7 +75,7 @@ describe('自定义词 7 天雷达', () => {
     assert.strictEqual((await CustomQueryRadarService.list(PRO)).length, 1);
   });
 
-  it('已经可行动的机会不需要雷达；Free 没有雷达权益', async (t) => {
+  it('已经可行动的机会不需要雷达；Free 有 1 条但不允许第 2 条', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { CustomQueryRadarService } = harness.services;
 
@@ -79,9 +83,12 @@ describe('自定义词 7 天雷达', () => {
       () => CustomQueryRadarService.enroll(PRO, OPP_ACTIONABLE),
       (error: any) => error?.code === 'PRECONDITION_FAILED'
     );
+
+    const freeFirst = await CustomQueryRadarService.enroll(FREE, OPP_FREE_1);
+    assert.strictEqual(freeFirst.status, 'ACTIVE');
     await assert.rejects(
-      () => CustomQueryRadarService.enroll(FREE, OPP),
-      (error: any) => error?.code === 'PLAN_REQUIRED'
+      () => CustomQueryRadarService.enroll(FREE, OPP_FREE_2),
+      (error: any) => error?.code === 'QUOTA_EXCEEDED'
     );
   });
 
