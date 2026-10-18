@@ -46,6 +46,15 @@ export interface AdminPipelineOverview {
     archived: number;
     total: number;
   };
+  discoveryStats: {
+    candidates: number;
+    newCandidates7d: number;
+    feedback7d: number;
+    helpfulFeedback7d: number;
+    negativeFeedback7d: number;
+    /** 0–1；7 天没有反馈时为 0。 */
+    negativeRate7d: number;
+  };
   costTodayUsd: number;
   dailyBudgetLimitUsd: number;
   latestCheckpoint: {

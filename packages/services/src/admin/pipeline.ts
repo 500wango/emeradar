@@ -59,6 +59,28 @@ export class AdminPipelineService {
       else if (r.status === 'ARCHIVED') archived = c;
     }
 
+    // 1b. Discovery quality: candidate intake + Inbox feedback (7d)
+    const discoveryRes = await query<{
+      candidates: number;
+      new_candidates_7d: number;
+    }>(
+      `SELECT COUNT(*) FILTER (WHERE status = 'CANDIDATE')::int AS candidates,
+              COUNT(*) FILTER (WHERE status = 'CANDIDATE'
+                                AND first_observed_date >= CURRENT_DATE - 6)::int AS new_candidates_7d
+         FROM opportunities`
+    );
+    const feedbackRes = await query<{ reason: string; count: number }>(
+      `SELECT reason, COUNT(*)::int AS count
+         FROM opportunity_feedback
+        WHERE created_at > NOW() - INTERVAL '7 days'
+        GROUP BY reason`
+    );
+    const fb = Object.fromEntries(feedbackRes.rows.map((r) => [r.reason, r.count]));
+    const helpfulFeedback7d = (fb.INTERESTED ?? 0) + (fb.SAVED ?? 0);
+    const negativeFeedback7d =
+      (fb.NOT_OPPORTUNITY ?? 0) + (fb.ALREADY_BUILT ?? 0) + (fb.CANNOT_BUILD ?? 0);
+    const feedback7d = helpfulFeedback7d + negativeFeedback7d;
+
     // 2. Today's API costs from cost_ledger
     const costRes = await query<{ total_cost: string }>(
       `SELECT COALESCE(SUM(cost_usd), 0)::text AS total_cost
@@ -193,6 +215,14 @@ export class AdminPipelineService {
         candidate,
         archived,
         total: tracked + candidate + archived,
+      },
+      discoveryStats: {
+        candidates: discoveryRes.rows[0]?.candidates ?? 0,
+        newCandidates7d: discoveryRes.rows[0]?.new_candidates_7d ?? 0,
+        feedback7d,
+        helpfulFeedback7d,
+        negativeFeedback7d,
+        negativeRate7d: feedback7d > 0 ? negativeFeedback7d / feedback7d : 0,
       },
       costTodayUsd,
       dailyBudgetLimitUsd: 20.0,

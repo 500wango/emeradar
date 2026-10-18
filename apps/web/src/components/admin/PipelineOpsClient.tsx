@@ -239,6 +239,30 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
         </Panel>
       </div>
 
+      {/* Discovery quality */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <Activity className="h-4 w-4 text-accent" />
+              <span>发现质量（7 天）</span>
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              关注“用户是否发现了有用的东西”，而不是只看付费转化。
+            </p>
+          </div>
+          <span className="font-mono text-[11px] text-fg-subtle">
+            negative rate {(overview.discoveryStats.negativeRate7d * 100).toFixed(1)}%
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <Stat value={overview.discoveryStats.newCandidates7d} unit="条" label="新候选" tone="warn" />
+          <Stat value={overview.discoveryStats.helpfulFeedback7d} unit="条" label="有帮助反馈" tone="signal" />
+          <Stat value={overview.discoveryStats.negativeFeedback7d} unit="条" label="负面反馈" tone="warn" />
+          <Stat value={overview.discoveryStats.candidates} unit="条" label="候选池" />
+        </div>
+      </Panel>
+
       {/* Interactive Trigger Hub */}
       <Panel tone="raised" className="p-6 sm:p-8">
         <div className="mb-6 max-w-2xl">
