@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { query } from '@emeradar/db';
 import { CostLedgerService } from '@emeradar/collectors';
+import { AuditService } from './audit.service';
+import { sendTransactionalEmail } from './email.service';
 
 /**
  * 采集运行记录 + 重试 + 熔断（04 §4）。
@@ -50,12 +52,22 @@ async function evaluateCircuit(sourceId: string, finalStatus: CollectorOutcomeLi
   try {
     if (finalStatus === 'OK') {
       // 半开探测成功：关闭已经到期的熔断；未到期的打开状态不去动它。
-      await query(
+      const closed = await query(
         `UPDATE source_circuit_breakers
             SET open_until = NULL, updated_at = NOW()
           WHERE source_id = $1 AND open_until IS NOT NULL AND open_until <= NOW()`,
         [sourceId]
       );
+      if ((closed.rowCount ?? 0) > 0) {
+        await AuditService.log({
+          actorId: null,
+          actorType: 'SYSTEM',
+          action: 'source.circuit_closed',
+          targetType: 'SOURCE',
+          targetId: sourceId,
+          payload: { reason: 'HALF_OPEN_PROBE_SUCCEEDED' },
+        });
+      }
       return;
     }
     if (finalStatus !== 'FAILED') return;
@@ -70,6 +82,13 @@ async function evaluateCircuit(sourceId: string, finalStatus: CollectorOutcomeLi
     );
     const { total, failed } = stats.rows[0] ?? { total: 0, failed: 0 };
     if (total >= MIN_ATTEMPTS_FOR_CIRCUIT && failed / total > FAILURE_RATE_THRESHOLD) {
+      const previous = await query<{ open: boolean }>(
+        `SELECT (open_until IS NOT NULL AND open_until > NOW()) AS open
+           FROM source_circuit_breakers WHERE source_id = $1`,
+        [sourceId]
+      );
+      const wasOpen = previous.rows[0]?.open === true;
+
       await query(
         `INSERT INTO source_circuit_breakers (source_id, open_until, opened_at, updated_at)
          VALUES ($1, NOW() + ($2 || ' minutes')::interval, NOW(), NOW())
@@ -79,10 +98,86 @@ async function evaluateCircuit(sourceId: string, finalStatus: CollectorOutcomeLi
            updated_at = NOW()`,
         [sourceId, String(OPEN_MINUTES)]
       );
+
+      // 只在"闭 → 开"的边沿通知一次；每次失败都发信会把人训练成过滤器。
+      if (!wasOpen) await notifyCircuitOpened(sourceId, { total, failed });
     }
   } catch (error) {
     // 熔断状态失败不能影响采集本身。
     console.warn(`[collector] circuit evaluation failed for ${sourceId}:`, error instanceof Error ? error.message : error);
+  }
+}
+
+async function resolveOpsRecipients(): Promise<string[]> {
+  const configured = (process.env.OPS_ALERT_EMAIL || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (configured.length > 0) return configured;
+
+  try {
+    const res = await query<{ email: string }>(
+      `SELECT email FROM users
+        WHERE role = 'ADMIN' AND status = 'ACTIVE'
+        ORDER BY created_at ASC
+        LIMIT 5`
+    );
+    return res.rows.map((row) => row.email).filter(Boolean);
+  } catch (error) {
+    console.error('[collector] 无法解析熔断告警收件人:', error);
+    return [];
+  }
+}
+
+async function notifyCircuitOpened(
+  sourceId: string,
+  stats: { total: number; failed: number }
+): Promise<void> {
+  try {
+    const last = await query<{ error_message: string | null }>(
+      `SELECT error_message FROM collector_runs
+        WHERE source_id = $1 AND status = 'FAILED'
+        ORDER BY started_at DESC LIMIT 1`,
+      [sourceId]
+    );
+    const lastError = last.rows[0]?.error_message ?? 'unknown error';
+    const rate = stats.total > 0 ? Math.round((stats.failed / stats.total) * 100) : 0;
+    const recipients = await resolveOpsRecipients();
+    const subject = `[emeradar] 采集源 ${sourceId} 已熔断 ${OPEN_MINUTES} 分钟`;
+    const text = [
+      `采集源：${sourceId}`,
+      `窗口：最近 ${FAILURE_WINDOW_MINUTES} 分钟，${stats.failed}/${stats.total} 失败（${rate}%）`,
+      `熔断：${OPEN_MINUTES} 分钟内不再调用供应商，避免继续烧钱`,
+      `最近错误：${lastError}`,
+      '',
+      '恢复：到期后系统会自动做一次半开探测；成功即关闭。',
+      `查询：SELECT * FROM source_circuit_breakers WHERE source_id = '${sourceId}';`,
+    ].join('\n');
+
+    let emailed = 0;
+    for (const to of recipients) {
+      if (await sendTransactionalEmail({ to, subject, text })) emailed++;
+    }
+
+    await AuditService.log({
+      actorId: null,
+      actorType: 'SYSTEM',
+      action: 'source.circuit_opened',
+      targetType: 'SOURCE',
+      targetId: sourceId,
+      payload: {
+        windowMinutes: FAILURE_WINDOW_MINUTES,
+        total: stats.total,
+        failed: stats.failed,
+        rate,
+        openMinutes: OPEN_MINUTES,
+        lastError,
+        recipients: recipients.length,
+        emailed,
+      },
+    });
+  } catch (error) {
+    console.warn('[collector] 熔断告警发送失败:', error instanceof Error ? error.message : error);
   }
 }
 

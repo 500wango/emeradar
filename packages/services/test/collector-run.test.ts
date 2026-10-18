@@ -79,6 +79,16 @@ describe('collector run：重试与熔断', () => {
     );
     assert.ok(circuit.rows[0]?.open_until, '熔断没有被打开');
 
+    const audit = await harness.db.query<{ payload: any }>(
+      `SELECT payload FROM audit_log
+        WHERE action = 'source.circuit_opened' AND target_id = $1
+        ORDER BY occurred_at DESC LIMIT 1`,
+      [SOURCE]
+    );
+    assert.ok(audit.rows[0], '熔断打开没有写审计');
+    assert.ok(audit.rows[0].payload.total >= 21);
+    assert.ok(audit.rows[0].payload.rate >= 90);
+
     const second = await runCollector(
       SOURCE,
       'q_open_2',
