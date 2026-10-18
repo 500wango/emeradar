@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { AuthService, EntitlementService, OpportunityService, listFreeWeeklyFeed } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, listFreeWeeklyFeed, type WeeklySelectedCase } from '@emeradar/services';
 import { FeedClient } from '@/components/FeedClient';
 import { TrackRequest } from '@/components/TrackRequest';
 import { StartExperimentButton } from '@/components/StartExperimentButton';
@@ -64,7 +64,7 @@ export default async function FeedPage({
 
   const delayText = realtime
     ? t('feed.delayRealtime')
-    : t('feed.delayDays', { days: feedDelayDays });
+    : t('feed.delayDays');
 
   const steps = [
     ['1', t('feed.step1')],
@@ -82,9 +82,35 @@ export default async function FeedPage({
         lede={t('feed.desc', { planLabel, delayText })}
       />
 
+      {!realtime && (() => {
+        // Free 每周精选的三种状态（13 §3.2、16 §3.3）：本周新案例 / 回退的历史案例 / 没有合格案例。
+        // 历史案例必须明示原入选日期，不得伪装成本周新案例（30 Q10）。
+        const weekly: WeeklySelectedCase | null = 'weekly' in feed ? (feed.weekly as WeeklySelectedCase | null) : null;
+        const since = weekly ? new Date(weekly.eligibleSince).toLocaleDateString(isZh ? 'zh-CN' : 'en-US') : '';
+        const reason = weekly
+          ? t(weekly.eligibleReason === 'CROWDED_LOCKED' ? 'feed.weeklyReasonCrowded' : 'feed.weeklyReasonClosing')
+          : '';
+        return (
+          <Panel className="mt-8 p-5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">{t('feed.weeklyBadge')}</p>
+            <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+              {!weekly
+                ? t('feed.weeklyNone')
+                : weekly.historical
+                  ? t('feed.weeklyHistorical', { date: since, reason })
+                  : t('feed.weeklyFresh', { date: since, reason })}
+            </p>
+            <Link href="/pricing" className="mt-3 inline-block text-sm font-semibold text-accent hover:underline">
+              {t('feed.weeklyUpgrade')}
+            </Link>
+          </Panel>
+        );
+      })()}
+
       <div className="mt-8">
         <FeedClient
           initialItems={feed.items}
+          suppressEmptyState={!realtime}
           total={feed.total}
           hasMore={feed.hasMore}
           offset={offset}
@@ -216,7 +242,7 @@ export default async function FeedPage({
           </p>
         ) : (
           <p className="mt-1 max-w-3xl text-sm text-fg-muted">
-            {t('feed.emergingDescGated', { days: feedDelayDays })}
+            {t('feed.emergingDescGated')}
           </p>
         )}
         {realtime && observations.length > 0 && (

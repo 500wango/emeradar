@@ -98,4 +98,22 @@ describe('Free 精选：每周 1 条准实时案例', () => {
     assert.ok(!feed.items.some((item: any) => item.opportunityId === OPP_OPEN), '空槽 BUILD_NOW 泄露进了 Free Feed');
     assert.strictEqual(feed.total, 1);
   });
+
+  it('Free 只能打开精选那一条的详情：按 id 或 slug 放行，空槽 BUILD_NOW 仍不放行', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { freeAccessibleOpportunityId, OpportunityService } = harness.services;
+    assert.strictEqual(await freeAccessibleOpportunityId(OPP_FULL), OPP_FULL);
+    assert.strictEqual(await freeAccessibleOpportunityId(OPP_FULL.replace(/_/g, '-')), OPP_FULL);
+    assert.strictEqual(await freeAccessibleOpportunityId(OPP_OPEN), null, '空槽 BUILD_NOW 不能借详情页泄露');
+    assert.strictEqual(await freeAccessibleOpportunityId('opp_does_not_exist'), null);
+
+    // 精选卡片首次观测不满 45 天：放行路径必须不再套延迟，否则精选卡恒为 404。
+    const detail = await OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 0, viewerId: 'usr_free' });
+    assert.strictEqual(detail.opportunity.id, OPP_FULL);
+    await assert.rejects(
+      OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 45, viewerId: 'usr_free' }),
+      '旧的延迟过滤会把刚入选的精选挡掉，这正是要修的问题'
+    );
+  });
 });
+

@@ -367,6 +367,13 @@ export interface TranslationDictionary {
     emergingTitle: string;
     emergingDescRealtime: string;
     emergingDescGated: string;
+    weeklyBadge: string;
+    weeklyFresh: string;
+    weeklyHistorical: string;
+    weeklyNone: string;
+    weeklyReasonCrowded: string;
+    weeklyReasonClosing: string;
+    weeklyUpgrade: string;
     noEmerging: string;
     confidenceLabel: string;
     observationCoverage: string;

@@ -92,6 +92,22 @@ export class WeeklySelectionService {
 }
 
 /**
+ * Free 层能打开哪一条机会的详情 / 报告（13 §3.2「摘要 + 精选案例」）。
+ *
+ * 只有本周精选那一条。它是 Feed 里唯一的卡片，点进去打不开就是一条断掉的路径；
+ * 而详情页此前对 Free 按 `feed_delay_days`（45 天）过滤，精选案例往往刚满额或刚关窗，
+ * 首次观测不满 45 天，于是精选卡片恒为 404。
+ *
+ * 资格判据与 Feed 完全同源（`getWeeklySelectedCase`），所以这里不可能放出一条仍有
+ * 空槽的 BUILD_NOW。返回 `null` 时调用方照旧走延迟过滤，其余机会对 Free 仍是 404。
+ */
+export async function freeAccessibleOpportunityId(idOrSlug: string, now: Date = new Date()): Promise<string | null> {
+  const weekly = await WeeklySelectionService.getWeeklySelectedCase(now);
+  if (!weekly) return null;
+  return weekly.opportunityId === idOrSlug || weekly.slug === idOrSlug ? weekly.opportunityId : null;
+}
+
+/**
  * Free 层的 Feed（13 §3.2）：只返回每周精选的那一条（或没有），不再按 `feed_delay_days`
  * 延迟展示整本 Feed。资格判据在 `getWeeklySelectedCase`，这里只负责把它变成 Feed 响应。
  */

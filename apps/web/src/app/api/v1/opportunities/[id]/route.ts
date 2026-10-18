@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { EntitlementService, OpportunityService } from '@emeradar/services';
+import { EntitlementService, OpportunityService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { getAuthUser, requireScope } from '@/lib/auth-server';
 import { AppError } from '@emeradar/core';
 
@@ -18,15 +18,17 @@ export async function GET(
     const scopeError = requireScope(auth, 'opportunities:read');
     if (scopeError) return scopeError;
     const ent = await EntitlementService.getUserEntitlements(auth.user.id);
-    if (!ent.opportunityDetailFull) {
+    const { id } = await params;
+    // Free 只能读本周精选那一条（13 §3.2），与 Feed 同源判据。
+    const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(id);
+    if (!ent.opportunityDetailFull && !weeklyId) {
       return NextResponse.json(
         { type: 'about:blank', title: 'Plan Required', status: 403, detail: 'Full opportunity details require a Builder Pro or Team plan.', upgradeUrl: '/pricing' },
         { status: 403 }
       );
     }
-    const { id } = await params;
     const data = await OpportunityService.getOpportunityDetail(id, {
-      minAgeDays: ent.feedDelayDays,
+      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
       viewerId: auth.user.id,
     });
     return NextResponse.json(data);

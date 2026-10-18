@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService, SlotService, StealthLockService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, SlotService, StealthLockService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
@@ -45,12 +45,15 @@ export default async function OpportunityWorkspacePage({
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect(`/login?next=${encodeURIComponent(`/opportunities/${slug}`)}`);
   const ent = await EntitlementService.getUserEntitlements(session.user.id);
-  if (!ent.opportunityDetailFull) redirect('/pricing?feature=opportunity-detail');
+  // Free 只能打开本周精选那一条（13 §3.2），资格与 Feed 同源；其余机会照旧引导升级。
+  const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(slug);
+  if (!ent.opportunityDetailFull && !weeklyId) redirect('/pricing?feature=opportunity-detail');
 
   let data: any;
   try {
     data = await OpportunityService.getOpportunityDetail(slug, {
-      minAgeDays: ent.feedDelayDays,
+      // 精选案例按定义是准实时的，不再套 45 天延迟；其余路径保持原过滤。
+      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
       viewerId: session.user.id,
     });
   } catch {

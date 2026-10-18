@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Lock, Sparkles } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService, ReportService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, ReportService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { ReportStudioClient } from '@/components/ReportStudioClient';
 import { getServerI18n } from '@/lib/i18n/server';
 import { cn } from '@/lib/cn';
@@ -33,17 +33,18 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
   const userId = session.user.id;
 
   // Aligned with the opportunity detail page (`opportunities/[slug]/page.tsx`):
-  // the workspace and its report share the exact same paid gate. For FREE users
-  // `opportunityDetailFull` is false, so they are redirected here exactly as they
-  // are on the detail page (the free monthly report quota is only reachable for
-  // users who already have full detail access).
+  // the workspace and its report share the exact same gate. FREE users reach only
+  // this week's selected case (13 §3.2「每月 1 份历史案例报告预览」), and its
+  // generation still spends the free monthly report quota inside ReportService.
   const ent = await EntitlementService.getUserEntitlements(session.user.id);
-  if (!ent.opportunityDetailFull) redirect('/pricing?feature=opportunity-detail');
+  const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(slug);
+  if (!ent.opportunityDetailFull && !weeklyId) redirect('/pricing?feature=opportunity-detail');
 
   let detail: any;
   try {
     detail = await OpportunityService.getOpportunityDetail(slug, {
-      minAgeDays: ent.feedDelayDays,
+      // 精选案例按定义是准实时的，不再套 45 天延迟；其余路径保持原过滤。
+      minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
       viewerId: session.user.id,
     });
   } catch {

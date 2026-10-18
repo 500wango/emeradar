@@ -22,6 +22,8 @@ import { Panel } from '@/components/ui/Panel';
 
 interface FeedClientProps {
   initialItems: FeedCardItem[];
+  /** 为真时不渲染通用空态：Free 页已用本周精选面板说明了为什么是空的。 */
+  suppressEmptyState?: boolean;
   total: number;
   hasMore: boolean;
   offset: number;
@@ -34,7 +36,7 @@ interface FeedClientProps {
   };
 }
 
-export function FeedClient({ initialItems, total, hasMore, offset, pageSize, activeFilters }: FeedClientProps) {
+export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, offset, pageSize, activeFilters }: FeedClientProps) {
   const { t, isZh } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
@@ -203,7 +205,7 @@ export function FeedClient({ initialItems, total, hasMore, offset, pageSize, act
       </Panel>
 
       {/* Zero State Fallback */}
-      {initialItems.length === 0 ? (
+      {initialItems.length === 0 && suppressEmptyState ? null : initialItems.length === 0 ? (
         <Panel className="mx-auto my-12 max-w-xl p-12 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-fg-subtle">
             <AlertCircle className="h-6 w-6" />

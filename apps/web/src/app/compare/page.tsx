@@ -72,7 +72,7 @@ export default async function ComparePage({ searchParams }: { searchParams?: Pro
         className="mt-6"
         eyebrow={t('compare.eyebrow')}
         title={t('compare.title')}
-        lede={t('compare.desc', { days: entitlements.feedDelayDays })}
+        lede={t('compare.desc')}
       />
 
       {ids.length < 2 && (

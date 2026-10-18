@@ -200,8 +200,8 @@ export const en: TranslationDictionary = {
     stat1Label: 'Evidence axes',
     stat2Number: '14+ days',
     stat2Label: 'Minimum observation gate',
-    stat3Number: '45 days',
-    stat3Label: 'Free feed delay',
+    stat3Number: '1 per week',
+    stat3Label: 'Free near-realtime pick',
     stat4Number: 'T+30/60/90',
     stat4Label: 'Outcome checkpoints',
     signalBoardBadge: "Today's radar picks",
@@ -264,8 +264,8 @@ export const en: TranslationDictionary = {
     decisionLoopSubtitle: 'The continuous decision loop operates across four stages: wide-area radar ingestion, multi-week observation gating, actionable MVP archetyping, and verifiable post-launch outcome tracking.',
     step1Title: 'Wide-area radar',
     step1Desc: 'Automated crawlers scan thousands of long-tail search expansions daily to catch emerging unaddressed pain points.',
-    step2Title: '45-day observation',
-    step2Desc: 'Candidates must endure 45 consecutive days of uninterrupted tracking to filter out fake or short-lived spikes.',
+    step2Title: '14-day observation',
+    step2Desc: 'A candidate needs at least 14 days of autocomplete and Google ranking history before it gets a verdict, which filters out one-day news spikes.',
     step3Title: 'Archetype blueprint',
     step3Desc: 'Prescribes the exact minimum product footprint (light tool, micro-SaaS, directory) to ship within one week.',
     step4Title: 'Outcome review',
@@ -273,7 +273,7 @@ export const en: TranslationDictionary = {
     pricingBannerBadge: 'Transparent Plans & Sizing',
     pricingBannerTitle: 'Transparent pricing designed for indie builders',
     pricingBannerDesc: 'Explore public opportunities and past decisions for free, or use Pro for live opportunity updates and full research reports that shorten the path from an idea to a real test.',
-    freeDelayHighlight: 'Free: 45-day delayed summaries · Public verifiable track record',
+    freeDelayHighlight: 'Free: 1 near-realtime pick per week · Public verifiable track record',
     proRealtimeHighlight: 'Pro: Zero-delay realtime feed · 30 report exports/month',
     explorePricingBtn: 'Compare plans and entitlements',
     principlesTitle: "What core principles govern Emeradar's signal intelligence?",
@@ -313,7 +313,7 @@ export const en: TranslationDictionary = {
     title: "Today's published opportunities",
     desc: 'Up to 10 tracked decisions. This session is {planLabel}: published decisions {delayText}. Research market for this release is the United States, English.',
     delayRealtime: 'are current',
-    delayDays: 'appear {days} days after the first observation',
+    delayDays: 'are limited to one weekly pick',
     tabAll: 'All Opportunities',
     tabBuildNow: 'BUILD NOW',
     tabEarlyBet: 'EARLY BET',
@@ -363,7 +363,14 @@ export const en: TranslationDictionary = {
     sourceLabel: 'Source: ',
     emergingTitle: 'Emerging market candidates',
     emergingDescRealtime: 'These candidates are discovered from search signals and are still being observed. They are not published verdicts: one observation is not a market conclusion.',
-    emergingDescGated: 'Realtime observations are part of Pro. Free shows published decisions after {days} days.',
+    emergingDescGated: 'Realtime observations are part of Pro. Free shows one pick a week, chosen only from opportunities whose slots are fully claimed or whose window is closing. Opportunities with open slots stay with paid plans.',
+    weeklyBadge: 'Free · This week\'s pick',
+    weeklyFresh: 'Picked on {date} because {reason}. You can open its full detail and evidence.',
+    weeklyHistorical: 'No new qualifying case in the last 7 days. Below is a historical case picked on {date} because {reason}.',
+    weeklyNone: 'No case qualifies yet. Picks come only from opportunities whose slots are fully claimed or whose window is closing; anything with open slots stays with paid plans, so this stays empty rather than leak one.',
+    weeklyReasonCrowded: 'its claim slots are full',
+    weeklyReasonClosing: 'its entry window is closing',
+    weeklyUpgrade: 'See plans with the realtime feed',
     noEmerging: 'No emerging candidates stored yet.',
     confidenceLabel: 'confidence',
     observationCoverage: 'Observation coverage: {auto} autocomplete days · {serp} SERP days',
@@ -505,9 +512,9 @@ export const en: TranslationDictionary = {
     // Plans
     planFreeTitle: 'Free',
     planFreePrice: '$0',
-    planFreeDesc: 'Learn how validated decisions perform. Explore historical track records with 45-day delayed updates.',
+    planFreeDesc: 'Learn how validated decisions perform. Explore the track record and one near-realtime pick per week.',
     freeFeatures: [
-      'Historical opportunity summaries (45-day delay)',
+      'One near-realtime pick per week (slots full or window closing)',
       'Verified outcome tracking (T+30/60/90 results)',
       'Basic SERP weakness preview',
       '1 report preview / month',
@@ -560,7 +567,7 @@ export const en: TranslationDictionary = {
     stat2Number: '>90%',
     stat2Label: 'Verification Rate',
     stat2Desc: 'Our publication gate: 14+ day history, observed pricing on ≥2 sites, SERP penetrability proof.',
-    stat3Number: '45 Days',
+    stat3Number: 'T+30/60/90',
     stat3Label: 'Outcome Audit',
     stat3Desc: 'We compare T+30/60/90 results to original verdicts. See what worked and what did not.',
 
@@ -572,7 +579,7 @@ export const en: TranslationDictionary = {
     colStarter: 'Starter',
     colPro: 'Builder Pro',
     matrixRows: [
-      { feature: 'Update Latency', free: '45 days delayed', starter: 'Real-time', pro: 'Real-time' },
+      { feature: 'Update Latency', free: '1 pick per week', starter: 'Real-time', pro: 'Real-time' },
       { feature: 'Market Opportunities', free: '10 views/mo', starter: 'Unlimited', pro: 'Unlimited' },
       { feature: 'Active Projects', free: '0', starter: '1', pro: '3' },
       { feature: 'Opportunity Screenings', free: '0/mo', starter: '2/mo', pro: '5/mo' },
@@ -610,7 +617,7 @@ export const en: TranslationDictionary = {
     faqs: [
       {
         q: 'I am completely new. Which plan should I pick?',
-        a: 'Start Free. Explore 45-day delayed decisions and the track record. When you are ready to validate your first idea in real-time, upgrade to Starter.',
+        a: 'Start Free. See one near-realtime pick a week and the full track record. When you are ready to validate your first idea in real-time, upgrade to Starter.',
       },
       {
         q: 'I have one idea I want to validate. Starter or Pro?',
@@ -1078,7 +1085,7 @@ export const en: TranslationDictionary = {
     eyebrow: 'Opportunity comparison',
     backToFeed: 'Back to decision feed',
     title: 'Compare opportunities on one decision surface',
-    desc: 'Only published BUILD NOW / EARLY BET records are comparable. Your feed delay is {days} days; comparison does not bypass the evidence gate.',
+    desc: 'Only published BUILD NOW / EARLY BET records are comparable. Comparison does not bypass the evidence gate.',
     selectTwoTitle: 'Select at least two opportunities from the feed',
     selectTwoDesc: 'The comparison covers verdict, D/M/W, confidence, crowding, execution class, and kill criteria.',
     openFeed: 'Open decision feed',
@@ -1268,12 +1275,12 @@ export const en: TranslationDictionary = {
     home: {
       title: 'Emeradar — Search opportunity intelligence and commercial signal radar',
       description:
-        'Review search demand, SERP weakness and published pricing evidence before writing code. Every opportunity record carries its sources, observation date and limits, and published decisions stay auditable. Free accounts see decisions delayed by 45 days.',
+        'Review search demand, SERP weakness and published pricing evidence before writing code. Every opportunity record carries its sources, observation date and limits, and published decisions stay auditable. Free accounts get one near-realtime pick per week.',
     },
     pricing: {
       title: 'Pricing: Free vs Pro',
       description:
-        'Free browses decisions delayed by 45 days plus the full public track record. Pro unlocks the zero-delay radar feed and monthly report exports. Report generation and report export are metered separately.',
+        'Free gets one near-realtime pick per week plus the full public track record. Pro unlocks the zero-delay radar feed and monthly report exports. Report generation and report export are metered separately.',
     },
     trackRecord: {
       title: 'Verifiable track record: prediction ledger and outcomes',
