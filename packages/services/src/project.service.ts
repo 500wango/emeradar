@@ -2,17 +2,7 @@ import { query, transaction } from '@emeradar/db';
 import { EmeradarError, ErrorCode, BuildArchetype, readBodyWithLimit } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
 import { assertPublicHttpUrl } from './public-url';
-import { SlotService } from './slot.service';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-
-/**
- * 承诺质押窗口（03 §12、01 §1.7 第 5 条）。认领一个槽位后必须在这么多天内提交
- * 一类有效上线凭证，否则槽位被自动释放，而**已扣的配额不退还**。
- *
- * 逾期释放需要这个值是唯一的：若某个读路径用 7、某个写路径用别的数，就会出现
- * "作业认为已逾期、但项目自己不认为"的分裂。将来接配置中心时从这里改成注入。
- */
-export const STAKE_WINDOW_DAYS = 7;
 
 export interface CreateExperimentProjectInput {
   experimentCardId: string;
@@ -322,11 +312,11 @@ export class ProjectService {
     const projectId = `prj_${Date.now()}`;
     const domain = normalizeProjectDomain(input.domain);
     const res = await query<any>(
-      `INSERT INTO projects (id, user_id, project_kind, experiment_card_id, title, domain, build_type, status, target_keywords, stake_deadline_at)
-       VALUES ($1, $2, 'EXPERIMENT', $3, $4, $5, $6, 'IN_DEVELOPMENT', $7, NOW() + make_interval(days => $8))
+      `INSERT INTO projects (id, user_id, project_kind, experiment_card_id, title, domain, build_type, status, target_keywords)
+       VALUES ($1, $2, 'EXPERIMENT', $3, $4, $5, $6, 'IN_DEVELOPMENT', $7)
        ON CONFLICT (user_id, experiment_card_id) WHERE experiment_card_id IS NOT NULL DO NOTHING
        RETURNING *`,
-      [projectId, userId, input.experimentCardId, input.title, domain, input.buildType || 'TOOL', input.targetKeywords || [], STAKE_WINDOW_DAYS],
+      [projectId, userId, input.experimentCardId, input.title, domain, input.buildType || 'TOOL', input.targetKeywords || []],
     );
     if (!res.rows[0]) {
       throw new EmeradarError(ErrorCode.CONFLICT, 'You already have a project for this experiment card.', 409);
@@ -604,22 +594,8 @@ export class ProjectService {
         );
       }
 
-      if (status === 'ARCHIVED') {
-        const claims = await client.query<{ id: string }>(
-          `SELECT id FROM slot_claims WHERE project_id = $1 AND state = 'CLAIMED'`,
-          [projectId]
-        );
-        for (const claim of claims.rows) {
-          // 归档释放槽位但**不退还已扣配额**：额度是在 GO 的那一刻花掉的，
-          // 事后退还等于把"每月 3 次"变成"随便占、随时退"。
-          await SlotService.release(client, {
-            slotClaimId: claim.id,
-            state: 'RELEASED',
-            reason: 'USER_ARCHIVED',
-          });
-        }
-      }
-
+      // 归档只改状态：v3.1 没有槽位可释放，也不退还已扣配额——额度是在 GO 的那一刻
+      // 花掉的，事后退还等于把"每月 3 次"变成"随便占、随时退"。
       return res.rows[0];
     });
   }

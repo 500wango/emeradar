@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
-import { AuthService, ProjectService, StakeService, RankingService } from '@emeradar/services';
+import { AuthService, CredentialService, ProjectService, RankingService } from '@emeradar/services';
 import SiteCheckButton from '@/components/SiteCheckButton';
 import { ProjectLifecyclePanel } from '@/components/ProjectLifecyclePanel';
-import { StakePanel } from '@/components/StakePanel';
+import { CredentialPanel } from '@/components/CredentialPanel';
 import { LaunchKitPanel } from '@/components/LaunchKitPanel';
 import { RankingsPanel } from '@/components/RankingsPanel';
 import { getServerI18n } from '@/lib/i18n/server';
@@ -22,16 +22,15 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const gscStatus = await ProjectService.getGscConnectionStatus(id, session.user.id);
 
   /**
-   * 质押状态单独取，而不是从 `getProjectDetail` 的大对象里挑字段。
+   * 凭证状态单独取，而不是从 `getProjectDetail` 的大对象里挑字段。
    *
-   * 它是**有时限**的数据：7 天窗口一过，槽位由后台作业释放，这份 view 里的
-   * `stakeStatus` 就成了用户唯一能看到的凭据。让它走 `StakeService` 的同一条读路径，
-   * 前端面板与后台作业判的才是同一个 `stake_status`。
+   * 面板与路由读同一条路径（`CredentialService.getCredentials`），`credential_status`
+   * 才是真源。v3.1 没有期限：GO 之后随时可以提交，失败也不回收任何东西。
    */
-  const stake = await StakeService.getStakeStatus(id, session.user.id);
+  const credentials = await CredentialService.getCredentials(id, session.user.id);
 
   /**
-   * 排名曲线与质押状态同样单独取：它就是 PRD P4 那句"以 30 天排名爬升衡量"的读数，
+   * 排名曲线与凭证状态同样单独取：它就是 PRD P4 那句"以 30 天排名爬升衡量"的读数，
    * 而 `getProjectDetail` 的大对象里没有它（那是机会侧的快照，不是项目侧的时间序列）。
    * 只读、无副作用，所以放在服务端直取，省掉一次客户端往返与一次首屏闪烁。
    *
@@ -60,13 +59,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         initialProjectStatus={data.project.status}
         domain={data.project.domain}
       />
-      <StakePanel
+      <CredentialPanel
         projectId={id}
         projectKind={data.project.project_kind}
         initial={{
-          stakeStatus: stake.stakeStatus,
-          stakeDeadlineAt: stake.stakeDeadlineAt,
-          credentials: stake.credentials,
+          credentialStatus: credentials.credentialStatus,
+          credentialVerifiedAt: credentials.credentialVerifiedAt,
+          credentials: credentials.credentials,
         }}
       />
       {/* GO 的交付物就在这个页面上，而不是在别处：用户点完 GO 被跳到这里，

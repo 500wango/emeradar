@@ -21,10 +21,7 @@ export async function GET(
     if (verificationError) return verificationError;
     const userId = auth.user.id;
 
-    // `viewerId` 不只是记账：买断保护期内它对非持有者会 404（10 §7），与详情同口径。
-    const result = await ReportService.getOrGenerateReport(id, userId, locale, {
-      viewerId: userId,
-    });
+    const result = await ReportService.getOrGenerateReport(id, userId, locale);
     return NextResponse.json(result);
   } catch (error: any) {
     if (error instanceof AppError) {

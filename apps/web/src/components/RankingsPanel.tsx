@@ -68,7 +68,7 @@ export function RankingsPanel({ projectId, initial }: { projectId: string; initi
       <div className="flex flex-wrap items-center gap-2">
         <TrendingUp className="h-4 w-4 text-fg-subtle" />
         <h3 className="text-sm font-semibold text-fg">{t('projects.rankingsTitle')}</h3>
-        {/* 徽章放英文 token 与数字（同 StakePanel：Badge 的 uppercase 对中文是空操作）。 */}
+        {/* 徽章放英文 token 与数字（同 CredentialPanel：Badge 的 uppercase 对中文是空操作）。 */}
         {view.bestRankEver !== null ? (
           <Badge tone="signal" size="sm">{`TOP 100 · #${view.bestRankEver}`}</Badge>
         ) : view.observedDays > 0 ? (

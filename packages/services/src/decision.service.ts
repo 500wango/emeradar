@@ -4,7 +4,6 @@ import type { PoolClient } from '@emeradar/db';
 import { canonicalizeJson } from '@emeradar/ledger';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
-import { hiddenFromViewer } from './stealth-lock-policy';
 
 export const PASS_REASONS = [
   'DEMAND_TOO_THIN',
@@ -125,8 +124,8 @@ export class DecisionService {
       `SELECT o.id, o.title, o.status
          FROM opportunities o
          JOIN opportunity_cards c ON c.opportunity_id = o.id
-        WHERE o.id = $1 AND ${hiddenFromViewer('o.id', '$2')}`,
-      [input.opportunityId, userId]
+        WHERE o.id = $1`,
+      [input.opportunityId]
     );
     const opportunity = opportunityRes.rows[0];
     if (!opportunity || opportunity.status !== 'TRACKED') {

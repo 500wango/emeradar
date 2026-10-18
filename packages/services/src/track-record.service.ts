@@ -8,7 +8,6 @@ import {
   buildRowHashInput,
   LedgerRowRecord,
 } from '@emeradar/ledger';
-import { getActiveMasks } from './stealth-lock-policy';
 
 /**
  * 单边样本不出比率 —— docs/16 §3.1a 的强制口径，导出的纯函数便于直接测。
@@ -174,37 +173,13 @@ export class TrackRecordService {
       `SELECT COUNT(*)::text AS count FROM opportunities WHERE status = 'TRACKED'`
     );
 
-    /**
-     * 保护期内的 Episode：**打码，但一行都不许少**。
-     *
-     * 方向与别处相反，是最容易做错的一点。Feed / 详情 / 槽位那些读路径的处置是
-     * "把整条排除掉"，于是很自然的冲动是在这里也 `WHERE NOT EXISTS (stealth_locks...)`。
-     * 那样做等于**买断者用 $199 买走了平台的败绩**——保护期内 60 天里的失手记录
-     * 会从公开战报上整段消失，而战报对外承诺的正是"命中与失误都公开"。
-     *
-     * `docs/10 §4.8` 第 223 行写的是「买断保护期内的记录**照常出现**」，`docs/15 §3.1`
-     * 第 2 条与 §8 的「Cohort 统计口径完整率 100%」都是 P0。所以：
-     *
-     *   - 分子分母：`stats` 与 `cohorts` 全部由**未打码**的 `episodes` 算出，
-     *     打码只发生在这最后一步的投影上。上面那些 `e.outcome_30d === 'HIT'` 的
-     *     谓词碰的都是真数据，一个字都没改。
-     *   - 词根：`opportunity_title` / `opportunity_slug` 换成 `[Stealth Locked #ID]`
-     *     与不含词根的 slug；`docs/06 §11` 要求同时输出
-     *     `is_stealth_masked` / `masked_label` / `unmasked_at`，好让页面能说清
-     *     "这一条是被买断的"而不是显示成一条坏数据。
-     */
-    const masks = await getActiveMasks(episodes.map((e: any) => e.opportunity_id));
+    // 公开战报一行都不许少：`stats` 与 `cohorts` 全部由未删减的 `episodes` 算出，
+    // 明细只由 `disclosed` 过滤——那是"这一条该不该对外披露"，与可见性无关。
+    // v3.1 没有买断，不存在"打码但保留"的第三条路，词根也不再需要替换。
     const publicEpisodes = episodes.filter((e: any) => e.disclosed).map((episode: any) => {
-      const mask = masks.get(episode.opportunity_id);
-      const projected: Record<string, unknown> = {
-        is_stealth_masked: Boolean(mask),
-        masked_label: mask?.maskedLabel ?? null,
-        unmasked_at: mask?.unmaskedAt ?? null,
-      };
+      const projected: Record<string, unknown> = {};
       for (const field of PUBLIC_EPISODE_FIELDS) projected[field] = episode[field];
       projected.metrics = projectPublicMetrics(episode.metrics);
-      projected.opportunity_title = mask ? mask.maskedLabel : episode.opportunity_title;
-      projected.opportunity_slug = mask ? mask.maskedSlug : episode.opportunity_slug;
       return projected;
     });
 

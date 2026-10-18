@@ -1,7 +1,6 @@
-import { query, transaction } from '@emeradar/db';
+import { query } from '@emeradar/db';
 import { AppError } from '@emeradar/core';
 import { AuditService } from '../audit.service';
-import { SlotService } from '../slot.service';
 import type { AdminCandidateItem } from './types';
 
 export class AdminCandidateService {
@@ -136,13 +135,6 @@ export class AdminCandidateService {
         throw AppError.badRequest('Candidate cannot be promoted before the real observation pipeline produces a publishable verdict.');
       }
       await query(`UPDATE opportunities SET status = 'TRACKED', updated_at = NOW() WHERE id = $1`, [opportunityId]);
-      // 人工提升同样要物化槽位，否则这条机会会带着"零槽位"上线：任何人点 GO 都会
-      // 拿到 400（这个形态没开放），而前端的槽位面板会是一片空白。这里只能拿到推荐
-      // 形态（推荐层的前三名没有落库），所以是单形态的一条队——补不出历史就不假装
-      // 补得出，与 0004 的回填口径一致。
-      await transaction(async (client) => {
-        await SlotService.materialize(client, opportunityId, [row.recommended_archetype]);
-      });
       await AuditService.log({
         actorId,
         actorType: actorId ? 'ADMIN' : 'SYSTEM',

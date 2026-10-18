@@ -35,8 +35,8 @@ describe('Review fixes (rate limit, audit, GSC batching, preferences, entitlemen
       [`sub_${userId}`, userId]
     );
     await query(
-      `INSERT INTO projects (id, user_id, project_kind, title, domain, build_type, status, stake_deadline_at)
-       VALUES ($1, $2, 'EXPERIMENT', 'Fix Check', 'fixcheck.example', 'TOOL', 'IN_DEVELOPMENT', NOW() + INTERVAL '7 days')
+      `INSERT INTO projects (id, user_id, project_kind, title, domain, build_type, status)
+       VALUES ($1, $2, 'EXPERIMENT', 'Fix Check', 'fixcheck.example', 'TOOL', 'IN_DEVELOPMENT')
        ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id`,
       [projectId, userId]
     );

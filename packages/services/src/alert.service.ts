@@ -6,7 +6,6 @@ import {
   UNIMPLEMENTED_RULE_TYPES,
   isEvaluatedRuleType,
 } from './alert-triggers';
-import { hiddenFromViewer } from './stealth-lock-policy';
 
 export type { AlertRuleType };
 
@@ -21,21 +20,6 @@ export class AlertService {
    * List alert rules for a user
    */
   static async listAlertRules(userId: string): Promise<any[]> {
-    /**
-     * 买断保护期内，非持有者的规则**从列表里消失**（10 §7 的「一切读取路径」）。
-     *
-     * `createAlertRule` 那道闸只挡得住"现在去建一条"，挡不住"买断之前就建好了"：
-     * 规则是用户自己在机会还可见时建的，锁生效之后它照样在库里，而这条查询会把
-     * `o.title` / `o.slug` 原样带出来——标题就是打码要遮的那件东西。
-     *
-     * 这里是**排除行**而不是像公开战报那样打码，理由在 `r.*`：行里带着
-     * `opportunity_id`，而本库的机会 id 直接嵌了 slug（`opp_adsense_rpm_simulator`），
-     * 只把标题换成 `[Stealth Locked #…]` 等于把词根留在同一行的另一个字段里。要打码
-     * 就得连 id 一起换，而 id 是这一行的外键、也是 UI 的跳转目标——那不如不返回。
-     *
-     * 排除是无害的：保护期内的投递本来就被 pipeline 抑制（持有者之外不推送），
-     * 所以这条规则在这段时间里是哑的；期满 `hiddenFromViewer` 转假，它原样回来。
-     */
     const res = await query<any>(
       `SELECT r.*, o.title as opportunity_title, o.slug as opportunity_slug,
               c.verdict as current_verdict
@@ -43,9 +27,8 @@ export class AlertService {
        JOIN opportunities o ON o.id = r.opportunity_id
        LEFT JOIN opportunity_cards c ON c.opportunity_id = o.id
        WHERE r.user_id = $1
-         AND ${hiddenFromViewer('r.opportunity_id', '$2')}
        ORDER BY r.created_at DESC`,
-      [userId, userId]
+      [userId]
     );
     return res.rows;
   }
@@ -73,20 +56,12 @@ export class AlertService {
       );
     }
 
-    /**
-     * 这是一个**存在性判据**，所以保护期内的处置必须与"这条机会不存在"完全同形。
-     *
-     * 若这里放行，一个非持有者只要试着建一条规则，就能从"成功"与"404"的差别里
-     * 问出"这条机会是不是正被买断"——而这恰好是 D3 用 404 想挡住的那条信息。
-     * 持有者照常放行：他的告警盯的是自己买下的东西。
-     */
     const opportunityRes = await query<{ id: string }>(
       `SELECT o.id
        FROM opportunities o
        JOIN opportunity_cards c ON c.opportunity_id = o.id
-       WHERE o.id = $1 AND o.status = 'TRACKED'
-         AND ${hiddenFromViewer('o.id', '$2')}`,
-      [input.opportunityId, userId]
+       WHERE o.id = $1 AND o.status = 'TRACKED'`,
+      [input.opportunityId]
     );
     if (opportunityRes.rows.length === 0) {
       throw new EmeradarError(
@@ -188,21 +163,14 @@ export class AlertService {
       ? 'user_id = $1 AND is_read = false'
       : 'user_id = $1';
 
-    // 与 `listAlertRules` 同一条规矩：保护期内的历史通知对非持有者不再出现。
-    // pipeline 现在不会**新产生**这类通知（非持有者被抑制），但买断之前落库的那几条
-    // 仍然带着真实标题与 slug，它们不会自己消失。
-    //
-    // `LEFT JOIN` 保持不变：`opportunity_id IS NULL` 的系统通知在 `NOT EXISTS` 下
-    // 天然保留（子查询匹配不到任何锁行），不会被这条判据误伤。
     const res = await query<any>(
       `SELECT n.*, o.slug as opportunity_slug, o.title as opportunity_title
        FROM notifications n
        LEFT JOIN opportunities o ON o.id = n.opportunity_id
        WHERE ${where}
-         AND ${hiddenFromViewer('n.opportunity_id', '$2')}
        ORDER BY n.created_at DESC
        LIMIT 50`,
-      [userId, userId]
+      [userId]
     );
 
     return res.rows;

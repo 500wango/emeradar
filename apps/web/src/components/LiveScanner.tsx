@@ -48,7 +48,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
       setScanResult(data.opportunity);
       // 打码结果不回调：回调的用途是"跳到这条机会"，而它的 slug 是打码 slug，
       // 跳过去是 404。让调用方拿到一个必然打不开的链接比不回调更糟。
-      if (onScanSuccess && !data.opportunity.isStealthLocked) onScanSuccess(data.opportunity.slug);
+      if (onScanSuccess) onScanSuccess(data.opportunity.slug);
     } catch (err: any) {
       setError(err.message || t('liveScanner.scanError'));
     } finally {
@@ -158,29 +158,20 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
                 {scanResult.primaryQuery}
               </p>
             </div>
-            {/* 打码结果不给入口：它的 slug 是 `stealth-lock-<id>`——一个**故意
-                不存在**的 slug，点过去只会 404。 */}
-            {!scanResult.isStealthLocked && (
-              <Button
-                type="button"
-                variant="primary"
-                onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
-                className="self-start sm:self-auto"
-              >
-                <span>{t('liveScanner.openRecord')}</span>
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
+              className="self-start sm:self-auto"
+            >
+              <span>{t('liveScanner.openRecord')}</span>
+              <ArrowRight className="w-4 h-4" />
+            </Button>
           </div>
           <p className="mt-4 font-mono text-xs text-fg-muted">
             D {scanResult.dBand} · M {scanResult.mBand} · W {scanResult.wBand} · {scanResult.confidence}
           </p>
           <p className="mt-2 text-xs text-fg-muted">{scanResult.whyNowSummary}</p>
-          {scanResult.isStealthLocked && (
-            <p className="mt-3 rounded-sm border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-              {t('liveScanner.stealthLocked')}
-            </p>
-          )}
         </Panel>
       )}
     </div>

@@ -1,5 +1,4 @@
 import { query } from '@emeradar/db';
-import { hiddenFromEveryone, hiddenFromViewer } from './stealth-lock-policy';
 import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
 import { deriveBasisState } from '@emeradar/report';
 
@@ -47,9 +46,6 @@ export interface FeedCardItem {
   candidateReason?: string | null;
   observationDays?: number;
   serpObservationDays?: number;
-  claimsCount?: number;
-  maxClaims?: number;
-  isCrowdedLocked?: boolean;
   /**
    * 判定依据是否已留存于账本（v2 起）。false 表示这是早于该功能的存量记录，
    * 界面必须如实说明，而不是把"账本没记"显示成"没有负面信号"。
@@ -82,8 +78,6 @@ export interface CompareOpportunityItem {
   wBand: string;
   confidence: string;
   executionClass: ExecutionClass;
-  claimsCount: number;
-  maxClaims: number;
   killCriteriaTotal: number;
   killCriteriaTriggered: number;
   marketCountry: string;
@@ -212,16 +206,6 @@ export class OpportunityService {
 
     const conditions: string[] = [
       `o.status = 'TRACKED'`,
-      /**
-       * 买断保护期内**对所有人**排除，买断者本人也在内（16 §3.3：买断后该条从他
-       * 自己的 Feed 里也消失）。
-       *
-       * 放在 `conditions` 里而不是事后过滤数组：这个数组同时喂给计数查询与列表
-       * 查询，所以分页的 `total` 与页内行数说的是同一件事。若只过滤列表，
-       * `total` 会比实际能取到的行数多，翻到最后一页会得到空页——那是一个只在
-       * "刚好有人买断了某条"时才出现的、很难复现的分页 bug。
-       */
-      hiddenFromEveryone('o.id'),
     ];
     const params: any[] = [];
     let paramIdx = 1;
@@ -303,8 +287,6 @@ export class OpportunityService {
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
         COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
-        COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
-        COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims,
         lv.raw_verdict,
         lv.flags,
         lv.hash_version,
@@ -352,9 +334,6 @@ export class OpportunityService {
       candidateReason: r.candidate_reason,
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
-      claimsCount: r.claims_count ?? 0,
-      maxClaims: r.max_claims ?? 0,
-      isCrowdedLocked: (r.max_claims ?? 0) > 0 && (r.claims_count ?? 0) >= (r.max_claims ?? 0),
       // 判定依据：与报告共用同一套留存口径，避免两处对"什么算留存"各执一词。
       basisRetained: deriveBasisState(r) !== 'NOT_RETAINED',
       rawVerdict: (r.raw_verdict as Verdict | null) ?? undefined,
@@ -417,13 +396,10 @@ export class OpportunityService {
         o.discovery_source,
         o.candidate_reason,
         COALESCE((SELECT COUNT(DISTINCT observed_date) FROM autocomplete_observations ao JOIN opportunity_queries oq2 ON oq2.query_id = ao.query_id WHERE oq2.opportunity_id = o.id), 0)::int AS observation_days,
-        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days,
-        COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
-        COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims
+        COALESCE((SELECT COUNT(DISTINCT ss.obs_date) FROM serp_snapshots ss JOIN opportunity_queries oq3 ON oq3.query_id = ss.query_id WHERE oq3.opportunity_id = o.id), 0)::int AS serp_observation_days
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE o.status = 'CANDIDATE'
-         AND ${hiddenFromEveryone('o.id')}
        ORDER BY c.first_observed_at DESC
        LIMIT $1`,
       [limit]
@@ -457,9 +433,6 @@ export class OpportunityService {
       candidateReason: r.candidate_reason,
       observationDays: r.observation_days,
       serpObservationDays: r.serp_observation_days,
-      claimsCount: r.claims_count ?? 0,
-      maxClaims: r.max_claims ?? 0,
-      isCrowdedLocked: (r.max_claims ?? 0) > 0 && (r.claims_count ?? 0) >= (r.max_claims ?? 0),
     }));
   }
 
@@ -483,8 +456,6 @@ export class OpportunityService {
       `o.status = 'TRACKED'`,
       `c.verdict IN ('BUILD_NOW', 'EARLY_BET')`,
       `c.confidence <> 'LOW'`,
-      // 比较页与 Feed 同类：保护期内对所有人排除，含买断者本人。
-      hiddenFromEveryone('o.id'),
     ];
     if (options.minAgeDays && options.minAgeDays > 0) {
       params.push(String(options.minAgeDays));
@@ -495,8 +466,6 @@ export class OpportunityService {
       `SELECT o.id AS opportunity_id, o.slug, o.title, o.market_country, o.research_language,
               c.primary_query, c.verdict, c.d_band, c.m_band, c.w_band,
               c.confidence, c.execution_class,
-              COALESCE((SELECT SUM(s.claimed) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS claims_count,
-              COALESCE((SELECT SUM(s.capacity) FROM opportunity_slots s WHERE s.opportunity_id = o.id), 0)::int AS max_claims,
               COALESCE((SELECT COUNT(*) FROM kill_criteria k WHERE k.opportunity_id = o.id), 0)::int AS kill_criteria_total,
               COALESCE((SELECT COUNT(*) FROM kill_criteria k
                         WHERE k.opportunity_id = o.id AND k.status = 'TRIGGERED'), 0)::int AS kill_criteria_triggered
@@ -526,8 +495,6 @@ export class OpportunityService {
       wBand: row.w_band,
       confidence: row.confidence,
       executionClass: row.execution_class,
-      claimsCount: row.claims_count ?? 0,
-      maxClaims: row.max_claims ?? 0,
       killCriteriaTotal: row.kill_criteria_total ?? 0,
       killCriteriaTriggered: row.kill_criteria_triggered ?? 0,
       marketCountry: row.market_country,
@@ -540,7 +507,7 @@ export class OpportunityService {
    */
   static async getOpportunityDetail(
     idOrSlug: string,
-    options: { minAgeDays?: number; viewerId?: string | null } = {}
+    options: { minAgeDays?: number } = {}
   ): Promise<any> {
     // Only published decisions are addressable. Without this a caller who knows
     // (or guesses) a slug could read a CANDIDATE record the feed deliberately
@@ -548,25 +515,6 @@ export class OpportunityService {
     // feed boundary.
     const conditions = [`(o.id = $1 OR o.slug = $1)`, `o.status = 'TRACKED'`];
     const params: any[] = [idOrSlug];
-    /**
-     * 买断保护期内：**持有者 200，其他人 404**（10 §7 第 267 行「非本人持有且处于
-     * 保护期的机会返回 404」）。
-     *
-     * 这里刻意**不**复用 Feed 的 `hiddenFromEveryone`。两者看着像同一个动作，
-     * 差别只在 `viewerId` 上，而那正是这个商品的全部内容：买断者花 $199 买的是
-     * "这条只有我能打开"。用 `hiddenFromEveryone` 会让他付完钱立刻读不到自己买的
-     * 东西——一个纯功能性的、当场就能被发现的 bug。
-     *
-     * 对非持有者必须回**与"这条不存在"完全同形**的 404。回 403 等于承认这里有一条
-     * 被保护的机会，等于把 404 想挡住的信息换个方式说出去。
-     *
-     * 未传 `viewerId` 时**照旧挂上这道闸**，用空串当"没有这个人"。不传就等于放行
-     * 是一种失败开放：将来新加一个调用点忘了带 viewerId，它读到的就是保护期内的
-     * 机会，而且不会有任何报错、测试也不会红。空串在 `IS DISTINCT FROM` 下恒为真，
-     * 于是"没人"看到的是"和陌生人一样多"。
-     */
-    params.push(options.viewerId ?? '');
-    conditions.push(hiddenFromViewer('o.id', `$${params.length}`));
     if (options.minAgeDays && options.minAgeDays > 0) {
       params.push(String(options.minAgeDays));
       conditions.push(`c.first_observed_at <= NOW() - ($${params.length} || ' days')::interval`);

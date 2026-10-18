@@ -201,25 +201,13 @@ export default async function TrackRecordPage() {
                 {episodes.map((ep: any) => (
                   <tr key={ep.id}>
                     <td className={TD}>
-                      {/**
-                       * 打码行不给链接。它带上来的 `opportunity_slug` 是
-                       * `stealth-lock-<锁 id>`——一个**故意不存在**的 slug，链过去
-                       * 只会得到一个 404。这里渲染成纯文本，读起来是"被买断了"，
-                       * 而不是一个坏掉的入口。
-                       */}
-                      {ep.is_stealth_masked ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-muted">
-                          {ep.opportunity_title}
-                        </span>
-                      ) : (
-                        <Link
-                          href={`/opportunities/${ep.opportunity_slug}`}
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-fg transition-colors hover:text-accent"
-                        >
-                          {ep.opportunity_title}
-                          <ArrowUpRight className="h-3.5 w-3.5 text-fg-subtle" />
-                        </Link>
-                      )}
+                      <Link
+                        href={`/opportunities/${ep.opportunity_slug}`}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-fg transition-colors hover:text-accent"
+                      >
+                        {ep.opportunity_title}
+                        <ArrowUpRight className="h-3.5 w-3.5 text-fg-subtle" />
+                      </Link>
                     </td>
                     <td className={TD}>
                       <VerdictBadge verdict={ep.published_verdict as Verdict} />
@@ -233,24 +221,12 @@ export default async function TrackRecordPage() {
                     </td>
                     <td className={`${TD} font-mono text-xs text-fg-muted`}>{observedMetric(ep, t)}</td>
                     <td className={`${TD} text-right`}>
-                      {/**
-                       * 打码行**不删**，只是不能再点进去。这一格是本轮最关键的一处
-                       * UI 取舍：把整行隐藏掉最省事，但那样买断就变成了"用钱抹掉
-                       * 一次失手"，而公开战报的全部意义就是命中与失误都留着
-                       * （15 §3.1 第 2 条、10 §4.8）。
-                       */}
-                      {ep.is_stealth_masked ? (
-                        <span className="font-mono text-xs text-fg-subtle" title={t('trackRecord.maskedUnlockAt')}>
-                          {ep.unmasked_at ? formatDate(ep.unmasked_at) : '—'}
-                        </span>
-                      ) : (
-                        <Link
-                          href={`/opportunities/${ep.opportunity_slug}`}
-                          className="font-mono text-xs text-accent transition-colors hover:brightness-110"
-                        >
-                          {t('trackRecord.inspect')}
-                        </Link>
-                      )}
+                      <Link
+                        href={`/opportunities/${ep.opportunity_slug}`}
+                        className="font-mono text-xs text-accent transition-colors hover:brightness-110"
+                      >
+                        {t('trackRecord.inspect')}
+                      </Link>
                     </td>
                   </tr>
                 ))}

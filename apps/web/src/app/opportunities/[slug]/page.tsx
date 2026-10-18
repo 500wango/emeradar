@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   ExternalLink,
 } from 'lucide-react';
-import { AuthService, EntitlementService, OpportunityService, SlotService, StealthLockService, freeAccessibleOpportunityId } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
@@ -54,7 +54,6 @@ export default async function OpportunityWorkspacePage({
     data = await OpportunityService.getOpportunityDetail(slug, {
       // 精选案例按定义是准实时的，不再套 45 天延迟；其余路径保持原过滤。
       minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
-      viewerId: session.user.id,
     });
   } catch {
     notFound();
@@ -64,23 +63,6 @@ export default async function OpportunityWorkspacePage({
 
 
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
-
-  /**
-   * 槽位余量在服务端读，而不是让 DecisionBar 自己去取。
-   *
-   * 它同时是"能不能 GO"的判据（满员就不该给一个可点的按钮）和渲染数据，两处各取
-   * 一次就会在两次请求之间出现"按钮可点但点了必然 409"的窗口。读一次、判一次、
-   * 渲染一次。并发下仍可能有人抢先——那由 `409 SLOT_TAKEN` 兜底。
-   */
-  const slots = await SlotService.getSlots(opportunity.id, session.user.id);
-
-  /**
-   * 买断资格与槽位在同一层读，理由完全相同（见上）。`getAvailability` 会在保护期内
-   * 对非持有者抛 404 —— 但能走到这一行的调用者已经通过了 `getOpportunityDetail` 的
-   * 同一道判据，所以这里不会真的抛。仍然是同一份响应说了算：按钮可用性与那排槽位
-   * 徽章读的是同一张 `opportunity_slots`。
-   */
-  const stealthLock = await StealthLockService.getAvailability(opportunity.id, session.user.id);
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -203,22 +185,10 @@ export default async function OpportunityWorkspacePage({
             slug={opportunity.slug}
             verdictId={verdictId}
             reportId={reportId}
-            slots={slots.slots}
             recommendedArchetype={opportunity.recommended_archetype ?? null}
             canGo={canGo}
             canExport={canExport}
             blockReason={blockReason}
-            stealthLock={{
-              available: stealthLock.available,
-              claimedTotal: stealthLock.claimedTotal,
-              price: stealthLock.price,
-              durationDays: stealthLock.durationDays,
-              locked: stealthLock.locked,
-              heldByMe: stealthLock.heldByMe,
-              pending: stealthLock.pending
-                ? { checkoutUrl: stealthLock.pending.checkoutUrl, expiresAt: stealthLock.pending.expiresAt }
-                : null,
-            }}
           />
         </div>
       </div>

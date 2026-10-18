@@ -108,10 +108,10 @@ describe('Free 精选：每周 1 条准实时案例', () => {
     assert.strictEqual(await freeAccessibleOpportunityId('opp_does_not_exist'), null);
 
     // 精选卡片首次观测不满 45 天：放行路径必须不再套延迟，否则精选卡恒为 404。
-    const detail = await OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 0, viewerId: 'usr_free' });
+    const detail = await OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 0 });
     assert.strictEqual(detail.opportunity.id, OPP_FULL);
     await assert.rejects(
-      OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 45, viewerId: 'usr_free' }),
+      OpportunityService.getOpportunityDetail(OPP_FULL, { minAgeDays: 45 }),
       '旧的延迟过滤会把刚入选的精选挡掉，这正是要修的问题'
     );
   });

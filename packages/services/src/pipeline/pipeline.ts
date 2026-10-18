@@ -29,8 +29,6 @@ import {
   SerpEntrantSnapshot,
 } from '../alert-triggers';
 import { attachAutocompleteClusters } from './discover-candidates';
-import { SlotService } from '../slot.service';
-import { stealthHiddenPredicate } from '../stealth-lock-policy';
 
 const PIPELINE_LOCK_ID = 481516;
 
@@ -276,8 +274,6 @@ export async function runDailyPipeline(
 
   let alertsTriggered = 0;
   let episodesOpened = 0;
-  /** 保护期内被压下的告警投递数（见下方 `stealthHolders`）。 */
-  let stealthSuppressed = 0;
   const pendingEmails: Array<{ to: string; subject: string; body: string; idempotencyKey: string }> = [];
 
   await transaction(async (client) => {
@@ -328,17 +324,6 @@ export async function runDailyPipeline(
         targetStatus,
       ]);
 
-      // 槽位在机会首次可被认领时物化一次，此后不再变。放在这里而不是"读的时候顺手
-      // 建"，是因为集合一旦落地就冻结（见 SlotService.materialize）：每日按新的
-      // top-3 增删会让 Σcapacity 越过上限，而删行会连同已认领的记录一起丢掉。
-      // ON CONFLICT DO NOTHING 保证了重复调用无副作用。
-      if (targetStatus === 'TRACKED') {
-        await SlotService.materialize(
-          client,
-          item.opportunityId,
-          item.output.topArchetypes.map((entry) => entry.archetype)
-        );
-      }
     }
 
     if (dailyLedger) {
@@ -438,35 +423,7 @@ export async function runDailyPipeline(
     const killCache = new Map<string, boolean | null>();
     const lastSlotCache = new Map<string, boolean>();
 
-    /**
-     * 买断保护期内的机会：**只对持有者投递**（10 §7、16 §3.3）。
-     *
-     * 这一道闸拦的不是"新建规则"——那个入口已经挡住了（`alert.service.ts` 的存在性
-     * 判据）。它拦的是**买断之前就建好的规则**：一个非持有者在第 N 天订阅了某条机会，
-     * 平台在第 N+10 天把它卖了出去，于是第 N+20 天规则命中，一封带着真实词根、真实
-     * 标题和一串可点链接的邮件就发到了一个刚被排除在外的用户手里。这条路径上没有任何
-     * 一处会报错，而它是 P0 泄露——`docs/15 §8` 对正文与 slug 是 0 容忍，邮件正文
-     * 用的正是同一份 `match.primaryQuery` 与 `match.title`。
-     *
-     * 一次查完按机会缓存，理由与 `entrantCache` 相同：同一机会挂多条规则时不该重复查。
-     */
-    const ruleOpportunityIds = [...new Set(rulesRes.rows.map((rule) => rule.opportunity_id))];
-    const stealthHolders = new Map<string, string>();
-    if (ruleOpportunityIds.length > 0) {
-      const hiddenRes = await client.query<{ opportunity_id: string; user_id: string }>(
-        `SELECT sl.opportunity_id, sl.user_id FROM stealth_locks sl
-          WHERE sl.opportunity_id = ANY($1::text[]) AND ${stealthHiddenPredicate('sl')}`,
-        [ruleOpportunityIds]
-      );
-      for (const row of hiddenRes.rows) stealthHolders.set(row.opportunity_id, row.user_id);
-    }
-
     for (const rule of rulesRes.rows) {
-      const holder = stealthHolders.get(rule.opportunity_id);
-      if (holder && holder !== rule.user_id) {
-        stealthSuppressed++;
-        continue;
-      }
       // 求值只看已发布（publishable）的观测：未发布意味着证据链不完整或采集失败，
       // 拿它去判定"裁决变了"会发出基于残缺数据的告警。无法求值的类型返回 null，
       // 这里显式跳过 —— 创建入口已经拒绝了尚未实现的类型，走到这里说明库里有历史行。
@@ -600,8 +557,7 @@ export async function runDailyPipeline(
   }
 
   console.log(
-    `[pipeline] Observed ${observed.length}. Published ${publishable.length}. Alerts ${alertsTriggered}.` +
-      (stealthSuppressed > 0 ? ` Stealth-suppressed ${stealthSuppressed}.` : '')
+    `[pipeline] Observed ${observed.length}. Published ${publishable.length}. Alerts ${alertsTriggered}.`
   );
   const durationMs = Date.now() - startTime;
     await query(

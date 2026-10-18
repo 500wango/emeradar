@@ -20,7 +20,7 @@ import { makeDisposableDb } from './helpers/disposable-db';
  * 结果——那样的用例会在改测试顺序时红，而原因与被测行为无关。
  */
 
-const harness = makeDisposableDb('emeradar_atomic_go_test');
+const harness = makeDisposableDb("emeradar_atomic_go_test");
 
 /** 每月只允许立项一次的套餐：用来验"自己的额度用完了"。 */
 const PLAN_ONE_SHOT = 'TEST_GO_ONE_SHOT';
@@ -423,25 +423,25 @@ describe('原子 GO：并发、配额与幂等', () => {
 describe('凭证核验：GO 之后的可选动作', () => {
   it('GO 不再做凭证门禁；提交失败只记 REJECTED，通过后置 VERIFIED_OWNER', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const { StakeService } = harness.services;
+    const { CredentialService } = harness.services;
     const { query } = harness.db;
 
     // 不带任何凭证也能 GO——v3.1 的凭证是"之后再说"，不是入场券。
     const started = await go(CRED_USER, OPP_CRED);
-    const row = await query<{ credential_status: string; stake_deadline_at: Date | null }>(
-      `SELECT credential_status, stake_deadline_at FROM projects WHERE id = $1`,
+    const row = await query<{ credential_status: string }>(
+      `SELECT credential_status FROM projects WHERE id = $1`,
       [started.projectId]
     );
     assert.strictEqual(row.rows[0].credential_status, 'UNVERIFIED');
-    assert.strictEqual(row.rows[0].stake_deadline_at, null, 'GO 仍然在写质押期限');
 
-    const status = await StakeService.getStakeStatus(started.projectId, CRED_USER);
-    assert.strictEqual(status.stakeDeadlineAt, null, '凭证状态里仍有一个不存在于 v3.1 的期限');
+    const status = await CredentialService.getCredentials(started.projectId, CRED_USER);
+    assert.strictEqual(status.credentialStatus, 'UNVERIFIED');
+    assert.deepStrictEqual(status.credentials, []);
 
     // 探针打不开/内容不符只影响这次提交的结论：不释放资源、不退配额。
     await assert.rejects(
       () =>
-        StakeService.submitCredential(
+        CredentialService.submitCredential(
           started.projectId,
           CRED_USER,
           { credentialType: 'DOMAIN_URL', url: 'https://unrelated.example/' },
@@ -476,7 +476,7 @@ describe('凭证核验：GO 之后的可选动作', () => {
     assert.strictEqual(stillThere.rows[0].count, 1, '凭证失败把项目弄丢了');
 
     // 补交一张对得上的：状态落到 VERIFIED_OWNER，仍不需要任何期限。
-    const verified = await StakeService.submitCredential(
+    const verified = await CredentialService.submitCredential(
       started.projectId,
       CRED_USER,
       { credentialType: 'DOMAIN_URL', url: 'https://built.example/' },

@@ -100,9 +100,8 @@ async function seedProject(input: {
 }) {
   const { query } = harness.db;
   await query(
-    `INSERT INTO projects (id, user_id, opportunity_id, title, build_type, status,
-       stake_status, stake_deadline_at, created_at)
-     VALUES ($1, $2, $3, $1, 'TOOL', $4, 'VERIFIED', NOW() + INTERVAL '7 days', $5)`,
+    `INSERT INTO projects (id, user_id, opportunity_id, title, build_type, status, created_at)
+     VALUES ($1, $2, $3, $1, 'TOOL', $4, $5)`,
     [
       input.id,
       input.userId,

@@ -44,11 +44,6 @@ export default async function ComparePage({ searchParams }: { searchParams?: Pro
     { key: 'mBand', label: t('compare.rowCommercial'), render: (item) => <AxisBadge axis="m" band={item.mBand} /> },
     { key: 'wBand', label: t('compare.rowWindow'), render: (item) => <AxisBadge axis="w" band={item.wBand} /> },
     { key: 'confidence', label: t('compare.rowConfidence'), render: (item) => <Badge tone="neutral">{item.confidence}</Badge> },
-    {
-      key: 'crowding',
-      label: t('compare.rowCrowding'),
-      render: (item) => <span className="font-mono text-xs text-fg-muted">{item.claimsCount}/{item.maxClaims}</span>,
-    },
     { key: 'execution', label: t('compare.rowExecution'), render: (item) => <Badge tone="neutral">{item.executionClass}</Badge> },
     {
       key: 'killCriteria',

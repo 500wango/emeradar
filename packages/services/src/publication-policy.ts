@@ -4,10 +4,9 @@ import { WINDOW_CLOSING_FRESHNESS_DAYS } from '@emeradar/scoring';
 /**
  * `docs/15 §3` 的准实时精选**准入判据**，与写入方分成两个模块。
  *
- * 与 `claim-policy.ts` / `stealth-lock-policy.ts` 同构：判据只依赖 `@emeradar/db` 与
- * `@emeradar/scoring`，**绝不 import `public-publication.service`**。反过来的话，
- * `stealth-lock.service.ts` 的投影刷新路径（它 import 发布服务）会与"发布服务 import
- * 买断判据"成环。
+ * 判据只依赖 `@emeradar/db` 与 `@emeradar/scoring`，**绝不 import
+ * `public-publication.service`**：写入方要 import 判据，判据再反过来 import 写入方
+ * 就成环。
  *
  * 拆出来的另一半收益是**可测**：`slotFullness` / `windowClosingState` / `jaccard` /
  * `evaluateCannibalization` 都是纯函数，不碰库就能把边界钉死（见
@@ -16,7 +15,10 @@ import { WINDOW_CLOSING_FRESHNESS_DAYS } from '@emeradar/scoring';
  *
  * 规格里那三个 `publication.*` 配置键（15 §3 的脚注）在仓库里**不存在**运行时可调机制
  * ——没有 config 表、没有 Zod 校验、没有 env。所以这里按仓库一贯做法落成编译期常量，
- * 紧挨消费者并引规格章节，与 `verdict.ts:10`、`claim-policy.ts:16` 同一种写法。
+ * 紧挨消费者并引规格章节，与 `verdict.ts:10` 同一种写法。
+ *
+ * 注意：本文件的槽位判据（`slotFullness` / `loadSlotTotals`）在 v3.1 已失效，
+ * 阶段 D 会整体换成「已失去抢跑价值」。阶段 C 只保证编译，不提前删读取。
  */
 
 /** 15 §3 第 3 条 的 `publication.cannibalization_max_jaccard`，默认 0.7。 */
@@ -335,9 +337,8 @@ export async function loadPrimaryTopNUrls(opportunityId: string, n = SERP_TOP_N)
  * 是 `N × 10M`（M = 已收录机会页数）——`M = 1000` 时就是 10⁷ 行级。
  *
  * **刻意不做模块级缓存。** `packages/services/src` 是单例模块，进程内缓存会跨用例
- * 污染（`stealth-lock.test.ts` 每个用例自造机会），而且 `publishOpportunity` 也被
- * 长驻的 web 进程调用（买断侧的投影刷新），缓存会在那里变 stale。显式传参可测、
- * 无隐藏状态。
+ * 污染（每个用例自造机会），而且 `publishOpportunity` 也被长驻的 web 进程调用，
+ * 缓存会在那里变 stale。显式传参可测、无隐藏状态。
  *
  * 用 `LEFT JOIN` 链而不是内连接：**拿不到快照的已收录页也必须出现在 `pages` 里**
  * （`urls` 为空集）。否则它会被整体漏掉，`publishedPages` 少数一页，于是"有页但比较

@@ -8,7 +8,6 @@ import {
   Confidence,
   Band,
 } from '@emeradar/core';
-import { stealthHiddenPredicate, maskedLabel, maskedSlug, PUBLICATION_LOCALES } from './stealth-lock-policy';
 
 export interface LiveScanResult {
   opportunityId: string;
@@ -29,8 +28,6 @@ export interface LiveScanResult {
   primaryQuery: string;
   suggestions: string[];
   isNew: boolean;
-  /** 该查询已入库且正处于买断保护期（15 §3.1）。为真时上面几个文本字段是打码值。 */
-  isStealthLocked: boolean;
 }
 
 /** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
@@ -65,66 +62,37 @@ export class LiveScanService {
     const slug = baseSlug || `query-${createHash('sha256').update(rawQuery.toLowerCase()).digest('hex').slice(0, 12)}`;
 
     // 1. Check if opportunity already exists
-    //
-    // 保护期内的那一条**照常命中**，但下游会把它整个打码。这里不能改用
-    // `hiddenFromEveryone` 把它过滤掉：命中不到就会走下面的建号分支，于是同一个
-    // 查询会多出一条新的 CANDIDATE。那条新机会不受买断约束，几天后可能自己长成
-    // 一条 TRACKED 机会——**一次独占买断被一条重复记录彻底作废**，而且没有任何
-    // 一处会报错。宁可让这条已知的查询返回一个打码结果。
     const existing = await query<any>(
       `SELECT c.opportunity_id, c.slug, o.title, c.verdict,
               c.d_basis_points, c.m_basis_points, c.w_basis_points,
               c.d_band, c.m_band, c.w_band, c.confidence,
               c.recommended_archetype, c.execution_class,
-              c.why_now_summary, c.top_idea, c.primary_query,
-              sl.id AS stealth_lock_id, d.masked_label
+              c.why_now_summary, c.top_idea, c.primary_query
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
-       LEFT JOIN stealth_locks sl
-              ON sl.opportunity_id = o.id AND ${stealthHiddenPredicate('sl')}
-       LEFT JOIN stealth_lock_displays d
-              ON d.stealth_lock_id = sl.id AND d.locale = $3
        WHERE c.slug = $1 OR LOWER(c.primary_query) = LOWER($2)
        LIMIT 1`,
-      [slug, rawQuery, PUBLICATION_LOCALES[0]]
+      [slug, rawQuery]
     );
 
     if (existing.rows.length > 0) {
       const r = existing.rows[0];
-      /**
-       * 打码后仍然照常返回的：判定与三轴档位、置信度、执行分类（15 §3.1 第 1 条
-       * 「其余结构化信息照常」；这些是"这条机会怎么样"，不是"这条机会是什么"）。
-       * 被替换掉的只有能反推出词根的那几个文本字段。
-       *
-       * 残留披露：这确实告诉调用者"这个查询在库里、并且正被买断"。这是刻意接受的
-       * ——查询文本是他自己敲进来的，他没有从中学到新词；而相比"静默建一条重复机会"
-       * 那条路，这点披露便宜得多。
-       */
       // 长尾词与报告、点火包同源：只读 opportunity_queries 里已入库的簇内词。
-      // 打码中的机会不返回，否则能从词表反推词根。
-      const clusterWords = r.stealth_lock_id
-        ? []
-        : (
-            await query<{ query_text: string }>(
-              `SELECT q.query_text
-                 FROM opportunity_queries oq
-                 JOIN queries q ON q.id = oq.query_id
-                WHERE oq.opportunity_id = $1 AND oq.role = 'CLUSTER'
-                ORDER BY q.query_text
-                LIMIT $2`,
-              [r.opportunity_id, SCREENER_LONGTAIL_LIMIT]
-            )
-          ).rows.map((row) => row.query_text);
-      const mask = r.stealth_lock_id
-        ? {
-            label: r.masked_label ?? maskedLabel(r.stealth_lock_id),
-            slug: maskedSlug(r.stealth_lock_id),
-          }
-        : null;
+      const clusterWords = (
+        await query<{ query_text: string }>(
+          `SELECT q.query_text
+             FROM opportunity_queries oq
+             JOIN queries q ON q.id = oq.query_id
+            WHERE oq.opportunity_id = $1 AND oq.role = 'CLUSTER'
+            ORDER BY q.query_text
+            LIMIT $2`,
+          [r.opportunity_id, SCREENER_LONGTAIL_LIMIT]
+        )
+      ).rows.map((row) => row.query_text);
       return {
         opportunityId: r.opportunity_id,
-        slug: mask ? mask.slug : r.slug,
-        title: mask ? mask.label : r.title,
+        slug: r.slug,
+        title: r.title,
         verdict: r.verdict,
         dBasisPoints: r.d_basis_points,
         mBasisPoints: r.m_basis_points,
@@ -135,12 +103,11 @@ export class LiveScanService {
         confidence: r.confidence,
         recommendedArchetype: r.recommended_archetype,
         executionClass: r.execution_class,
-        whyNowSummary: mask ? mask.label : r.why_now_summary,
-        topIdea: mask ? mask.label : r.top_idea,
-        primaryQuery: mask ? mask.label : r.primary_query,
+        whyNowSummary: r.why_now_summary,
+        topIdea: r.top_idea,
+        primaryQuery: r.primary_query,
         suggestions: clusterWords,
         isNew: false,
-        isStealthLocked: Boolean(mask),
       };
     }
 
@@ -337,7 +304,6 @@ export class LiveScanService {
       primaryQuery: rawQuery,
       suggestions: storedSuggestions,
       isNew: true,
-      isStealthLocked: false,
     };
   }
 

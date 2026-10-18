@@ -9,7 +9,6 @@ import {
   deriveBasisState,
 } from '@emeradar/report';
 import { EntitlementService } from './entitlement.service';
-import { hiddenFromViewer } from './stealth-lock-policy';
 import { frozenIntentFor } from './query-intent';
 
 export class ReportService {
@@ -28,18 +27,8 @@ export class ReportService {
      * 一并解锁，"不设第二份额度——否则'锁槽一次'与'导出一次'会分叉成两个可分别绕过的
      * 闸门"。所以这条路不能再扣一次 `generate_reports_monthly`：那会让同一次交付被
      * 计两次费。默认值保持 `true`，报告页与 API 的既有行为一字不改。
-     *
-     * `viewerId` 是**买断可见性**的判据（10 §7）。少了它，研报就是一条绕开买断的
-     * 侧门：详情端点对非持有者 404，而这里按 `o.id = $1 OR o.slug = $1` 直取，
-     * 任何 Pro 用户拿一个 id 或 slug 就能把 21 KB 全文（真实标题、slug、全部词根）
-     * 取走——比详情页泄得还多。规格把研报与详情并列写进「保护期内对非持有者一律
-     * 404」，所以判据必须落在这里而不是只加在路由上：路由挡得住 HTTP，挡不住点火包
-     * 那条服务层直调。
-     *
-     * 不传即 `''`（fail-closed）：查不到行 → 既有的 404 `Opportunity not found`，
-     * 与"这条机会不存在"完全同形。持有者传自己的 id，`hiddenFromViewer` 对他恒为真。
      */
-    options: { consumeQuota?: boolean; viewerId?: string | null } = {}
+    options: { consumeQuota?: boolean } = {}
   ): Promise<{
     reportId: string;
     data: OpportunityReportData;
@@ -58,9 +47,8 @@ export class ReportService {
               c.why_now_summary, c.top_idea, c.query_velocity
        FROM opportunities o
        JOIN opportunity_cards c ON c.opportunity_id = o.id
-       WHERE (o.id = $1 OR o.slug = $1)
-         AND ${hiddenFromViewer('o.id', '$2')}`,
-      [opportunityId, options.viewerId ?? '']
+       WHERE (o.id = $1 OR o.slug = $1)`,
+      [opportunityId]
     );
 
     if (oppRes.rows.length === 0) {

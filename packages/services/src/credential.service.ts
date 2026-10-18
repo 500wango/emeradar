@@ -1,24 +1,19 @@
 import { lookup } from 'node:dns/promises';
-import { query, transaction } from '@emeradar/db';
+import { query } from '@emeradar/db';
 import { EmeradarError, ErrorCode, readBodyWithLimit } from '@emeradar/core';
 import { assertPublicHttpUrl } from './public-url';
 import { normalizeCredentialHost } from './credential-host';
-import { SlotService } from './slot.service';
-import { STAKE_WINDOW_DAYS } from './project.service';
-
-export const STAKE_WINDOW_DAYS_BY_CLASS = { S: 7, M: 14, L: 21 } as const;
 
 /**
- * 承诺质押（PRD F10、01 §1.7 第 5 条、09 §8、19 Epic 1.13）。
+ * 上线凭证（09 §8、10 §4.5、PRD v3.1 §1.8 第 5 条）。
  *
- * 认领槽位是"我要做"，质押是"我真的做了"。没有后者，占坑没有任何成本，槽位会在
- * 几天内被不打算动手的人占满——而那正是这套机制要防的。
+ * v3.1 的凭证**不再是 GO 的门禁**：GO 只扣配额、建项目壳、授权点火包；凭证是那之后
+ * 用户自愿提交的一次核验。因此这里没有截止时间、没有逾期释放、没有重试次数上限，
+ * 也没有"先质押再立项"的状态机。一次没通过只影响那次提交的结论：资源不释放，配额
+ * 不退还，用户可以改完页面再交一次。
  *
- * 两条不可动摇的规则：
- *   - 逾期释放**槽位**，但**不退还**已扣的配额（PRD §1.7 第 5 条）。退还等于把
- *     "每月 3 次"变成无限次：占了坑、不做事、拿回额度、再占一次。
- *   - 校验用的是**探针实际取回的内容**，不是用户填的字段。页面不可达、或通篇与
- *     机会主词无关，都不算"上线了"。
+ * 仍然不可动摇的一条：校验用的是**探针实际取回的内容**，不是用户填的字段。页面
+ * 不可达、或通篇与机会主词无关，都不算"上线了"。
  */
 
 export type CredentialType = 'DOMAIN_URL' | 'STORE_LISTING_URL' | 'PUBLIC_PAGE_URL';
@@ -184,26 +179,24 @@ function rejection(reason: string, httpStatus: number | null, finalUrl: string |
   return { ok: false, httpStatus, finalUrl, title: null, h1: null, metaDescription: null, relevance: 0, matchedTerms: [], reason };
 }
 
-export interface StakeStatusView {
-  projectId: string;
-  stakeStatus: string;
-  /**
-   * 质押期限。v3.1 起 GO 不再产生期限，凭证核验也没有截止时间——GO 之后建立的
-   * 项目这里是 `null`。字段先留着，等阶段 C 把整个质押语义拆掉。
-   */
-  stakeDeadlineAt: string | null;
-  outcomeStatus: string;
-  credentials: Array<{
-    id: string;
-    credentialType: string;
-    url: string;
-    verificationState: string;
-    rejectionReason: string | null;
-    checkedAt: string | null;
-  }>;
+export interface CredentialRow {
+  id: string;
+  credentialType: string;
+  url: string;
+  verificationState: string;
+  rejectionReason: string | null;
+  checkedAt: string | null;
 }
 
-export class StakeService {
+export interface CredentialStatusView {
+  projectId: string;
+  /** `UNVERIFIED` / `PENDING` / `VERIFIED_OWNER` / `REJECTED`。 */
+  credentialStatus: string;
+  credentialVerifiedAt: string | null;
+  credentials: CredentialRow[];
+}
+
+export class CredentialService {
   /** 该项目所属机会的主词与簇内词——相关性的判定依据。 */
   private static async opportunityTerms(projectId: string): Promise<string[]> {
     const res = await query<{ term: string }>(
@@ -218,11 +211,13 @@ export class StakeService {
     return res.rows.map((row) => row.term);
   }
 
-  static async getStakeStatus(projectId: string, userId: string): Promise<StakeStatusView> {
+  static async getCredentials(projectId: string, userId: string): Promise<CredentialStatusView> {
     const project = await query<{
-      stake_status: string; stake_deadline_at: Date | null; outcome_status: string; user_id: string;
+      credential_status: string;
+      credential_verified_at: Date | null;
+      user_id: string;
     }>(
-      `SELECT stake_status, stake_deadline_at, outcome_status, user_id FROM projects WHERE id = $1`,
+      `SELECT credential_status, credential_verified_at, user_id FROM projects WHERE id = $1`,
       [projectId]
     );
     const row = project.rows[0];
@@ -236,9 +231,8 @@ export class StakeService {
     );
     return {
       projectId,
-      stakeStatus: row.stake_status,
-      stakeDeadlineAt: row.stake_deadline_at ? row.stake_deadline_at.toISOString() : null,
-      outcomeStatus: row.outcome_status,
+      credentialStatus: row.credential_status,
+      credentialVerifiedAt: row.credential_verified_at ? row.credential_verified_at.toISOString() : null,
       credentials: creds.rows.map((c) => ({
         id: c.id,
         credentialType: c.credential_type,
@@ -253,9 +247,9 @@ export class StakeService {
   /**
    * 提交一份上线凭证并当场探针校验（09 §8、10 §4.5）。
    *
-   * 校验**失败不释放槽位**：用户还有到 `stake_deadline_at` 为止的时间去改页面或换
-   * 凭证。只有到期仍未通过才释放。把一次失败的尝试直接等同于逾期，会让"填错了一次
-   * URL"付出槽位的代价。
+   * v3.1：没有截止时间，失败不释放任何资源、不退还配额，也没有重试次数上限。
+   * `credential_status` 是状态真源——通过置 `VERIFIED_OWNER`，失败置 `REJECTED`，
+   * 用户改完页面可以继续提交。
    */
   static async submitCredential(
     projectId: string,
@@ -270,38 +264,24 @@ export class StakeService {
         400
       );
     }
-    const project = await query<{
-      user_id: string; stake_status: string; stake_deadline_at: Date | null;
-    }>(
-      `SELECT user_id, stake_status, stake_deadline_at FROM projects WHERE id = $1`,
+    const project = await query<{ user_id: string; credential_status: string }>(
+      `SELECT user_id, credential_status FROM projects WHERE id = $1`,
       [projectId]
     );
     const row = project.rows[0];
     if (!row || row.user_id !== userId) {
       throw new EmeradarError(ErrorCode.NOT_FOUND, `Project not found: ${projectId}`, 404);
     }
-    if (row.stake_status === 'EXPIRED_RELEASED') {
-      throw new EmeradarError(
-        ErrorCode.PRECONDITION_FAILED,
-        'This project\'s stake window has already expired and its slot was released.',
-        422
-      );
-    }
-    if (row.stake_status === 'VERIFIED') {
+    // 已核验的凭证不允许被覆盖：`project_credentials_one_verified` 是每项目一条的部分
+    // 唯一索引，覆盖等于把"哪次提交让它成立"从审计里抹掉。
+    if (row.credential_status === 'VERIFIED_OWNER') {
       throw new EmeradarError(ErrorCode.CONFLICT, 'This project already has a verified credential.', 409);
     }
-    if (row.stake_deadline_at && row.stake_deadline_at.getTime() < Date.now()) {
-      throw new EmeradarError(
-        ErrorCode.PRECONDITION_FAILED,
-        'The stake window has passed. The slot is released at the next expiry sweep.',
-        422
-      );
-    }
 
-    const terms = await StakeService.opportunityTerms(projectId);
+    const terms = await CredentialService.opportunityTerms(projectId);
     const probe = await probeCredential({
       url: input.url,
-      credentialType: input.credentialType,
+      credentialType: input.credentialType as CredentialType,
       terms,
       fetchImpl: options.fetchImpl,
       lookupImpl: options.lookupImpl,
@@ -333,7 +313,6 @@ export class StakeService {
     );
 
     if (!probe.ok) {
-      // 失败只影响这次提交的结论：不释放资源、不退还配额，用户仍可再补交。
       await query(
         `UPDATE projects SET credential_status = 'REJECTED', updated_at = NOW()
           WHERE id = $1 AND credential_status <> 'VERIFIED_OWNER'`,
@@ -347,84 +326,14 @@ export class StakeService {
       );
     }
 
-    // v3.1：`credential_status` 是新的真源，`stake_status` 只是阶段 C 之前的镜像。
     await query(
       `UPDATE projects
-          SET stake_status = 'VERIFIED',
-              credential_status = 'VERIFIED_OWNER',
+          SET credential_status = 'VERIFIED_OWNER',
               credential_verified_at = NOW(),
               updated_at = NOW()
         WHERE id = $1`,
       [projectId]
     );
     return { verified: true, probe };
-  }
-
-  /**
-   * 每日逾期待办（02 §131、不变量 I12）。
-   *
-   * 扫出 `stake_status = 'PENDING'` 且已过期的项目，终结质押并释放槽位。
-   * **不碰 `usage_counters`**：逾期释放不退配额是设计的一半（PRD §1.7 第 5 条）。
-   *
-   * 返回受影响的项目，供调用方写审计与发通知。逐行在一个事务里处理：一条记录失败
-   * 不该让整批回滚，否则一个坏行会让所有逾期项目都不再被释放。
-   */
-  static async releaseExpiredStakes(now: Date = new Date()): Promise<Array<{ projectId: string; userId: string; opportunityId: string | null }>> {
-    const expired = await query<{ id: string; user_id: string; opportunity_id: string | null }>(
-      `SELECT id, user_id, opportunity_id FROM projects
-        WHERE stake_status = 'PENDING' AND stake_deadline_at < $1`,
-      [now]
-    );
-
-    const released: Array<{ projectId: string; userId: string; opportunityId: string | null }> = [];
-    for (const row of expired.rows) {
-      const ok = await transaction(async (client) => {
-        // 条件更新兜住并发：如果用户恰在此刻提交了凭证，这里就应当什么都不做。
-        const claimed = await client.query(
-          `UPDATE projects SET stake_status = 'EXPIRED_RELEASED', updated_at = NOW()
-            WHERE id = $1 AND stake_status = 'PENDING'
-            RETURNING id`,
-          [row.id]
-        );
-        if (claimed.rows.length === 0) return false;
-        // PRD v2.2 Q5：每位用户**首次**逾期退还 1 次配额，之后不退。
-        // user_id 主键保证只有第一次插入成功；退到 GO 当时计费的那个周期。
-        const first = await client.query(
-          `INSERT INTO stake_overdue_refunds (user_id, project_id)
-           VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING RETURNING user_id`,
-          [row.user_id, row.id]
-        );
-        if (first.rows.length > 0) {
-          await client.query(
-            `UPDATE usage_counters SET used = used - 1
-              WHERE user_id = $1 AND feature = 'atomic_go_export_monthly' AND used > 0
-                AND period_start = (SELECT go_quota_period_start FROM projects WHERE id = $2)`,
-            [row.user_id, row.id]
-          );
-        }
-        // 走 SlotService.release 而不是在这里再写一遍递减：那是槽位汇总缓存唯一的
-        // 写入点，第二次实现迟早会漏掉幂等判断，把别人的占用从缓存里减掉。
-        const slot = await client.query<{ id: string }>(
-          `SELECT id FROM slot_claims WHERE project_id = $1 AND state = 'CLAIMED'`,
-          [row.id]
-        );
-        for (const claim of slot.rows) {
-          await SlotService.release(client, { slotClaimId: claim.id, state: 'EXPIRED', reason: 'STAKE_EXPIRED' });
-        }
-        return true;
-      });
-      if (ok) released.push({ projectId: row.id, userId: row.user_id, opportunityId: row.opportunity_id });
-    }
-    return released;
-  }
-
-  /** 按执行规模取质押窗口天数（PRD v2.2 Q5：S 7 / M 14 / L 21）；未知规模按 S。 */
-  static windowDaysFor(executionClass: string | null | undefined): number {
-    return STAKE_WINDOW_DAYS_BY_CLASS[executionClass as keyof typeof STAKE_WINDOW_DAYS_BY_CLASS] ?? STAKE_WINDOW_DAYS;
-  }
-
-  /** 质押窗口的截止时间，供 GO 在建项目时一并写入。 */
-  static deadlineFrom(start: Date, days: number = STAKE_WINDOW_DAYS): Date {
-    return new Date(start.getTime() + days * 86_400_000);
   }
 }

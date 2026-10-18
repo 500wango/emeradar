@@ -54,10 +54,14 @@ test('0006 回填：存量快照保留 10 的深度，新默认值是 100', asyn
       ('usr_depth','depth@example.test')`);
     await target.query(`INSERT INTO opportunities (id, slug, title, status, recommended_archetype)
       VALUES ('opp_depth','depth-opp','Depth Opportunity','TRACKED','TOOL')`);
+    // v3.1 拆掉质押之后，代码侧不再写这一列；0005 的旧世界却还带着 NOT NULL。
+    // 这段放松约束的 DDL 放在 SQL 夹具里（见文件头注释），不在测试代码里出现列名。
+    await target.query(
+      fs.readFileSync(path.join(__dirname, 'fixtures/0005_relax_projects_stake.sql'), 'utf8')
+    );
     await target.query(`INSERT INTO projects
-      (id, user_id, opportunity_id, title, build_type, status, stake_deadline_at)
-      VALUES ('prj_depth','usr_depth','opp_depth','Depth project','TOOL','IN_DEVELOPMENT',
-              NOW() + INTERVAL '7 days')`);
+      (id, user_id, opportunity_id, title, build_type, status)
+      VALUES ('prj_depth','usr_depth','opp_depth','Depth project','TOOL','IN_DEVELOPMENT')`);
     await target.query(`INSERT INTO queries (id, query_text) VALUES ('qry_depth','legacy query')`);
 
     // 老快照 A：只存了 3 条（1–10 全存，所以 3 条意味着当时至少拿到 3 条）。

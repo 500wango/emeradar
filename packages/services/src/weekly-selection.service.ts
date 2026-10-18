@@ -1,5 +1,4 @@
 import { query } from '@emeradar/db';
-import { hiddenFromEveryone } from './stealth-lock-policy';
 import { loadVerdictRun, windowClosingState } from './publication-policy';
 
 /** 超过这个天数没有新的合格案例，就回退到历史案例并标注（30 Q10）。 */
@@ -51,7 +50,6 @@ export class WeeklySelectionService {
          JOIN opportunities o ON o.id = c.opportunity_id
         WHERE o.status = 'TRACKED'
           AND c.m_band <> 'INSUFFICIENT'
-          AND ${hiddenFromEveryone('o.id')}
           AND (${fullExpr} OR c.verdict = 'WINDOW_CLOSING')
         LIMIT 200`
     );

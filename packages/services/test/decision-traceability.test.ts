@@ -143,7 +143,6 @@ describe('决策溯源（决策 ↔ 裁决 ↔ 项目）', () => {
     ).rows[0];
     assert.strictEqual(project.opportunity_id, OPP);
     assert.strictEqual(project.credential_status, 'UNVERIFIED', 'GO 落地的项目不是 UNVERIFIED');
-    assert.strictEqual(project.stake_deadline_at, null, 'v3.1 的 GO 不该再写质押期限');
 
     // 项目引用的决策必须是这个用户、这条机会上的一条 GO —— 而不是"某条看起来像
     // 授权的记录"。决策由 GO 事务自己写入，所以这里能同时钉住"存在"与"归属"。

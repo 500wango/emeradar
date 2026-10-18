@@ -29,7 +29,6 @@ export async function GET(
     }
     const data = await OpportunityService.getOpportunityDetail(id, {
       minAgeDays: weeklyId ? 0 : ent.feedDelayDays,
-      viewerId: auth.user.id,
     });
     return NextResponse.json(data);
   } catch (error: any) {

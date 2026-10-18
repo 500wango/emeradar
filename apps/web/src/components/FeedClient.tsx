@@ -232,7 +232,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
             const isEarlyBet = opp.verdict === 'EARLY_BET';
             const flags = opp.flags ?? [];
             const isCompensated = (opp.rulesTriggered ?? []).includes('RULE_BUILD_NOW_COMPENSATED');
-            const slotsFull = opp.isCrowdedLocked || ((opp.claimsCount ?? 0) >= (opp.maxClaims ?? 5));
 
             return (
               <Panel
@@ -290,22 +289,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
                       {opp.marketCountry} · {opp.researchLanguage}
                     </span>
                   </div>
-                  {opp.claimsCount !== undefined && (
-                    <div className="mt-2.5 flex items-center gap-2 text-xs">
-                      <span className="font-medium text-fg-muted">{t('feed.builderSlots')}</span>
-                      <span className={`rounded-sm px-2 py-0.5 font-semibold ${
-                        slotsFull
-                          ? 'bg-danger/10 text-danger'
-                          : opp.claimsCount >= 3
-                          ? 'bg-warn/10 text-warn'
-                          : 'bg-signal/10 text-signal'
-                      }`}>
-                        {slotsFull
-                          ? t('feed.slotsFull', { count: opp.claimsCount })
-                          : t('feed.slotsClaimed', { count: opp.claimsCount, max: opp.maxClaims ?? 5 })}
-                      </span>
-                    </div>
-                  )}
                   {isEarlyBet && (
                     <p className="mt-2 inline-block rounded-sm border border-warn/40 bg-warn/10 px-2 py-1 text-xs font-semibold text-warn">
                       {t('feed.commercialUnverified')}

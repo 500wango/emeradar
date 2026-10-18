@@ -323,18 +323,15 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
     );
   });
 
-  it('实验项目从来没有认领过槽位，因此拿不到点火包', async (t) => {
+  it('实验项目没有引用 GO 决策，因此拿不到点火包', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { LaunchKitService } = harness.services;
 
-    // 实验项目走的是 POST /projects，与槽位无关。它拿不到点火包不是因为"没做对什么"，
-    // 而是因为它没有为任何一个席位付过账（ADR-018）。
-    //
-    // `stake_deadline_at` 是 NOT NULL（0003）：创建路径必须显式给一个期限。实验项目
-    // 不占槽位，但如果它连这列都填不上，说明"非 GO 路径也能建项目"在数据层就不成立。
+    // 实验项目走的是 POST /projects，与 GO 无关。它拿不到点火包不是因为"没做对什么"，
+    // 而是因为它没有为任何一次原子立项付过账（ADR-018）。
     await harness.db.query(
-      `INSERT INTO projects (id, user_id, title, status, project_kind, stake_deadline_at)
-       VALUES ($1, $2, 'experiment', 'IN_DEVELOPMENT', 'EXPERIMENT', NOW() + INTERVAL '7 days')`,
+      `INSERT INTO projects (id, user_id, title, status, project_kind)
+       VALUES ($1, $2, 'experiment', 'IN_DEVELOPMENT', 'EXPERIMENT')`,
       [EXP_PROJECT, EXPERIMENT_USER]
     );
     await assert.rejects(
