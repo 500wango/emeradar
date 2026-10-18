@@ -82,7 +82,11 @@ export class KeywordSeedCollector {
   ) {}
 
   /** 一个种子的长尾词。网络错误、HTTP 非 2xx、任务被拒都返回 null。 */
-  async suggest(seed: string, filter: KeywordSeedFilter = DEFAULT_KEYWORD_SEED_FILTER): Promise<KeywordSuggestion[] | null> {
+  async suggest(
+    seed: string,
+    filter: KeywordSeedFilter = DEFAULT_KEYWORD_SEED_FILTER,
+    market: { locationCode?: number; languageCode?: string } = {}
+  ): Promise<KeywordSuggestion[] | null> {
     const [base, authorization] = 'aisaApiKey' in this.creds
       ? [AISA_DATAFORSEO_BASE, `Bearer ${this.creds.aisaApiKey}`]
       : [DATAFORSEO_BASE, `Basic ${Buffer.from(`${this.creds.login}:${this.creds.password}`).toString('base64')}`];
@@ -93,8 +97,8 @@ export class KeywordSeedCollector {
         body: JSON.stringify([
           {
             keyword: seed,
-            location_code: 2840,
-            language_code: 'en',
+            location_code: market.locationCode ?? 2840,
+            language_code: market.languageCode ?? 'en',
             limit: filter.limit,
             filters: [
               ['keyword_info.search_volume', '>=', filter.minVolume],

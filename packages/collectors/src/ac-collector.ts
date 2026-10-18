@@ -19,7 +19,9 @@ export interface AutocompleteTarget {
 
 /** DataForSEO 的 `location_code`。研究市场目前只有 US（2840）；其它市场不猜代码。 */
 function locationCode(marketCountry: string): number | undefined {
-  return (marketCountry || 'US').toUpperCase() === 'US' ? 2840 : undefined;
+  // 只列已明确配置的市场；其它市场不猜代码，交给 API 报错。
+  const code = (marketCountry || 'US').toUpperCase();
+  return ({ US: 2840, GB: 2826, CA: 2124, AU: 2036 } as Record<string, number>)[code];
 }
 
 export class AutocompleteCollector

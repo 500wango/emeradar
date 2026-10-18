@@ -102,6 +102,38 @@ export function dedupeKey(keyword: string): string {
     .join(' ');
 }
 
+export interface SeedMarket {
+  country: string;
+  locationCode: number;
+  language: string;
+}
+
+/** 默认只开 US；通过 `SEED_MARKETS` 显式增加市场，避免无意中把采集成本翻倍。 */
+export const DEFAULT_SEED_MARKETS: SeedMarket[] = [
+  { country: 'US', locationCode: 2840, language: 'en-US' },
+];
+
+/**
+ * `SEED_MARKETS="US:2840:en-US,GB:2826:en-GB"`。
+ * 解析失败的行直接丢弃；全部失败时回退 US，不把坏配置变成“零市场”。
+ */
+export function parseSeedMarkets(raw = process.env.SEED_MARKETS || ''): SeedMarket[] {
+  const markets: SeedMarket[] = [];
+  for (const entry of raw.split(',')) {
+    const [country, code, language] = entry.trim().split(':');
+    const locationCode = Number(code);
+    if (!/^[A-Za-z]{2}$/.test(country || '') || !Number.isInteger(locationCode) || locationCode <= 0) continue;
+    const normalized = country.toUpperCase();
+    if (markets.some((market) => market.country === normalized)) continue;
+    markets.push({
+      country: normalized,
+      locationCode,
+      language: (language || 'en-US').trim(),
+    });
+  }
+  return markets.length > 0 ? markets : DEFAULT_SEED_MARKETS;
+}
+
 export interface SeedKeywordResult {
   skipped: boolean;
   reason?: string;
@@ -147,45 +179,64 @@ export async function seedKeywordCandidates(
   const start = (day * SEEDS_PER_RUN) % TOOL_INTENT_SEEDS.length;
   const seeds = Array.from({ length: SEEDS_PER_RUN }, (_, i) => TOOL_INTENT_SEEDS[(start + i) % TOOL_INTENT_SEEDS.length]);
 
-  const existing = await query<{ query_text: string }>(
-    `SELECT q.query_text FROM opportunity_queries oq JOIN queries q ON q.id = oq.query_id WHERE oq.role = 'PRIMARY'`
+  const markets = parseSeedMarkets();
+  const existing = await query<{ query_text: string; market_country: string }>(
+    `SELECT q.query_text, q.market_country
+       FROM opportunity_queries oq JOIN queries q ON q.id = oq.query_id
+      WHERE oq.role = 'PRIMARY'`
   );
-  const seen = new Set(existing.rows.map((r) => dedupeKey(r.query_text)));
+  const seen = new Set(existing.rows.map((r) => `${r.market_country}:${dedupeKey(r.query_text)}`));
 
   for (const { seed, archetype } of seeds) {
     result.seeds.push(seed);
-    const suggestions = await collector.suggest(seed, DEFAULT_KEYWORD_SEED_FILTER);
-    // 失败的请求同样计费（服务端已执行），所以无论成败都记账。
-    await CostLedgerService.recordCost({ sourceId: 'src_keyword_seed', costUsd: KEYWORD_SEED_COST_USD, category: 'SERP', units: 1 });
-    if (!suggestions) {
-      result.failures++;
-      continue;
-    }
-    result.fetched += suggestions.length;
+    for (const market of markets) {
+      const suggestions = await collector.suggest(seed, DEFAULT_KEYWORD_SEED_FILTER, {
+        locationCode: market.locationCode,
+        languageCode: market.language.slice(0, 2).toLowerCase(),
+      });
+      // 失败的请求同样计费（服务端已执行），所以无论成败都记账。
+      await CostLedgerService.recordCost({
+        sourceId: 'src_keyword_seed',
+        costUsd: KEYWORD_SEED_COST_USD,
+        category: 'SERP',
+        units: 1,
+      });
+      if (!suggestions) {
+        result.failures++;
+        continue;
+      }
+      result.fetched += suggestions.length;
 
-    for (const s of suggestions) {
-      if (result.created >= room) break;
-      if (!isCandidateKeyword(s, seed)) continue;
-      const key = dedupeKey(s.keyword);
-      if (seen.has(key)) continue;
-      seen.add(key);
+      for (const s of suggestions) {
+        if (result.created >= room) break;
+        if (!isCandidateKeyword(s, seed)) continue;
+        const key = `${market.country}:${dedupeKey(s.keyword)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
 
-      const text = s.keyword.toLowerCase().replace(/\s+/g, ' ').trim();
-      const opportunityId = idFor('opp_kw', text);
-      const slug = slugFor(text);
-      const reason =
-        `Long-tail of tool seed "${seed}" (Google US, DataForSEO Labs, ${obsDate}): ` +
-        `~${s.searchVolume}/mo, difficulty ${s.keywordDifficulty ?? 'n/a'}, intent ${s.mainIntent ?? 'n/a'}. ` +
-        `Entry filter only — volume is not a scoring input.`;
+        const text = s.keyword.toLowerCase().replace(/\s+/g, ' ').trim();
+        const opportunityId = idFor('opp_kw', `${market.country}:${text}`);
+        const slug = market.country === 'US' ? slugFor(text) : `${slugFor(text)}-${market.country.toLowerCase()}`;
+        const reason =
+          `Long-tail of tool seed "${seed}" (Google ${market.country}, DataForSEO Labs, ${obsDate}): ` +
+          `~${s.searchVolume}/mo, difficulty ${s.keywordDifficulty ?? 'n/a'}, intent ${s.mainIntent ?? 'n/a'}. ` +
+          `Entry filter only — volume is not a scoring input.`;
 
       const created = await transaction(async (client) => {
         const q = await client.query<{ id: string }>(
           `INSERT INTO queries (id, query_text, market_country, research_language, first_seen_date, tier, intent)
-           VALUES ($1, $2, 'US', 'en-US', $3, 'A', $4)
+           VALUES ($1, $2, $3, $4, $5, 'A', $6)
            ON CONFLICT (query_text, market_country, research_language)
            DO UPDATE SET tier = LEAST(queries.tier, EXCLUDED.tier)
            RETURNING id`,
-          [idFor('qry', text), text, obsDate, classifyQueryIntent(text)]
+          [
+            idFor('qry', `${market.country}:${text}`),
+            text,
+            market.country,
+            market.language,
+            obsDate,
+            classifyQueryIntent(text),
+          ]
         );
         const queryId = q.rows[0].id;
         const opp = await client.query(
@@ -193,10 +244,20 @@ export async function seedKeywordCandidates(
              id, slug, title, status, market_country, research_language,
              first_observed_date, recommended_archetype, execution_class,
              discovery_source, discovered_at, candidate_reason
-           ) VALUES ($1, $2, $3, 'CANDIDATE', 'US', 'en-US', $4, $5, 'S', $6, NOW(), $7)
+           ) VALUES ($1, $2, $3, 'CANDIDATE', $4, $5, $6, $7, 'S', $8, NOW(), $9)
            ON CONFLICT (id) DO NOTHING
            RETURNING id`,
-          [opportunityId, slug, text, obsDate, archetype, DISCOVERY_SOURCE_KEYWORD_SEED, reason]
+          [
+            opportunityId,
+            slug,
+            text,
+            market.country,
+            market.language,
+            obsDate,
+            archetype,
+            DISCOVERY_SOURCE_KEYWORD_SEED,
+            reason,
+          ]
         );
         if (opp.rows.length === 0) return false;
         await client.query(
@@ -227,6 +288,7 @@ export async function seedKeywordCandidates(
         return true;
       });
       if (created) result.created++;
+      }
     }
   }
   return result;
