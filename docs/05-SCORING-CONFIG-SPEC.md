@@ -2,7 +2,7 @@
 
 Status: Draft ｜ 依赖：01 §5、03 ｜ 被依赖：06、07、12、16
 
-本文定义三轴、置信度、Verdict、生命周期如何由**确定性纯函数**和**版本化配置**计算。所有数值为 `sc-1.0.0` 的**初始值**，须在 Phase 0 校准。
+本文定义三轴、置信度、Verdict、生命周期如何由**确定性纯函数**和**版本化配置**计算。所有数值为 `sc-1.2.0` 的**初始值**（v3.1 施工后升为 `sc-1.3.0`），须在 Phase 0 校准。
 
 > **v3.1 基线（2026-10-18）**：裁决顺序改为 `PASS → WINDOW_CLOSING → BUILD_NOW → EARLY_BET → WATCH` 的单值顺序；槽位、认领、质押、Stealth Lock 已从产品中移除，`CROWDED_LOCKED` 不再产生。W 轴只由 SERP 弱度与竞争压力构成；已核验产品数、Top10 specialist 数与近 30 天新进入者仅用于拥挤度透明度、生命周期与告警，不进入 W 分数。下游与代码未同步前，以 01-PRD v3.1 为准。
 
@@ -98,7 +98,7 @@ coverage_D = Σ w_k(可用) / Σ w_k(全部)
 pressure = min(100, 30·e_specialist_30d + 40·e_authoritative_30d + 3·volatility_30d)
 W_score  = market_W = (0.60·serp_weakness + 0.25·(100 − pressure)) / 0.85
 ```
-`w_band` 由 `W_score` 分档，用于展示与 Verdict 主条件。v3.1 起 W 轴**不再包含**任何平台侧槽位/认领拥挤项，`w_band` 与旧字段 `market_w_band` 同值；保留 `market_w_band` 名称仅为账本兼容。带日期的档位历史写入 `prev`。`INSUFFICIENT` 条件两者共用。由于去掉了旧 `crowding_index`（权重 0.15），`sc-1.0.0` 的 70/45 阈值必须在 Phase 0 用无槽位口径重新校准后再冻结。
+`w_band` 由 `W_score` 分档，用于展示与 Verdict 主条件。v3.1 起 W 轴**不再包含**任何平台侧槽位/认领拥挤项，`w_band` 与旧字段 `market_w_band` 同值；保留 `market_w_band` 名称仅为账本兼容。带日期的档位历史写入 `prev`。`INSUFFICIENT` 条件两者共用。由于去掉了旧 `crowding_index`（权重 0.15），`sc-1.2.0` 的 70/45 阈值必须在 Phase 0 用无槽位口径重新校准后再冻结；`sc-1.3.0` 起账本只记一个 W 序列。
 | 档 | 条件 |
 |----|------|
 | `INSUFFICIENT` | `serp_history_days < min_history_days`（§2，快车道为 7）或 `obs_date` 前 `serp_freshness_days[tier]` 天内无 SERP 快照 |
@@ -193,7 +193,7 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   3. 当前 W ≥ `MEDIUM`。
   4. 该判定不得由处于 `STALE_DATA` 的轴触发（ADR-021）。
 - **特征补偿（Compensated Build）**：当搜索需求呈现强烈脉冲拉升、且 SERP 极其虚弱无竞品占据时，即便商业变现证据仍处于中档验证期，系统允许补偿升档为 `BUILD_NOW`，避免好机会因教条的商业硬指标被完全漏掉。
-  - **补偿条件（PRD v3.1 §5.7）**：M=MEDIUM 时必须**至少含一条 `COMMERCIAL_TRACTION`**（`hasTransactionTraction`），**或**定价 / checkout 在快照中持续 ≥ 90 天（`pricingPersistentDays ≥ 90`，07 §5）。只凭独立定价站数量（`independentDomainsCount ≥ 2`）不再满足补偿——那正是多站静态 `PRICING_DECORATION`，违背 PRD §1.8 第 3 条「有人收费 ≠ 有人付费」。纯装饰性的 MEDIUM 最多到 `EARLY_BET`。现行代码仍按旧口径（`independentDomainsCount ≥ 2`），属 M1 待实现，随 `sc-1.1.0` 进 SHADOW。
+  - **补偿条件（PRD v3.1 §5.7）**：M=MEDIUM 时必须**至少含一条 `COMMERCIAL_TRACTION`**（`hasTransactionTraction`），**或**定价 / checkout 在快照中持续 ≥ 90 天（`pricingPersistentDays ≥ 90`，07 §5）。只凭独立定价站数量（`independentDomainsCount ≥ 2`）不再满足补偿——那正是多站静态 `PRICING_DECORATION`，违背 PRD §1.8 第 3 条「有人收费 ≠ 有人付费」。纯装饰性的 MEDIUM 最多到 `EARLY_BET`。现行 `verdict.ts` 已按 `hasTransactionTraction ∨ persistentPricedDomains ≥ 1` 实现（该字段只统计持续 ≥90 天的定价域），`sc-1.3.0` 只需保留守卫，不要回退到按站点数量放行。
 - **拥挤度不再进入评分**：`verified_product_count` / `new_top10_entrants_30d` 只用于 01 §5.9 的拥挤度透明度、生命周期（§6）与 F9 告警；不得写回 W，也不得触发 `WINDOW_CLOSING`。`CROWDED_LOCKED` 已从 Verdict flags 中删除。
 - **`STALE_DATA` 与降档抑制（ADR-021）**：某轴处于 72 小时宽限期内时，沿用最近成功快照的档位并打 `STALE_DATA`。此时**不得发布降档 Verdict、不得投递降级告警**——偶发采集故障不能被用户读成“竞争格局变了”。连续失败超 72 小时后该轴才置 `INSUFFICIENT`，届时恢复正常的降档与告警路径。
 - `EARLY_BET` 的界面必须带“商业未验证”标记（16）。
@@ -238,7 +238,7 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 ### 7.1 结构（节选，JSON，经 Zod 校验）
 ```json
 {
-  "version": "sc-1.0.0",
+  "version": "sc-1.2.0",
   "universe": { "min_history_days": 14, "min_universe_size": 200 },
   "baseline": { "days": 14 },
   "d": {
