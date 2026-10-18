@@ -50,10 +50,11 @@ export async function runSeed(): Promise<void> {
     // 1. Seed Plans
     console.log('[seed] Inserting Plans...');
     await client.query(`
-      INSERT INTO plans (code, name, price_usd_monthly, entitlements) VALUES
-      ('FREE', 'Free Starter', 0.00, '{"view_cards_monthly": 10, "generate_reports_monthly": 1, "export_reports_monthly": 0, "max_projects": 0, "max_alerts": 0, "feed_realtime": false, "feed_selected_weekly": 1, "launch_kit_export": false, "api_access": false}'),
-      ('PRO', 'Builder Pro', 29.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 30, "export_reports_monthly": 30, "max_projects": 50, "max_alerts": 20, "feed_realtime": true, "feed_selected_weekly": 0, "launch_kit_export": true, "api_access": false}'),
-      ('TEAM', 'Scale Team', 149.00, '{"view_cards_monthly": -1, "generate_reports_monthly": 100, "export_reports_monthly": 100, "max_projects": 100, "max_alerts": 100, "feed_realtime": true, "feed_selected_weekly": 0, "launch_kit_export": true, "api_access": false}');
+      INSERT INTO plans (code, name, price_usd_monthly, entitlements, is_active) VALUES
+      ('FREE', 'Free Starter', 0.00, '{"api_access": false, "max_alerts": 0, "max_projects": 0, "feed_realtime": false, "live_scan_daily": 3, "launch_kit_export": false, "view_cards_monthly": 10, "feed_selected_weekly": 1, "export_reports_monthly": 0, "generate_reports_monthly": 1}', true),
+      ('STARTER', 'Starter', 49.00, '{"api_access": false, "max_alerts": 5, "pulse_radar": false, "max_projects": 3, "feed_realtime": true, "max_watchlist": 50, "launch_kit_export": true, "live_scan_monthly": 10, "view_cards_monthly": -1, "history_window_days": 180, "max_gsc_connections": 3, "feed_selected_weekly": 0, "export_reports_monthly": 30, "atomic_go_export_monthly": 2, "generate_reports_monthly": 30}', true),
+      ('PRO', 'Builder Pro', 29.00, '{"api_access": false, "max_alerts": 20, "pulse_radar": true, "max_projects": 50, "feed_realtime": true, "live_scan_daily": 30, "launch_kit_export": true, "live_scan_monthly": 20, "view_cards_monthly": -1, "feed_selected_weekly": 0, "export_reports_monthly": 30, "atomic_go_export_monthly": 3, "generate_reports_monthly": 30}', true),
+      ('TEAM', 'Scale Team', 149.00, '{"api_access": false, "max_alerts": 50, "max_projects": 100, "feed_realtime": true, "max_watchlist": 500, "live_scan_daily": 100, "launch_kit_export": true, "live_scan_monthly": 50, "view_cards_monthly": -1, "feed_selected_weekly": 0, "export_reports_monthly": 100, "atomic_go_export_monthly": 15, "generate_reports_monthly": 100}', false);
     `);
 
     // 2. Seed Sources

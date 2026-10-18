@@ -65,4 +65,26 @@ describe('Admin Candidate Promotion & Moderation Tests', () => {
     await query(`DELETE FROM opportunity_cards WHERE opportunity_id = $1`, [testCandidateId]);
     await query(`UPDATE opportunities SET status = 'ARCHIVED' WHERE id = $1`, [testCandidateId]);
   });
+
+  it('归档同时撤回公开页，避免已归档机会继续对外 200', async () => {
+    const archivedId = `opp_admin_archive_${Date.now()}`;
+    await query(
+      `INSERT INTO opportunities (id, slug, title, status) VALUES ($1, $2, $3, 'TRACKED')`,
+      [archivedId, `${archivedId}-slug`, 'Archived Public Page Test']
+    );
+    await query(
+      `INSERT INTO public_pages (id, slug, locale, page_type, opportunity_id, status, indexable)
+       VALUES ($1, $2, 'en-US', 'OPPORTUNITY', $3, 'PUBLISHED', true)`,
+      [`pg_${archivedId}`, `${archivedId}-slug`, archivedId]
+    );
+
+    await AdminService.moderateCandidate(archivedId, 'ARCHIVE');
+
+    const page = await query<any>(
+      `SELECT status, indexable FROM public_pages WHERE opportunity_id = $1`,
+      [archivedId]
+    );
+    assert.equal(page.rows[0].status, 'DRAFT', '归档后公开页仍是 PUBLISHED');
+    assert.equal(page.rows[0].indexable, false);
+  });
 });

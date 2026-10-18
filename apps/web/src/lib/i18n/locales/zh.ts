@@ -1071,7 +1071,7 @@ export const zh: TranslationDictionary = {
     title: '把候选放在同一张决策表上',
     desc: '只比较已发布的 BUILD NOW / EARLY BET，比较不会绕过证据门槛。',
     selectTwoTitle: '先从决策流选择至少两个机会',
-    selectTwoDesc: '比较固定展示裁决、D/M/W、置信度、拥挤度、执行规模和止损条件。',
+    selectTwoDesc: '比较固定展示裁决、D/M/W、置信度、执行规模和止损条件。',
     openFeed: '打开决策流',
     colDimension: '维度',
     rowVerdict: '裁决',

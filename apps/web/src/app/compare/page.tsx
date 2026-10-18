@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
-import { AuthService, OpportunityService } from '@emeradar/services';
+import { AuthService, EntitlementService, OpportunityService } from '@emeradar/services';
 import { getServerI18n } from '@/lib/i18n/server';
 import { AxisBadge, Badge, VerdictBadge, type Verdict } from '@/components/ui/Badge';
 import { buttonVariants } from '@/components/ui/Button';
@@ -20,6 +20,10 @@ export default async function ComparePage({ searchParams }: { searchParams?: Pro
   const token = (await cookies()).get('emeradar_session')?.value;
   const session = token ? await AuthService.getSessionUser(token) : null;
   if (!session) redirect('/login?next=%2Fcompare');
+
+  // 与 API 同一道门禁：Free 不参与比较（它至多只有一条可见机会）。
+  const ent = await EntitlementService.getUserEntitlements(session.user.id);
+  if (!ent.opportunityDetailFull) redirect('/pricing?feature=compare');
 
   const { t } = await getServerI18n();
   const rawIds = firstParam(searchParams ? (await searchParams).ids : undefined) || '';

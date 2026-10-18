@@ -62,6 +62,10 @@ export default async function OpportunityWorkspacePage({
 
 
   const { opportunity, queries, serpResults, evidence, commercialProof, killCriteria, latestVerdict } = data;
+  // 报告只对已发布的 BUILD_NOW / EARLY_BET 生成（ReportService 的硬条件）。
+  // 周案例（PASS / WINDOW_CLOSING / WATCH）必然不满足，渲染入口只会把用户带到
+  // "EVIDENCE GATE NOT MET"。
+  const reportable = opportunity.verdict === 'BUILD_NOW' || opportunity.verdict === 'EARLY_BET';
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -631,18 +635,20 @@ export default async function OpportunityWorkspacePage({
                 </ul>
               </div>
 
-              <div className="pt-4 border-t border-line">
-                <Link
-                  href={`/opportunities/${opportunity.slug}/report`}
-                  className={buttonVariants({
-                    variant: 'outline',
-                    className: 'w-full border-accent/40 text-accent hover:bg-accent/10',
-                  })}
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>{t('opportunityWorkspace.openReport')}</span>
-                </Link>
-              </div>
+              {reportable && (
+                <div className="pt-4 border-t border-line">
+                  <Link
+                    href={`/opportunities/${opportunity.slug}/report`}
+                    className={buttonVariants({
+                      variant: 'outline',
+                      className: 'w-full border-accent/40 text-accent hover:bg-accent/10',
+                    })}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>{t('opportunityWorkspace.openReport')}</span>
+                  </Link>
+                </div>
+              )}
             </div>
           </Panel>
 

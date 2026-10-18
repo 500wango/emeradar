@@ -99,6 +99,10 @@ describe('订阅写侧：唯一事实源与展示镜像', () => {
     assert.strictEqual(row.status, 'ACTIVE');
     assert.strictEqual(row.stripe_payment_intent_id, 'pi_test_lifecycle');
     assert.strictEqual(row.cancel_at_period_end, false);
+    // 0020 建了这两列；写入方在 activateSubscription，缺了它新购买的终身版
+    // 会永远停在默认的 SUBSCRIPTION。
+    assert.strictEqual(row.purchase_kind, 'FOUNDING_LIFETIME');
+    assert.strictEqual(row.billing_interval, 'MONTH');
     assert.ok(
       Object.keys(row.entitlements_snapshot).length >= 8,
       `快照只有 ${Object.keys(row.entitlements_snapshot).length} 个键，不是完整目录`

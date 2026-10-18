@@ -130,6 +130,20 @@ describe('Free 精选：每周 1 条准实时案例', () => {
     assert.strictEqual(feed.total, 1);
   });
 
+  it('回退不会选中已归档机会的公开页（那会让周案例指向 404）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    // 归档不会自动降级 public_pages（0020 之后仍可能留下 PUBLISHED 行）；回退查询
+    // 必须自己过滤 `o.status = 'TRACKED'`，否则周案例面板会指向一条打不开的详情。
+    await harness.db.query(`UPDATE opportunities SET status = 'ARCHIVED' WHERE id = $1`, [OPP_PUBLISHED]);
+
+    const future = new Date(Date.now() + 30 * 86_400_000);
+    const picked = await harness.services.WeeklySelectionService.getWeeklySelectedCase(future);
+    assert.ok(picked);
+    assert.notStrictEqual(picked.opportunityId, OPP_PUBLISHED, '回退选中了已归档机会');
+    assert.strictEqual(picked.opportunityId, OPP_FRESH, '回退应退回那条仍 TRACKED 的旧案例');
+    assert.strictEqual(picked.historical, true);
+  });
+
   it('Free 只能打开精选那一条的详情：按 id 或 slug 放行，活跃机会仍不放行', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { freeAccessibleOpportunityId, OpportunityService } = harness.services;

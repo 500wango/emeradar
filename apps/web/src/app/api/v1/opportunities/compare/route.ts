@@ -20,6 +20,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 比较固定展示多条**活跃**机会的标题、查询、三轴与止损计数的并排对比。
+    // Free 只可见周案例（13 §3.2：Free 至多一条，比较需要 2–3 条），所以这里与
+    // 详情页共用同一道门禁，而不是只靠"Free 拿不到 2 个 id"。
+    if (!entitlements.opportunityDetailFull) {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Plan Required',
+          status: 403,
+          detail: 'Comparison requires a Builder Pro or Team plan.',
+          upgradeUrl: '/pricing?feature=compare',
+        },
+        { status: 403 },
+      );
+    }
+
     const { ids } = parseInput(compareSchema, await request.json().catch(() => ({})));
     const items = await OpportunityService.compareOpportunities(ids);
     return NextResponse.json({ items });

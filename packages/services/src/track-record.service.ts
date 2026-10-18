@@ -38,6 +38,10 @@ export function rateIfTwoSided(hitCount: number, evaluatedCount: number): string
  */
 const PUBLIC_EPISODE_FIELDS = [
   'id',
+  // C 阶段删除打码分支时把这两行一起删了，页面上的机会列与链接因此变成空白
+  // 与 `/opportunities/undefined`。v3.1 没有打码，标题与 slug 始终是公开的。
+  'opportunity_title',
+  'opportunity_slug',
   'published_verdict',
   'predicted_at',
   'outcome_30d',

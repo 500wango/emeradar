@@ -550,7 +550,9 @@ export async function observeOpportunity(
 
   // 拥挤度已退出 W（v3.1）：认领槽位不再是评分输入，`crowding_daily` 的透明度
   // 计数（verified_product_count 等）只供展示、生命周期与 CROWDING_SIGNAL 告警。
-  // 该表的新列由迁移 0019 建立，生产者随阶段 B/E 接线；本阶段不读它。
+  // 该表的新列由迁移 0019 建立，但**至今没有生产者**（E3）：因此这里不传
+  // `verifiedProductCount`，lifecycle 的「3+ 已验证产品 → CONTESTED」分支暂时
+  // 不会成立。接线时要连同 `new_top10_entrants_30d` 一起补。
 
   const isFastTrack =
     historyDays >= 7 &&

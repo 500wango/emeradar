@@ -1072,7 +1072,7 @@ export const en: TranslationDictionary = {
     title: 'Compare opportunities on one decision surface',
     desc: 'Only published BUILD NOW / EARLY BET records are comparable. Comparison does not bypass the evidence gate.',
     selectTwoTitle: 'Select at least two opportunities from the feed',
-    selectTwoDesc: 'The comparison covers verdict, D/M/W, confidence, crowding, execution class, and kill criteria.',
+    selectTwoDesc: 'The comparison covers verdict, D/M/W, confidence, execution class, and kill criteria.',
     openFeed: 'Open decision feed',
     colDimension: 'Dimension',
     rowVerdict: 'Verdict',

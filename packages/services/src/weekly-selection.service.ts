@@ -159,6 +159,9 @@ export class WeeklySelectionService {
          JOIN opportunities o ON o.id = pg.opportunity_id
         WHERE pg.page_type = 'OPPORTUNITY' AND pg.status = 'PUBLISHED'
           AND pg.locale = 'en-US' AND pg.opportunity_id IS NOT NULL
+          -- 归档机会的公开页可能还留着（归档不会自动降级），但它已经不在 Feed 里：
+          -- 选中它会让周案例面板指向一条 404 的详情。
+          AND o.status = 'TRACKED'
         ORDER BY pg.published_at DESC NULLS LAST
         LIMIT 1`
     );

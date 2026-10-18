@@ -23,12 +23,12 @@ describe('公开战绩的比率口径', () => {
   /** 45 天公开延迟之外，才可能出现在公开战绩里。 */
   const visiblePredictedAt = '2026-01-01';
 
-  async function seedEpisode(id: string, outcome30d: string | null) {
+  async function seedEpisode(id: string, outcome30d: string | null, outcome90d: string | null = null) {
     await harness.db.query(
       `INSERT INTO prediction_episodes (
-         id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d
-       ) VALUES ($1, $2, $3, 'BUILD_NOW', $4::date, $5)`,
-      [id, verdictId, opportunityId, visiblePredictedAt, outcome30d]
+         id, verdict_id, opportunity_id, published_verdict, predicted_at, outcome_30d, outcome_90d
+       ) VALUES ($1, $2, $3, 'BUILD_NOW', $4::date, $5, $6)`,
+      [id, verdictId, opportunityId, visiblePredictedAt, outcome30d, outcome90d]
     );
   }
 
@@ -136,5 +136,25 @@ describe('公开战绩的比率口径', () => {
     const after = (await harness.services.TrackRecordService.getPublicTrackRecord()).stats;
     assert.strictEqual(after.totalPredictions, before.totalPredictions, 'seed 行进入了公开统计');
     assert.strictEqual(after.hitsCount, before.hitsCount);
+  });
+
+  it('逐行明细保留机会标题与 slug（C 阶段删除打码分支时误删）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    await clearEpisodes();
+    // T+90 有结果即披露，不依赖机会是否已失去抢跑价值。
+    await seedEpisode('eps_trackrate_disclosed', 'HIT', 'HIT');
+
+    const record = await harness.services.TrackRecordService.getPublicTrackRecord();
+    assert.strictEqual(record.episodes.length, 1, '已披露的 Episode 没有出现在明细里');
+    assert.strictEqual(
+      record.episodes[0].opportunity_title,
+      'Track Rate Test',
+      '公开明细丢了机会标题 —— 页面上的机会列会是空白'
+    );
+    assert.strictEqual(
+      record.episodes[0].opportunity_slug,
+      'trackrate-test',
+      '公开明细丢了 slug —— 页面链接会指向 /opportunities/undefined'
+    );
   });
 });

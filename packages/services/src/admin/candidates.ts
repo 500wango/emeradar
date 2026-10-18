@@ -105,6 +105,13 @@ export class AdminCandidateService {
       if ((res.rowCount ?? 0) === 0) {
         throw AppError.notFound('Opportunity not found.');
       }
+      // 归档即撤回公开投影：发布流程只处理 TRACKED 机会，留着 PUBLISHED 页会让
+      // 一条已归档的记录继续对外 200（也会被周案例回退选中）。
+      await query(
+        `UPDATE public_pages SET status = 'DRAFT', indexable = false
+          WHERE opportunity_id = $1 AND status = 'PUBLISHED'`,
+        [opportunityId]
+      );
       await AuditService.log({
         actorId,
         actorType: actorId ? 'ADMIN' : 'SYSTEM',

@@ -84,14 +84,16 @@ UPDATE plans
 -- ---------------------------------------------------------------------------
 -- 8. alert_rules.rule_type：先停用存量旧类型行，再重建 CHECK
 --
---    旧 CHECK 里有已删除的槽位触发器与 Phase 2 的 NEW_ENTRANT。存量行必须先
---    `is_active = false`，否则 ADD CONSTRAINT 会直接失败（F1 第 9 条）。
+--    旧 CHECK 里有已删除的槽位触发器与 Phase 2 的 NEW_ENTRANT。**停用不够**：
+--    新 CHECK 会校验所有存量行，`is_active = false` 并不会让旧取值通过校验。
+--    这些规则已经没有任何求值路径，直接删除（`alert_events.alert_rule_id` 是
+--    ON DELETE CASCADE，事件随规则一起清掉），否则 0020 会在有历史行的库上整体回滚。
 --    新集合取 12 §2 的首发 6 条。注意：应用层目前只写其中四条——
 --    `PROJECT_SERP_RANK_JUMP` 只在 ranking.service 有纯检测函数、
 --    `CUSTOM_QUERY_PULSE_CONFIRMED` 尚未实现；CHECK 是目录的上界，
 --    可订阅集合仍由 `EVALUATED_RULE_TYPES` 决定。
 -- ---------------------------------------------------------------------------
-UPDATE alert_rules SET is_active = false WHERE rule_type IN ('SLOTS_LAST_ONE','NEW_ENTRANT');
+DELETE FROM alert_rules WHERE rule_type IN ('SLOTS_LAST_ONE','NEW_ENTRANT');
 
 ALTER TABLE alert_rules DROP CONSTRAINT IF EXISTS alert_rules_rule_type_check;
 ALTER TABLE alert_rules ADD CONSTRAINT alert_rules_rule_type_check
@@ -114,6 +116,11 @@ ALTER TABLE alert_rules ADD CONSTRAINT alert_rules_rule_type_check
 -- ---------------------------------------------------------------------------
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS billing_interval TEXT NOT NULL DEFAULT 'MONTH';
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS purchase_kind TEXT NOT NULL DEFAULT 'SUBSCRIPTION';
+
+-- 存量行的计费周期没有可靠来源：`stripe_purchases` 不存 cycle，`stripe_checkout_intents`
+-- 有 cycle 却没有 subscription_id，二者无法安全关联。因此 `billing_interval` 只能按规格
+-- 默认 MONTH（年付历史行会显示成 MONTH，写侧从这里之后由 activateSubscription 维护）；
+-- `purchase_kind` 则可以用"只有 PaymentIntent、没有订阅号"这一可靠特征回填。
 
 UPDATE subscriptions
    SET purchase_kind = 'FOUNDING_LIFETIME'

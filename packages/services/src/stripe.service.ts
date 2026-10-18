@@ -336,29 +336,6 @@ export class StripeService {
     };
   }
 
-  static async isCheckoutSessionPaid(sessionId: string | null): Promise<boolean> {
-    if (!sessionId) return false;
-    if (sessionId.startsWith('mock_')) return false;
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey) return false;
-    try {
-      const res = await fetch(
-        `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`,
-        {
-          headers: { Authorization: `Bearer ${stripeKey}` },
-          signal: AbortSignal.timeout(10_000),
-        }
-      );
-      if (!res.ok) return false;
-      const session: any = await res.json();
-      return session?.payment_status === 'paid';
-    } catch {
-      // A lookup failure must not authorize a void: "could not tell" is not
-      // "unpaid" when the wrong guess costs someone their purchase.
-      return true;
-    }
-  }
-
   /**
    * Activates (or refreshes) a subscription for a user.
    *
@@ -407,6 +384,11 @@ export class StripeService {
       const snapshot = await readPlanEntitlements(client, planCode);
 
       const subId = `sub_${randomUUID()}`;
+      // 03 §3 / 13 §3.1：`billing_interval` 记录这条订阅的计费间隔，
+      // `purchase_kind` 区分订阅与一次性 Founding Lifetime。0020 建了列，但写入方
+      // 在这里；缺了它，新的终身购买会永远停在默认的 SUBSCRIPTION。
+      const billingInterval = billingCycle === 'yearly' ? 'YEAR' : 'MONTH';
+      const purchaseKind = billingCycle === 'lifetime' ? 'FOUNDING_LIFETIME' : 'SUBSCRIPTION';
       const periodEndSql = `CASE
         WHEN $4 = 'lifetime' THEN TIMESTAMPTZ '9999-12-31 23:59:59+00'
         WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
@@ -418,10 +400,11 @@ export class StripeService {
         `INSERT INTO subscriptions (
           id, user_id, plan_code, status, current_period_start, current_period_end,
           entitlements_snapshot, cancel_at_period_end,
-          stripe_customer_id, stripe_subscription_id, stripe_payment_intent_id, stripe_purchase_id
+          stripe_customer_id, stripe_subscription_id, stripe_payment_intent_id, stripe_purchase_id,
+          billing_interval, purchase_kind
         ) VALUES (
           $1, $2, $3, 'ACTIVE', NOW(), ${periodEndSql},
-          $8::jsonb, false, $6, $7, $9, $10
+          $8::jsonb, false, $6, $7, $9, $10, $11, $12
         )
         ON CONFLICT (user_id) DO UPDATE SET
           plan_code = EXCLUDED.plan_code,
@@ -441,6 +424,8 @@ export class StripeService {
           stripe_subscription_id = EXCLUDED.stripe_subscription_id,
           stripe_payment_intent_id = EXCLUDED.stripe_payment_intent_id,
           stripe_purchase_id = EXCLUDED.stripe_purchase_id,
+          billing_interval = EXCLUDED.billing_interval,
+          purchase_kind = EXCLUDED.purchase_kind,
           payment_hold_purchase_id = NULL, payment_hold_prior_status = NULL`,
         [
           subId,
@@ -453,6 +438,8 @@ export class StripeService {
           JSON.stringify(snapshot ?? {}),
           link.stripePaymentIntentId ?? null,
           purchaseId,
+          billingInterval,
+          purchaseKind,
         ]
       );
     });
