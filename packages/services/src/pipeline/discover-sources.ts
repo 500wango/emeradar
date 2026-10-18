@@ -24,7 +24,10 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
   sources.push(new HackerNewsDiscoverySource());
 
   // 2. Default RSS Sources
+  //    公开 RSS，无鉴权；只作 Why Now / 注意力证据，不直接孵化候选。
   sources.push(new RssDiscoverySource('https://techcrunch.com/category/startups/feed/', 'TechCrunch Startups'));
+  sources.push(new RssDiscoverySource('https://dev.to/feed/tag/sideproject', 'DEV Side Project'));
+  sources.push(new RssDiscoverySource('https://www.producthunt.com/feed', 'Product Hunt'));
 
   // 3. Env RSS feeds
   const envFeeds = (process.env.DISCOVERY_RSS_FEEDS || '')

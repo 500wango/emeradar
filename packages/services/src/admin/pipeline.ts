@@ -80,6 +80,15 @@ export class AdminPipelineService {
     const negativeFeedback7d =
       (fb.NOT_OPPORTUNITY ?? 0) + (fb.ALREADY_BUILT ?? 0) + (fb.CANNOT_BUILD ?? 0);
     const feedback7d = helpfulFeedback7d + negativeFeedback7d;
+    const latencyRes = await query<{ median_hours: number | null }>(
+      `SELECT percentile_cont(0.5) WITHIN GROUP (
+                ORDER BY EXTRACT(EPOCH FROM (f.created_at - o.discovered_at)) / 3600
+              )::float8 AS median_hours
+         FROM opportunity_feedback f
+         JOIN opportunities o ON o.id = f.opportunity_id
+        WHERE f.created_at > NOW() - INTERVAL '30 days'
+          AND o.discovered_at IS NOT NULL`
+    );
     const coverageRes = await query<{
       active_sources: number;
       sources_with_runs_24h: number;
@@ -238,6 +247,10 @@ export class AdminPipelineService {
         activeSources: coverageRes.rows[0]?.active_sources ?? 0,
         sourcesWithRuns24h: coverageRes.rows[0]?.sources_with_runs_24h ?? 0,
         candidateMarkets: coverageRes.rows[0]?.candidate_markets ?? 0,
+        medianFeedbackLatencyHours:
+          latencyRes.rows[0]?.median_hours !== null && latencyRes.rows[0]?.median_hours !== undefined
+            ? Math.round(latencyRes.rows[0].median_hours * 10) / 10
+            : null,
       },
       costTodayUsd,
       dailyBudgetLimitUsd: 20.0,

@@ -58,6 +58,8 @@ export interface AdminPipelineOverview {
     activeSources: number;
     sourcesWithRuns24h: number;
     candidateMarkets: number;
+    /** 从机会被发现到用户首次反馈的中位小时数；没有反馈时为 null。 */
+    medianFeedbackLatencyHours: number | null;
   };
   costTodayUsd: number;
   dailyBudgetLimitUsd: number;

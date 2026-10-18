@@ -266,6 +266,11 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
           <Stat value={overview.discoveryStats.sourcesWithRuns24h} unit="个" label="24h 有运行" />
           <Stat value={overview.discoveryStats.candidateMarkets} unit="个" label="候选市场" />
         </div>
+        <p className="mt-3 font-mono text-[11px] text-fg-subtle">
+          首次反馈时延中位数：{overview.discoveryStats.medianFeedbackLatencyHours === null
+            ? '—'
+            : `${overview.discoveryStats.medianFeedbackLatencyHours} 小时`}
+        </p>
       </Panel>
 
       {/* Interactive Trigger Hub */}
