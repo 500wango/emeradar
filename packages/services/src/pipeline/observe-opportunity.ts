@@ -424,13 +424,11 @@ export async function observeOpportunity(
     specialist_days: number;
     authoritative_days: number;
     volatility: number;
-    crowding: number;
   }>(
     `WITH recent AS (
        SELECT s.id, s.weak_result_ratio,
               COUNT(*) FILTER (WHERE r.result_type = 'SPECIALIST')::float AS specialist_count,
-              COUNT(*) FILTER (WHERE r.result_type IN ('OFFICIAL', 'DOC'))::float AS authoritative_count,
-              COUNT(r.rank)::float AS result_count
+              COUNT(*) FILTER (WHERE r.result_type IN ('OFFICIAL', 'DOC'))::float AS authoritative_count
        FROM serp_snapshots s
        LEFT JOIN serp_results r ON r.serp_snapshot_id = s.id AND r.rank <= 10
        WHERE s.query_id = $1 AND s.obs_date > $2::date - 30 AND s.obs_date <= $2::date
@@ -439,10 +437,7 @@ export async function observeOpportunity(
      SELECT
        COUNT(*) FILTER (WHERE specialist_count > 0)::int AS specialist_days,
        COUNT(*) FILTER (WHERE authoritative_count > 0)::int AS authoritative_days,
-       COALESCE(stddev_pop(weak_result_ratio) * 100, 0)::float AS volatility,
-       COALESCE(AVG(CASE WHEN result_count > 0
-         THEN ((specialist_count + authoritative_count) / result_count) * 100
-         ELSE 0 END), 0)::float AS crowding
+       COALESCE(stddev_pop(weak_result_ratio) * 100, 0)::float AS volatility
      FROM recent`,
     [primary.id, obsDate]
   );
@@ -538,9 +533,10 @@ export async function observeOpportunity(
 
   // 最新在后（与 verdict.ts 的读取约定一致）。只有封存了真实档位的行才入选。
   //
-  // 一次过滤、两个视图：带日期的序列是 05 §5.1 必要条件 2（"14 天内下降"）的依据，
-  // 无日期的那个只服务于 W_DROPPING 标志。两者必须来自同一份过滤结果——分别过滤
-  // 会让下标错位，"哪天降的档"与"降了几档"就对不上了。
+  // 一次过滤、两个视图：带日期的序列是 05 §5.1 必要条件 2（"14 天内下降"）的唯一依据，
+  // 无日期的那个只服务去抖与展示。两者必须来自同一份过滤结果——分别过滤会让下标
+  // 错位，"哪天降的档"与"降了几档"就对不上了。拥挤度退出 W 后，不再需要第二条
+  // "市场 W"序列。
   const bandRows = historyRows
     .filter((row): row is (typeof historyRows)[number] & { w_band: string } => row.w_band !== null)
     .reverse()
@@ -552,31 +548,9 @@ export async function observeOpportunity(
     band: row.w_band as AxisBand,
   }));
 
-  // 槽位真源是 opportunity_slots（D1/D2）：Σclaimed == Σcapacity 才熔断。尚未物化
-  // 槽位的机会（首次发布前）没有可认领的队，按 0/0 处理，不触发熔断。
-  const slotsRes = await query<{ claimed: number; capacity: number }>(
-    `SELECT COALESCE(SUM(claimed), 0)::int AS claimed, COALESCE(SUM(capacity), 0)::int AS capacity
-     FROM opportunity_slots WHERE opportunity_id = $1`,
-    [opp.id]
-  );
-  const claimsCount = slotsRes.rows[0]?.claimed ?? 0;
-  const maxClaims = slotsRes.rows[0]?.capacity ?? 0;
-  const isCrowdedLocked = maxClaims > 0 && claimsCount >= maxClaims;
-
-  // 市场 W 的带日期历史（05 §4.2）。verdicts 没有这一列且 schema.sql 冻结，
-  // 故取自同日封存的特征快照；缺失的日期不入列，宁可漏报降档。
-  const marketRes = await query<{ obs_date: string; market_w_band: string | null }>(
-    `SELECT to_char(obs_date, 'YYYY-MM-DD') AS obs_date, metrics->>'market_w_band' AS market_w_band
-     FROM opportunity_snapshots
-     WHERE opportunity_id = $1 AND obs_date < $2
-     ORDER BY obs_date DESC LIMIT 30`,
-    [opp.id, obsDate]
-  );
-  const datedMarketWBandHistory: DatedWBand[] = marketRes.rows
-    .filter((r) => r.market_w_band !== null)
-    .reverse()
-    .slice(-10)
-    .map((r) => ({ obsDate: r.obs_date, band: r.market_w_band as AxisBand }));
+  // 拥挤度已退出 W（v3.1）：认领槽位不再是评分输入，`crowding_daily` 的透明度
+  // 计数（verified_product_count 等）只供展示、生命周期与 CROWDING_SIGNAL 告警。
+  // 该表的新列由迁移 0019 建立，生产者随阶段 B/E 接线；本阶段不读它。
 
   const isFastTrack =
     historyDays >= 7 &&
@@ -600,14 +574,10 @@ export async function observeOpportunity(
       eSpecialist30d: windowFeatures?.specialist_days ?? 0,
       eAuthoritative30d: windowFeatures?.authoritative_days ?? 0,
       volatility30d: windowFeatures?.volatility ?? 0,
-      crowdingIndex: windowFeatures?.crowding ?? 0,
       serpHistoryDays,
       recentSerpSnapshotAvailable: recentSerp,
       tier: serpTier,
       daysSinceLastSerp,
-      claimsCount,
-      maxClaims,
-      isCrowdedLocked,
       fastTrack: isFastTrack,
     },
     commercial,
@@ -619,9 +589,6 @@ export async function observeOpportunity(
       historyDays,
     },
     fastTrack: isFastTrack,
-    claimsCount,
-    maxClaims,
-    isCrowdedLocked,
     // A failed collection this cycle is not evidence about the market (05 §5.0).
     criticalSourceFailure: serpOutcome.status !== 'OK' || acOutcome.status !== 'OK',
     activityRatio90d,
@@ -652,7 +619,6 @@ export async function observeOpportunity(
           daysInCurrentLifecycle,
           wBandHistory,
           datedWBandHistory,
-          datedMarketWBandHistory,
         })
       : undefined,
     obsDate,

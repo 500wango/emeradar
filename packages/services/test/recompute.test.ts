@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
+import { SCORING_CONFIG_VERSION } from '@emeradar/scoring';
 import { makeDisposableDb } from './helpers/disposable-db';
 
 const harness = makeDisposableDb('emeradar_recompute_test');
@@ -7,7 +8,7 @@ const OBS = '2026-06-01';
 
 const INPUT = {
   demand: { clusterSize: 15, newQueries7d: 5, clusterGrowth30d: 0.6, expansionSlope30d: 0.4, attentionSourcesActive14d: 2, attentionGrowth14d: 0.3, historyDays: 35 },
-  window: { serpWeakness: 72.5, eSpecialist30d: 0, eAuthoritative30d: 0, volatility30d: 1, crowdingIndex: 5, serpHistoryDays: 25, recentSerpSnapshotAvailable: true },
+  window: { serpWeakness: 72.5, eSpecialist30d: 0, eAuthoritative30d: 0, volatility30d: 1, serpHistoryDays: 25, recentSerpSnapshotAvailable: true },
   commercial: { band: 'HIGH', independentDomainsCount: 3, hasSubscriptionPlans: true, hasOneTimePlans: true, hasStrongNegative: false, totalScore: 8200 },
   confidence: { nIndependentSources: 3, totalEvidenceCount: 8, observedEvidenceCount: 6, medianEvidenceAgeDays: 12, historyDays: 35 },
   recommendation: {
@@ -25,7 +26,12 @@ after(async () => {
   await harness.teardown();
 });
 
-async function seed(id: string, input: unknown, ledgerOverride: Record<string, unknown> = {}) {
+async function seed(
+  id: string,
+  input: unknown,
+  ledgerOverride: Record<string, unknown> = {},
+  version = SCORING_CONFIG_VERSION
+) {
   const { query } = harness.db;
   const { calculateOpportunityScore } = await import('@emeradar/scoring');
   const out = input === null ? null : calculateOpportunityScore(input as any);
@@ -38,8 +44,8 @@ async function seed(id: string, input: unknown, ledgerOverride: Record<string, u
     `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict, lifecycle,
        d_basis_points, m_basis_points, w_basis_points, confidence, prev_hash, row_hash, hash_version,
        raw_verdict, explanation, d_band, m_band, w_band)
-     VALUES ($1, $2, $3, 'x', $4, $5, $6, $7, $8, $9, $10, $11, 2, $12, '{"rulesTriggered":[]}'::jsonb, $13, $14, $15)`,
-    [`vdt_${id}`, id, OBS, v.verdict, v.lc, v.d, v.m, v.w, v.conf, '0'.repeat(64), `vdt_${id}`.padEnd(64, '0'), v.raw, v.db, v.mb, v.wb]
+     VALUES ($1, $2, $3, $16, $4, $5, $6, $7, $8, $9, $10, $11, 2, $12, '{"rulesTriggered":[]}'::jsonb, $13, $14, $15)`,
+    [`vdt_${id}`, id, OBS, v.verdict, v.lc, v.d, v.m, v.w, v.conf, '0'.repeat(64), `vdt_${id}`.padEnd(64, '0'), v.raw, v.db, v.mb, v.wb, version]
   );
 }
 
@@ -68,6 +74,18 @@ describe('recompute (05 §8)', () => {
     );
   });
 
+  it('按 scoring_config_version 分流：旧口径快照不被新引擎重算', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    // 旧口径（含 crowdingIndex）下 W = 8205；新公式（拥挤度退出 W）会给出 7971。
+    // 用新引擎重算旧行只会得到"重算不一致"的伪差异，所以按版本拒绝。
+    const legacyInput = { ...INPUT, window: { ...INPUT.window, crowdingIndex: 5 } };
+    await seed('opp_rc_legacy_version', legacyInput, { w: 8205 }, 'sc-1.2.0');
+    await assert.rejects(
+      () => harness.services.RecomputeService.recompute('opp_rc_legacy_version', OBS),
+      (e: any) => e.status === 409 && /sc-1\.2\.0/.test(e.message)
+    );
+  });
+
   it('seals the input: it cannot be rewritten once written', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await assert.rejects(
@@ -92,5 +110,11 @@ describe('recompute sampling', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const result = await harness.services.RecomputeService.sample('2026-07-01', { percent: 100 });
     assert.ok(!result.mismatches.some((m: any) => m.opportunityId === 'opp_rc_legacy'));
+  });
+
+  it('never samples rows written by an older scoring config', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const result = await harness.services.RecomputeService.sample('2026-07-01', { percent: 100 });
+    assert.ok(!result.mismatches.some((m: any) => m.opportunityId === 'opp_rc_legacy_version'));
   });
 });

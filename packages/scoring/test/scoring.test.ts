@@ -12,6 +12,7 @@ import {
   wDroppedWithin,
   WINDOW_CLOSING_FRESHNESS_DAYS,
   FullOpportunityScoreInput,
+  WindowFeatures,
 } from '../src';
 
 describe('Scoring Engine Unit Tests', () => {
@@ -117,7 +118,6 @@ describe('Scoring Engine Unit Tests', () => {
       eSpecialist30d: 0,
       eAuthoritative30d: 0,
       volatility30d: 2,
-      crowdingIndex: 10,
       serpHistoryDays: 30,
       recentSerpSnapshotAvailable: true,
     });
@@ -144,6 +144,7 @@ describe('Scoring Engine Unit Tests', () => {
     assert.strictEqual(res.verdict, 'BUILD_NOW');
   });
 
+  // v3.1 黄金用例 3：补偿路径不接受"只有多站静态定价"的 MEDIUM。
   it('caps two decoration-priced domains at EARLY_BET: no compensation without traction or persistence (PRD v2.2 Q1)', () => {
     const res = evaluateVerdict({
       dBand: 'HIGH',
@@ -250,7 +251,6 @@ describe('Scoring Engine Unit Tests', () => {
         eSpecialist30d: 0,
         eAuthoritative30d: 0,
         volatility30d: 1,
-        crowdingIndex: 5,
         serpHistoryDays: 25,
         recentSerpSnapshotAvailable: true,
       },
@@ -320,7 +320,6 @@ describe('Scoring Engine Unit Tests', () => {
       eSpecialist30d: 0,
       eAuthoritative30d: 0,
       volatility30d: 2,
-      crowdingIndex: 10,
       serpHistoryDays: 7, // 7 days SERP
       recentSerpSnapshotAvailable: true,
       fastTrack: true,
@@ -408,29 +407,6 @@ describe('Scoring Engine Unit Tests', () => {
     });
     assert.strictEqual(withTractionRes.rawVerdict, 'BUILD_NOW');
     assert.ok(withTractionRes.rulesTriggered.includes('RULE_BUILD_NOW'));
-  });
-
-  it('triggers CROWDED_LOCKED circuit breaker and WINDOW_CLOSING when claim slots are full', () => {
-    const crowdedRes = evaluateVerdict({
-      dBand: 'HIGH',
-      mSummary: {
-        band: 'HIGH',
-        independentDomainsCount: 3,
-        hasSubscriptionPlans: true,
-        hasOneTimePlans: false,
-        hasStrongNegative: false,
-        totalScore: 8000,
-      },
-      wBand: 'HIGH',
-      confidence: 'HIGH',
-      historyDays: 35,
-      claimsCount: 5,
-      maxClaims: 5, // slots full
-    });
-    assert.strictEqual(crowdedRes.rawVerdict, 'WINDOW_CLOSING');
-    assert.strictEqual(crowdedRes.verdict, 'WINDOW_CLOSING'); // debounce bypassed
-    assert.ok(crowdedRes.flags.includes('CROWDED_LOCKED'));
-    assert.ok(crowdedRes.rulesTriggered.includes('RULE_CROWDED_LOCKED'));
   });
 
   it('activates relaxed EARLY_BET for fast-track pulse with emerging signals', () => {
@@ -847,17 +823,19 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
     historyDays: 45,
   };
 
-  const prevFromBuildNow = (dated: { obsDate: string; band: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' }[]) =>
+  const prevFromBuildNow = (
+    dated: { obsDate: string; band: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' }[],
+    overrides: { rawVerdict?: 'BUILD_NOW' | 'EARLY_BET' | 'WATCH' | 'PASS' | 'WINDOW_CLOSING'; daysInCurrentVerdict?: number } = {}
+  ) =>
     buildPrevScoringState({
       verdict: 'BUILD_NOW',
-      rawVerdict: 'BUILD_NOW',
+      rawVerdict: overrides.rawVerdict ?? 'BUILD_NOW',
       lifecycle: 'EARLY_WINDOW',
-      daysInCurrentVerdict: 30,
+      daysInCurrentVerdict: overrides.daysInCurrentVerdict ?? 30,
       daysInCurrentLifecycle: 30,
       wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+      // v3.1：拥挤度退出 W，展示用 W 与市场 W 恒等，一条带日期的序列即可。
       datedWBandHistory: dated,
-      // 窗口关闭只读市场 W（不含拥挤项，PRD v2.2 Q2）。
-      datedMarketWBandHistory: dated,
     });
 
   it('14 天外的降档不再把机会锁进 WINDOW_CLOSING（本次修复的缺陷）', () => {
@@ -874,9 +852,10 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
     assert.ok(!res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
   });
 
-  it('14 天内的降档仍然触发 WINDOW_CLOSING', () => {
+  it('14 天内的降档，且当前 W ≥ MEDIUM → WINDOW_CLOSING（05 §5.1 必要条件 2）', () => {
     const res = evaluateVerdict({
       ...windowClosingAxes,
+      wBand: 'MEDIUM', // 必要条件 3：当前 W 仍 ≥ MEDIUM
       prev: prevFromBuildNow([
         { obsDate: daysAgo(40), band: 'HIGH' },
         { obsDate: daysAgo(20), band: 'HIGH' },
@@ -888,57 +867,259 @@ describe('窗口关闭的新鲜度判据（05 §5.1 必要条件 2）', () => {
     assert.ok(res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
   });
 
-  it('没有带日期的市场 W 历史时不判定降档：宁可漏报，不误报（Q2）', () => {
+  it('14 天内降档但当前 W=LOW → PASS（v3.1 黄金用例 2：先命中 PASS，不再叠加 WINDOW_CLOSING）', () => {
+    const res = evaluateVerdict({
+      ...windowClosingAxes,
+      wBand: 'LOW',
+      // 降档已确认：上一期的 raw 也是 PASS，去抖不再把发布值留在 BUILD_NOW。
+      prev: prevFromBuildNow(
+        [
+          { obsDate: daysAgo(40), band: 'HIGH' },
+          { obsDate: daysAgo(20), band: 'HIGH' },
+          { obsDate: daysAgo(3), band: 'MEDIUM' },
+        ],
+        { rawVerdict: 'PASS', daysInCurrentVerdict: 2 }
+      ),
+      obsDate: TODAY,
+    });
+    assert.strictEqual(res.rawVerdict, 'PASS');
+    assert.strictEqual(res.verdict, 'PASS');
+    assert.ok(!res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
+    assert.ok(!res.flags.includes('W_DROPPING'), 'PASS 已经消费了这次降档');
+  });
+
+  it('此前从未发布过 BUILD_NOW / EARLY_BET 时不判 WINDOW_CLOSING：没开过的窗谈不上关闭', () => {
     const prev = buildPrevScoringState({
-      verdict: 'BUILD_NOW',
-      rawVerdict: 'BUILD_NOW',
+      verdict: 'WATCH',
+      rawVerdict: 'WATCH',
       lifecycle: 'EARLY_WINDOW',
       daysInCurrentVerdict: 30,
       daysInCurrentLifecycle: 30,
       wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+      datedWBandHistory: [
+        { obsDate: daysAgo(40), band: 'HIGH' },
+        { obsDate: daysAgo(3), band: 'MEDIUM' },
+      ],
     });
-    const res = evaluateVerdict({ ...windowClosingAxes, prev, obsDate: TODAY });
+    const res = evaluateVerdict({ ...windowClosingAxes, wBand: 'MEDIUM', prev, obsDate: TODAY });
     assert.notStrictEqual(res.rawVerdict, 'WINDOW_CLOSING');
   });
 
-  it('认领拥挤只压低展示用 W，不触发 WINDOW_CLOSING 也不打 W_DROPPING（Q2）', () => {
+  it('没有带日期的 W 历史时不判定降档：宁可漏报，不误报', () => {
     const prev = buildPrevScoringState({
       verdict: 'BUILD_NOW',
       rawVerdict: 'BUILD_NOW',
       lifecycle: 'EARLY_WINDOW',
       daysInCurrentVerdict: 30,
       daysInCurrentLifecycle: 30,
-      // 展示用 W 在 3 天前因认领降了一档……
+      wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
+    });
+    const res = evaluateVerdict({ ...windowClosingAxes, wBand: 'MEDIUM', prev, obsDate: TODAY });
+    assert.notStrictEqual(res.rawVerdict, 'WINDOW_CLOSING');
+  });
+
+  it('三个拥挤透明度字段变化不改变 W_score 与 raw_verdict（v3.1 黄金用例 1）', () => {
+    const baseWindow: WindowFeatures = {
+      serpWeakness: 72.5,
+      eSpecialist30d: 0,
+      eAuthoritative30d: 0,
+      volatility30d: 1,
+      serpHistoryDays: 25,
+      recentSerpSnapshotAvailable: true,
+    };
+    // 旧口径下的拥挤/槽位输入即使被调用方塞回来，也不得进入公式或裁决。
+    const withCrowding = {
+      ...baseWindow,
+      crowdingIndex: 42,
+      claimsCount: 9,
+      maxClaims: 9,
+      isCrowdedLocked: true,
+      verifiedProductCount: 9,
+      top10SpecialistCount: 7,
+      newTop10Entrants30d: 5,
+    } as unknown as WindowFeatures;
+
+    const plainW = calculateWindowScore(baseWindow);
+    const crowdedW = calculateWindowScore(withCrowding);
+    assert.strictEqual(crowdedW.basisPoints, plainW.basisPoints);
+    assert.strictEqual(crowdedW.band, plainW.band);
+
+    const baseInput: FullOpportunityScoreInput = {
+      demand: {
+        clusterSize: 15,
+        newQueries7d: 5,
+        clusterGrowth30d: 0.6,
+        expansionSlope30d: 0.4,
+        attentionSourcesActive14d: 2,
+        attentionGrowth14d: 0.3,
+        historyDays: 35,
+      },
+      window: baseWindow,
+      commercial: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: true,
+        hasStrongNegative: false,
+        totalScore: 8200,
+      },
+      confidence: {
+        nIndependentSources: 3,
+        totalEvidenceCount: 8,
+        observedEvidenceCount: 6,
+        medianEvidenceAgeDays: 12,
+        historyDays: 35,
+      },
+      recommendation: {
+        queryTypes: {
+          informationalRatio: 0.3,
+          commercialRatio: 0.4,
+          transactionalRatio: 0.3,
+          toolModifierRatio: 0.45,
+          templateQueryCount: 5,
+        },
+        serpWeakness: 72.5,
+        specialistToolCountInSerp: 2,
+        authoritativeInTop3: false,
+        commercialSummary: {
+          band: 'HIGH',
+          independentDomainsCount: 3,
+          hasSubscriptionPlans: true,
+          hasOneTimePlans: true,
+          hasStrongNegative: false,
+          totalScore: 8200,
+        },
+        dBand: 'HIGH',
+        wBand: 'HIGH',
+      },
+      obsDate: TODAY,
+    };
+
+    const plain = calculateOpportunityScore(baseInput);
+    const crowded = calculateOpportunityScore({ ...baseInput, window: withCrowding });
+    assert.strictEqual(crowded.wScore, plain.wScore);
+    assert.strictEqual(crowded.wBand, plain.wBand);
+    assert.strictEqual(crowded.marketWBand, crowded.wBand, 'marketWBand 必须等于 wBand');
+    assert.strictEqual(crowded.rawVerdict, plain.rawVerdict);
+    assert.strictEqual(crowded.verdict, plain.verdict);
+  });
+
+  it('W 公式只剩 SERP 脆弱度与在位压力：拥挤项已剔除（05 §3.3）', () => {
+    // pressure = 30·0 + 40·0 + 3·2 = 6；(0.6·75 + 0.25·94) / 0.85 = 80.588 → 8059 bp
+    const open = calculateWindowScore({
+      serpWeakness: 75,
+      eSpecialist30d: 0,
+      eAuthoritative30d: 0,
+      volatility30d: 2,
+      serpHistoryDays: 30,
+      recentSerpSnapshotAvailable: true,
+    });
+    assert.strictEqual(open.basisPoints, 8059);
+    assert.strictEqual(open.band, 'HIGH');
+
+    // 无 SERP 历史时仍是 INSUFFICIENT，与公式改动无关。
+    const insufficient = calculateWindowScore({
+      serpWeakness: 75,
+      eSpecialist30d: 0,
+      eAuthoritative30d: 0,
+      volatility30d: 2,
+      serpHistoryDays: 5,
+      recentSerpSnapshotAvailable: true,
+    });
+    assert.strictEqual(insufficient.band, 'INSUFFICIENT');
+    assert.strictEqual(insufficient.basisPoints, 0);
+  });
+
+  it('W 在 14 天内降档、最终仍是 BUILD_NOW 时打 W_DROPPING', () => {
+    const prev = buildPrevScoringState({
+      verdict: 'WATCH',
+      // 升级已确认（上一期 raw 就是 BUILD_NOW 且已连续两天），发布值不再是 WATCH。
+      rawVerdict: 'BUILD_NOW',
+      lifecycle: 'EARLY_WINDOW',
+      daysInCurrentVerdict: 2,
+      daysInCurrentLifecycle: 5,
       wBandHistory: ['HIGH', 'HIGH', 'MEDIUM'],
       datedWBandHistory: [
         { obsDate: daysAgo(10), band: 'HIGH' },
-        { obsDate: daysAgo(3), band: 'MEDIUM' },
-      ],
-      // ……但市场 W 始终是 HIGH。
-      datedMarketWBandHistory: [
-        { obsDate: daysAgo(10), band: 'HIGH' },
-        { obsDate: daysAgo(3), band: 'HIGH' },
+        { obsDate: daysAgo(2), band: 'MEDIUM' },
       ],
     });
     const res = evaluateVerdict({
-      ...windowClosingAxes,
-      wBand: 'MEDIUM',
+      dBand: 'HIGH',
+      mSummary: {
+        band: 'HIGH',
+        independentDomainsCount: 3,
+        hasSubscriptionPlans: true,
+        hasOneTimePlans: false,
+        hasStrongNegative: false,
+        totalScore: 7800,
+      },
+      wBand: 'HIGH',
+      confidence: 'HIGH',
+      historyDays: 45,
       prev,
       obsDate: TODAY,
     });
-    assert.ok(!res.rulesTriggered.includes('RULE_WINDOW_CLOSING'));
-    assert.ok(!res.flags.includes('W_DROPPING'));
+    assert.strictEqual(res.rawVerdict, 'BUILD_NOW');
+    assert.strictEqual(res.verdict, 'BUILD_NOW');
+    assert.ok(res.flags.includes('W_DROPPING'));
   });
 
-  it('市场 W 在 14 天内降档会打 W_DROPPING', () => {
+  it('W_DROPPING 后置：最终裁决是 WINDOW_CLOSING 时不打（避免"已关窗"与"在降"同时出现）', () => {
     const res = evaluateVerdict({
       ...windowClosingAxes,
-      prev: prevFromBuildNow([
-        { obsDate: daysAgo(10), band: 'HIGH' },
-        { obsDate: daysAgo(2), band: 'MEDIUM' },
-      ]),
+      wBand: 'MEDIUM',
+      // 降档已确认：上一期 raw 就是 WINDOW_CLOSING，发布值随之落到 WINDOW_CLOSING。
+      prev: prevFromBuildNow(
+        [
+          { obsDate: daysAgo(10), band: 'HIGH' },
+          { obsDate: daysAgo(2), band: 'MEDIUM' },
+        ],
+        { rawVerdict: 'WINDOW_CLOSING', daysInCurrentVerdict: 2 }
+      ),
       obsDate: TODAY,
     });
-    assert.ok(res.flags.includes('W_DROPPING'));
+    assert.strictEqual(res.rawVerdict, 'WINDOW_CLOSING');
+    assert.strictEqual(res.verdict, 'WINDOW_CLOSING');
+    assert.ok(!res.flags.includes('W_DROPPING'));
+  });
+});
+
+/**
+ * v3.1 生命周期：`EARLY_WINDOW → CONTESTED` 除了"强站进 Top10"，还要消费
+ * `verified_product_count ≥ 3` 与"W 在 14 天内降档"。这两个输入只进生命周期，不进 W。
+ */
+describe('生命周期的 v3.1 判据（05 §3.3）', () => {
+  const base = {
+    dBand: 'MEDIUM' as const,
+    wBand: 'MEDIUM' as const,
+    eSpecialist30d: 0,
+    eAuthoritative30d: 0,
+    volatility30d: 1,
+    expansionSlope30d: 0.3,
+    newQueries7d: 4,
+  };
+  const inEarlyWindow = buildPrevScoringState({
+    verdict: 'BUILD_NOW',
+    rawVerdict: 'BUILD_NOW',
+    lifecycle: 'EARLY_WINDOW',
+    daysInCurrentVerdict: 5,
+    daysInCurrentLifecycle: 5,
+    wBandHistory: ['MEDIUM'],
+  });
+
+  it('没有任何竞争信号时保持在 EARLY_WINDOW', () => {
+    const res = evaluateLifecycle({ ...base, prev: inEarlyWindow, verifiedProductCount: 2 });
+    assert.strictEqual(res.state, 'EARLY_WINDOW');
+  });
+
+  it('W 在 14 天内降档 → CONTESTED', () => {
+    const res = evaluateLifecycle({ ...base, prev: inEarlyWindow, wDroppedWithinWindow: true });
+    assert.strictEqual(res.state, 'CONTESTED');
+  });
+
+  it('已验证产品数达到 3 → CONTESTED', () => {
+    const res = evaluateLifecycle({ ...base, prev: inEarlyWindow, verifiedProductCount: 3 });
+    assert.strictEqual(res.state, 'CONTESTED');
   });
 });

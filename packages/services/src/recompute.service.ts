@@ -1,5 +1,9 @@
 import { query } from '@emeradar/db';
-import { calculateOpportunityScore, FullOpportunityScoreInput } from '@emeradar/scoring';
+import {
+  calculateOpportunityScore,
+  FullOpportunityScoreInput,
+  SCORING_CONFIG_VERSION,
+} from '@emeradar/scoring';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 
 export interface RecomputeDiff {
@@ -22,6 +26,9 @@ export interface RecomputeResult {
  * 只比对账本里确实存了的字段（裁决、原始裁决、生命周期、三轴基点与档位、置信度）。
  * 输入由 `opportunity_snapshots.scoring_input` 提供；没有它的快照（本能力上线前的存量）
  * 抛 PRECONDITION_FAILED，而不是用残缺输入算出一个伪差异。
+ *
+ * 口径版本必须一致：`scoring_config_version` 不同的行用新引擎重算，差异来自公式本身
+ * 而不是数据漂移。这类行既不重算也不抽样（历史行保留自己的版本，不追溯改写）。
  */
 export class RecomputeService {
   static async recompute(opportunityId: string, obsDate: string): Promise<RecomputeResult> {
@@ -40,7 +47,7 @@ export class RecomputeService {
 
     const ledger = await query<any>(
       `SELECT verdict, raw_verdict, lifecycle, d_basis_points, m_basis_points, w_basis_points,
-              d_band, m_band, w_band, confidence
+              d_band, m_band, w_band, confidence, scoring_config_version
          FROM verdicts WHERE opportunity_id = $1 AND obs_date = $2::date
          ORDER BY created_at DESC LIMIT 1`,
       [opportunityId, obsDate]
@@ -48,6 +55,19 @@ export class RecomputeService {
     const row = ledger.rows[0];
     if (!row) {
       throw new EmeradarError(ErrorCode.NOT_FOUND, `No ledger row for ${opportunityId} on ${obsDate}.`, 404);
+    }
+
+    // 评分口径变了（v3.1：拥挤度退出 W），旧快照的输入形状也变了（`crowdingIndex` /
+    // claims 字段已删）。用新结构去反序列化旧快照只会得到一个"重算不一致"的伪差异：
+    // 新公式本来就会给出不同的 W。重算只对**同一口径**的行有意义，历史行保留
+    // 自己的版本、不追溯改写。
+    if (row.scoring_config_version !== SCORING_CONFIG_VERSION) {
+      throw new EmeradarError(
+        ErrorCode.PRECONDITION_FAILED,
+        `Ledger row for ${opportunityId} on ${obsDate} was scored by ${row.scoring_config_version}; ` +
+          `this build is ${SCORING_CONFIG_VERSION}. Older snapshots are not recomputed under a new input shape.`,
+        409
+      );
     }
 
     const out = calculateOpportunityScore(input);
@@ -72,7 +92,7 @@ export class RecomputeService {
   /**
    * 05 §8：随机抽取历史 Verdict 重算并比对。按 `md5(id || 观测日)` 的哈希取模抽样，而不是
    * `random()`：同一天重跑抽到同一批，事后能复现「当晚到底查了哪几条」。
-   * 只抽有封存输入的行（没有输入的存量不是不一致，是无法评估）。
+   * 只抽有封存输入、且由**当前评分口径**产出的行；旧口径行不是不一致，是不可比。
    */
   static async sample(
     asOf: string,
@@ -85,10 +105,11 @@ export class RecomputeService {
          FROM verdicts v
          JOIN opportunity_snapshots s ON s.opportunity_id = v.opportunity_id AND s.obs_date = v.obs_date
         WHERE v.hash_version >= 2 AND s.scoring_input IS NOT NULL AND v.obs_date < $1::date
+          AND v.scoring_config_version = $4
           AND (('x' || substr(md5(v.id || $1::text), 1, 8))::bit(32)::int & 2147483647) % 100 < $2
         ORDER BY v.obs_date DESC
         LIMIT $3`,
-      [asOf, percent, limit]
+      [asOf, percent, limit, SCORING_CONFIG_VERSION]
     );
     const mismatches: RecomputeResult[] = [];
     for (const row of rows.rows) {

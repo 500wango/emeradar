@@ -22,8 +22,6 @@ export interface LedgerRowPrevInput {
    * 建立在它之上：`wBandHistory` 丢掉了日期，无法区分"昨天降档"与"半年前降档"。
    */
   datedWBandHistory?: DatedWBand[];
-  /** 不含拥挤项的市场 W 带日期序列（05 §4.2）；`WINDOW_CLOSING` 的降档判定只读它。 */
-  datedMarketWBandHistory?: DatedWBand[];
 }
 
 /**
@@ -44,6 +42,5 @@ export function buildPrevScoringState(row: LedgerRowPrevInput): PrevScoringState
     daysInCurrentLifecycle: row.daysInCurrentLifecycle,
     wBandHistory: row.wBandHistory,
     datedWBandHistory: row.datedWBandHistory,
-    datedMarketWBandHistory: row.datedMarketWBandHistory,
   };
 }

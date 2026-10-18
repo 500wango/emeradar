@@ -86,16 +86,12 @@ export interface WindowFeatures {
   eSpecialist30d: number;
   eAuthoritative30d: number;
   volatility30d: number;
-  crowdingIndex: number;
   serpHistoryDays: number;
   recentSerpSnapshotAvailable: boolean;
   /** 追踪层级（05 §4.2 的 `serp_freshness_days[tier]`）。缺省按 A 层处理。 */
   tier?: 'A' | 'B' | 'C';
   /** 距最近一份 SERP 快照的天数；缺省时退回 `recentSerpSnapshotAvailable`。 */
   daysSinceLastSerp?: number;
-  claimsCount?: number;
-  maxClaims?: number;
-  isCrowdedLocked?: boolean;
   fastTrack?: boolean;
 }
 
@@ -173,12 +169,6 @@ export interface PrevScoringState {
    * 可选：仅为不采集逐日历史的老调用方保留退回路径。
    */
   datedWBandHistory?: DatedWBand[];
-  /**
-   * 带日期的**市场 W** 档位序列（不含 crowding_index，05 §4.2、PRD v2.2 Q2）。
-   * `WINDOW_CLOSING` 的降档判定与 `W_DROPPING` 只读它：否则 2–3 个认领就能让展示用
-   * W 降一档，窗口关闭成了平台自己造成的。缺失时不判定降档（宁可漏报，不误报）。
-   */
-  datedMarketWBandHistory?: DatedWBand[];
 }
 
 export interface ScoringOutput {
@@ -193,7 +183,10 @@ export interface ScoringOutput {
   dBand: AxisBand;
   mBand: AxisBand;
   wBand: AxisBand;
-  /** 不含拥挤项的市场 W 档（05 §4.2），写入快照 metrics 供后续 14 天降档判定。 */
+  /**
+   * 窗口档位（05 §4.2）。拥挤度已退出 W（v3.1），本字段与 `wBand` 恒等；
+   * 保留列名是因为账本 `market_w_band` 与历史快照按此名读取。
+   */
   marketWBand?: AxisBand;
   flags: string[];
   explanation: {
@@ -208,12 +201,11 @@ export interface ScoringOutput {
   /**
    * 推荐层排出的前三名构建形态（05 §11、`evaluateRecommendations`）。
    *
-   * 认领槽位按形态切分，而"这条机会提供哪几个形态的队"必须来自同一个推荐结论，
-   * 不能由别处再猜一遍：`recommended_archetype` 只够建一条队，多形态的用意
-   * （工具站满了但 Micro-SaaS 还空着）就落不了地。这里把它带出来，供发布时
-   * 一次性物化 `opportunity_slots`。
+   * 「这条机会提供哪几个形态的队」必须来自同一个推荐结论，不能由别处再猜一遍：
+   * `recommended_archetype` 只够建一条队，多形态的用意（工具站先行、Micro-SaaS
+   * 仍空着）就落不了地。这里把它带出来，供报告与展示说明构建顺序。
    *
-   * 前三名 × 每形态 2 = 6，正好等于 `max_capacity_total`（05 §7.1）。
+   * v3.1 起它不再用于物化槽位：槽位、容量上限与认领都已从产品中删除。
    */
   topArchetypes: ArchetypeScore[];
 }

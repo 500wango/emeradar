@@ -4,9 +4,6 @@ export interface WindowScoreResult {
   basisPoints: number; // 0 - 10000
   band: AxisBand;
   pressure: number;
-  /** 不含 crowding_index 的市场 W（05 §4.2），0–10000 基点。 */
-  marketBasisPoints: number;
-  marketBand: AxisBand;
   reason: string;
 }
 
@@ -35,8 +32,6 @@ export function calculateWindowScore(features: WindowFeatures): WindowScoreResul
       basisPoints: 0,
       band: 'INSUFFICIENT',
       pressure: 0,
-      marketBasisPoints: 0,
-      marketBand: 'INSUFFICIENT',
       reason: `Insufficient SERP history (minimum ${minHistory} days required) or no recent snapshot.`,
     };
   }
@@ -48,19 +43,15 @@ export function calculateWindowScore(features: WindowFeatures): WindowScoreResul
       3 * features.volatility30d
   );
 
-  const rawW =
-    0.6 * features.serpWeakness +
-    0.25 * (100 - pressure) +
-    0.15 * (100 - features.crowdingIndex);
+  // 05 §3.3：拥挤度（认领槽位、验证产品数、新入榜者）**不是 W 的输入**。
+  // 它们只服务拥挤透明度、生命周期与 CROWDING_SIGNAL 告警。
+  const rawW = (0.6 * features.serpWeakness + 0.25 * (100 - pressure)) / 0.85;
 
   const normalizedW = Math.max(0, Math.min(100, rawW));
   const basisPoints = Math.round(normalizedW * 100);
 
-  const marketW = (0.6 * features.serpWeakness + 0.25 * (100 - pressure)) / 0.85;
-  const marketBasisPoints = Math.round(Math.max(0, Math.min(100, marketW)) * 100);
-
   const band = bandOf(basisPoints);
-  let reason = 'Competitive window is crowded or established incumbents occupy top ranks.';
+  let reason = 'Competitive window is narrow: incumbents occupy the top ranks.';
   if (band === 'HIGH') {
     reason = `Open competitive window: high SERP weakness (${features.serpWeakness.toFixed(1)}%) and low incumbent pressure.`;
   } else if (band === 'MEDIUM') {
@@ -71,8 +62,6 @@ export function calculateWindowScore(features: WindowFeatures): WindowScoreResul
     basisPoints,
     band,
     pressure,
-    marketBasisPoints,
-    marketBand: bandOf(marketBasisPoints),
     reason,
   };
 }

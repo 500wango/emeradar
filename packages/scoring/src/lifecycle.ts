@@ -11,6 +11,13 @@ export interface LifecycleInput {
   newQueries7d: number;
   /** Trailing 7-day observation volume divided by the 90-day peak 7-day window. */
   activityRatio90d?: number; // active_7d / max_90d
+  /**
+   * 拥挤透明度（`crowding_daily.verified_product_count`，05 §3.3）。
+   * **只进生命周期，不进 W**：达到 3 个已验证产品即视为窗口进入竞争态。
+   */
+  verifiedProductCount?: number;
+  /** W 较 14 天前降过 ≥1 档（05 §5.1）。**只进生命周期，不进 W**。 */
+  wDroppedWithinWindow?: boolean;
   prev?: PrevScoringState;
 }
 
@@ -30,6 +37,8 @@ export function evaluateLifecycle(input: LifecycleInput): LifecycleResult {
     expansionSlope30d,
     newQueries7d,
     activityRatio90d,
+    verifiedProductCount,
+    wDroppedWithinWindow,
     prev,
   } = input;
 
@@ -89,11 +98,20 @@ export function evaluateLifecycle(input: LifecycleInput): LifecycleResult {
 
   // Transitions from EARLY_WINDOW
   if (currentState === 'EARLY_WINDOW') {
-    if (eSpecialist30d + eAuthoritative30d >= 2 || wBand === 'LOW') {
+    // v3.1（05 §3.3）：竞争态不只由"强站进入 Top10"判定。窗口档位在 14 天内降过，
+    // 或已验证产品数达到 3，都说明这条机会已经不再是无人区。两者只回答"窗口是否
+    // 仍然独占"，不参与 W 的计算。
+    if (
+      eSpecialist30d + eAuthoritative30d >= 2 ||
+      wBand === 'LOW' ||
+      wDroppedWithinWindow === true ||
+      (verifiedProductCount ?? 0) >= 3
+    ) {
       return {
         state: 'CONTESTED',
         ruleId: 'LC-EW-TO-CONTESTED',
-        reason: 'Multiple specialist or authoritative competitors entered Top 10.',
+        reason:
+          'Window closed: specialists entered Top 10, the W band dropped within 14 days, or 3+ verified products now occupy the query.',
       };
     }
     return {

@@ -9,7 +9,7 @@ import {
 import { calculateDemandScore } from './demand';
 import { calculateWindowScore } from './window';
 import { calculateConfidence } from './confidence';
-import { evaluateVerdict } from './verdict';
+import { evaluateVerdict, wDroppedWithin, WINDOW_CLOSING_FRESHNESS_DAYS } from './verdict';
 import { evaluateLifecycle } from './lifecycle';
 import { evaluateRecommendations, RecommendationInput } from './recommendation';
 
@@ -21,9 +21,6 @@ export interface FullOpportunityScoreInput {
   recommendation: RecommendationInput;
   prev?: PrevScoringState;
   fastTrack?: boolean;
-  claimsCount?: number;
-  maxClaims?: number;
-  isCrowdedLocked?: boolean;
   /** 05 §5.0 publication-gate inputs, forwarded to evaluateVerdict as-is. */
   criticalSourceFailure?: boolean;
   /**
@@ -33,15 +30,18 @@ export interface FullOpportunityScoreInput {
   activityRatio90d?: number;
   /** 本期观测日（`YYYY-MM-DD`）。05 §5.1 的"14 天内下降"判据以它为"今天"。 */
   obsDate?: string;
+  /**
+   * 拥挤透明度（`crowding_daily.verified_product_count`，05 §3.3）。
+   * **不是 W 的输入**，也不进 `WindowFeatures`：只供生命周期
+   * （`EARLY_WINDOW → CONTESTED`）与展示使用。缺省时不参与生命周期判定。
+   */
+  verifiedProductCount?: number;
 }
 
 export function calculateOpportunityScore(
   input: FullOpportunityScoreInput
 ): ScoringOutput {
   const isFastTrack = Boolean(input.fastTrack || input.demand.fastTrack || input.window.fastTrack);
-  const isCrowdedLocked = Boolean(input.isCrowdedLocked || input.window.isCrowdedLocked);
-  const claimsCount = input.claimsCount ?? input.window.claimsCount;
-  const maxClaims = input.maxClaims ?? input.window.maxClaims;
 
   // 1. Demand Axis
   const dResult = calculateDemandScore({
@@ -53,9 +53,6 @@ export function calculateOpportunityScore(
   const wResult = calculateWindowScore({
     ...input.window,
     fastTrack: isFastTrack,
-    claimsCount,
-    maxClaims,
-    isCrowdedLocked,
   });
 
   // 3. Evidence Confidence
@@ -74,9 +71,6 @@ export function calculateOpportunityScore(
     prev: input.prev,
     historyDays: input.demand.historyDays,
     fastTrack: isFastTrack,
-    claimsCount,
-    maxClaims,
-    isCrowdedLocked,
     serpHistoryDays: input.window.serpHistoryDays,
     recentSerpSnapshotAvailable: input.window.recentSerpSnapshotAvailable,
     criticalSourceFailure: input.criticalSourceFailure,
@@ -93,6 +87,13 @@ export function calculateOpportunityScore(
     expansionSlope30d: input.demand.expansionSlope30d,
     newQueries7d: input.demand.newQueries7d,
     activityRatio90d: input.activityRatio90d,
+    // 拥挤透明度与 W 降档只进生命周期，不进 W（05 §3.3）。
+    verifiedProductCount: input.verifiedProductCount,
+    wDroppedWithinWindow: wDroppedWithin(
+      input.prev?.datedWBandHistory,
+      WINDOW_CLOSING_FRESHNESS_DAYS,
+      input.obsDate
+    ),
     prev: input.prev,
   });
 
@@ -111,7 +112,8 @@ export function calculateOpportunityScore(
     dBand: dResult.band,
     mBand,
     wBand: wResult.band,
-    marketWBand: wResult.marketBand,
+    // v3.1：拥挤度退出 W 后两者恒等；字段名保留给账本 `market_w_band`。
+    marketWBand: wResult.band,
     flags: verdictResult.flags,
     explanation: {
       dReason: dResult.reason,

@@ -14,7 +14,7 @@ export const WINDOW_CLOSING_FRESHNESS_DAYS = 14;
  *
  * 判据必须带日期。无日期的档位数组只能把"第一格"当作过去，而它可能是任意久远的
  * 读数——那样一次半年前的降档会在今天触发 `WINDOW_CLOSING`，把仍有抢跑价值的窗口
- * 提前判成关闭（15 §3 把"空槽窗口被泄露"列为 0 容忍的 P0 事故）。
+ * 提前判成关闭（15 §3 把"活跃窗口被提前公开"列为 0 容忍的 P0 事故）。
  *
  * `INSUFFICIENT` 不算降档：它表示"没有信号"，不是"信号变弱"。把数据缺失读成窗口
  * 关闭，等于让采集失败伪装成市场结论——正是 05 §5.0 发布门槛要挡的那类错误。
@@ -57,9 +57,6 @@ export interface VerdictInput {
   prev?: PrevScoringState;
   historyDays: number;
   fastTrack?: boolean;
-  claimsCount?: number;
-  maxClaims?: number;
-  isCrowdedLocked?: boolean;
   /** Distinct days of organic SERP observations for the primary query (05 §5.0). */
   serpHistoryDays?: number;
   /** Whether the most recent snapshot is an accepted organic search result. */
@@ -87,11 +84,6 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   const flags: string[] = [];
 
   const isFastTrack = Boolean(input.fastTrack) || (historyDays >= 7 && historyDays < 14 && dBand !== 'INSUFFICIENT');
-  const isCrowdedLocked =
-    Boolean(input.isCrowdedLocked) ||
-    (input.claimsCount !== undefined &&
-      input.maxClaims !== undefined &&
-      input.claimsCount >= input.maxClaims);
 
   // ---- 05 §5.0 publication eligibility -------------------------------------
   // Evaluated before any upgrade rule. Anything listed here means this cycle's
@@ -114,9 +106,6 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   if (negativeM) {
     flags.push('M_NEGATIVE');
   }
-  if (isCrowdedLocked) {
-    flags.push('CROWDED_LOCKED');
-  }
   if (isFastTrack) {
     flags.push('FAST_TRACK');
   }
@@ -130,19 +119,25 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     flags.push('BASELINE_PERIOD');
   }
 
-  // 05 §5.1 必要条件 2 / §5.3 `W_DROPPING`：只读**市场 W**（不含 crowding_index，
-  // PRD v2.2 Q2）。展示用 W 含拥挤项，2–3 个认领就能让它降一档；若让它触发窗口
-  // 关闭，"窗口关闭"就成了平台自己造成的。没有带日期的市场 W 历史时不判定降档。
+  // 05 §5.1 必要条件 2 / §5.3 `W_DROPPING`。拥挤度已退出 W，展示用 W 与市场 W 恒等，
+  // 因此只需一条带日期的 W 序列；缺日期时宁可漏报，不误报。
+  //
+  // `W_DROPPING` 只是"窗口在恶化"的提示，不改变裁决顺序：它在本函数末尾、最终
+  // 裁决确定之后才打，且只在最终仍是 `BUILD_NOW` / `EARLY_BET` 时打。
   const wDroppedInWindow = wDroppedWithin(
-    prev?.datedMarketWBandHistory,
+    prev?.datedWBandHistory,
     WINDOW_CLOSING_FRESHNESS_DAYS,
     input.obsDate
   );
-  if (wDroppedInWindow && (prev?.verdict === 'BUILD_NOW' || prev?.verdict === 'EARLY_BET')) {
-    flags.push('W_DROPPING');
-  }
 
   // 1. Calculate raw verdict
+  //
+  // 单值短路，先命中先返回，不叠加（05 §5、01 §1.8 第 2 条）：
+  //   PASS → WINDOW_CLOSING → BUILD_NOW(标准) → BUILD_NOW(补偿) → EARLY_BET → WATCH
+  //
+  // 顺序本身是规格的一部分：`PASS` 在最前，所以 D=LOW / W=LOW / 强负面 M 的机会
+  // 不会因为"窗口正在关闭"而被抬成 WINDOW_CLOSING。反过来，`WINDOW_CLOSING`
+  // 又先于两条 BUILD_NOW——窗口已经在关，就不该再喊建。
   let raw: Verdict = 'WATCH';
   let reason = '';
 
@@ -150,82 +145,70 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
   const wGeMedium = wBand === 'HIGH' || wBand === 'MEDIUM';
   const confGeMedium = confidence === 'HIGH' || confidence === 'MEDIUM';
 
-  if (isCrowdedLocked) {
+  // 07 §6.1: pricing pages with no transaction proxy, revenue disclosure or
+  // persistence are decoration, and decoration caps M at MEDIUM — it must not
+  // clear the standard BUILD_NOW bar. The MEDIUM case is what the compensated
+  // rule below exists for.
+  const mVerifiedStandard =
+    mSummary.band === 'HIGH' &&
+    (!mSummary.pricingDecorationOnly ||
+      Boolean(mSummary.hasTransactionTraction) ||
+      (mSummary.persistentPricedDomains ?? 0) >= 1);
+
+  // PRD v2.2 Q1：补偿要求 M=HIGH，或 M=MEDIUM 且含交易代理 / 定价持续 ≥ 90 天。
+  // 只凭独立定价站数量不再足够——那是多站静态 PRICING_DECORATION。
+  const mCompensatedVerified =
+    mVerifiedStandard ||
+    mSummary.band === 'HIGH' ||
+    (mSummary.band === 'MEDIUM' &&
+      (Boolean(mSummary.hasTransactionTraction) || (mSummary.persistentPricedDomains ?? 0) >= 1));
+  // PRD §5.7：M 仅靠 INFERRED 支撑时不得 BUILD_NOW，但允许 EARLY_BET。
+  const buildNowAllowed = !mSummary.inferredOnly;
+
+  const isEarlyBet =
+    (dBand === 'HIGH' && wGeMedium) ||
+    (isFastTrack && dGeMedium && wBand === 'HIGH');
+
+  // 此前**已发布**过 BUILD_NOW / EARLY_BET：窗口关闭只对这类机会成立
+  // （05 §5.1）；从未开过窗的机会谈不上"关闭"。
+  const prevPublishedActive = prev?.verdict === 'BUILD_NOW' || prev?.verdict === 'EARLY_BET';
+
+  if (dBand === 'LOW' || negativeM || wBand === 'LOW') {
+    raw = 'PASS';
+    rulesTriggered.push('RULE_PASS');
+    reason = negativeM
+      ? 'Strong negative commercial evidence observed.'
+      : dBand === 'LOW'
+      ? 'Demand volume or momentum is too low.'
+      : 'Competitive window is closed by incumbents.';
+  } else if (prevPublishedActive && wDroppedInWindow && wGeMedium) {
+    // 14 天内 W 降 ≥1 档，且当前 W 仍 ≥ MEDIUM 才叫"正在关闭"；降到 LOW 的机会
+    // 已被上面的 PASS 接住——窗口已经关了，不是"在关"。
     raw = 'WINDOW_CLOSING';
-    rulesTriggered.push('RULE_CROWDED_LOCKED');
+    rulesTriggered.push('RULE_WINDOW_CLOSING');
+    reason = 'Incumbents entering SERP or window closing. Immediate action or pivot required.';
+  } else if (buildNowAllowed && dGeMedium && mVerifiedStandard && wGeMedium && confGeMedium) {
+    raw = 'BUILD_NOW';
+    rulesTriggered.push('RULE_BUILD_NOW');
     reason =
-      'Opportunity reached maximum builder claim capacity (slots full); window closing to public feed to prevent crowding alpha decay.';
+      'All signals aligned: verified commercial monetization, high/medium demand, open window, and strong evidence.';
+  } else if (buildNowAllowed && dBand === 'HIGH' && wBand === 'HIGH' && mCompensatedVerified && confGeMedium) {
+    raw = 'BUILD_NOW';
+    rulesTriggered.push('RULE_BUILD_NOW_COMPENSATED');
+    reason =
+      'Feature-compensated build: breakout demand and open competitive window compensate for developing commercial proof.';
+  } else if (
+    isEarlyBet &&
+    (mSummary.band === 'LOW' || mSummary.band === 'MEDIUM' || mSummary.band === 'INSUFFICIENT')
+  ) {
+    raw = 'EARLY_BET';
+    rulesTriggered.push('RULE_EARLY_BET');
+    reason =
+      'High demand or fast-track momentum with open competitive window and unverified commercial signal. Early builder opportunity.';
   } else {
-    // 07 §6.1: pricing pages with no transaction proxy, revenue disclosure or
-    // persistence are decoration, and decoration caps M at MEDIUM — it must not
-    // clear the standard BUILD_NOW bar. The MEDIUM case is what the compensated
-    // rule below exists for.
-    const mVerifiedStandard =
-      mSummary.band === 'HIGH' &&
-      (!mSummary.pricingDecorationOnly ||
-        Boolean(mSummary.hasTransactionTraction) ||
-        (mSummary.persistentPricedDomains ?? 0) >= 1);
-
-    // PRD v2.2 Q1：补偿要求 M=HIGH，或 M=MEDIUM 且含交易代理 / 定价持续 ≥ 90 天。
-    // 只凭独立定价站数量不再足够——那是多站静态 PRICING_DECORATION。
-    const mCompensatedVerified =
-      mVerifiedStandard ||
-      mSummary.band === 'HIGH' ||
-      (mSummary.band === 'MEDIUM' &&
-        (Boolean(mSummary.hasTransactionTraction) || (mSummary.persistentPricedDomains ?? 0) >= 1));
-    // PRD §5.7：M 仅靠 INFERRED 支撑时不得 BUILD_NOW，但允许 EARLY_BET。
-    const buildNowAllowed = !mSummary.inferredOnly;
-
-    const isEarlyBet =
-      (dBand === 'HIGH' && wGeMedium) ||
-      (isFastTrack && dGeMedium && wBand === 'HIGH');
-
-    if (buildNowAllowed && dGeMedium && mVerifiedStandard && wGeMedium && confGeMedium && !negativeM) {
-      raw = 'BUILD_NOW';
-      rulesTriggered.push('RULE_BUILD_NOW');
-      reason =
-        'All signals aligned: verified commercial monetization, high/medium demand, open window, and strong evidence.';
-    } else if (buildNowAllowed && dBand === 'HIGH' && wBand === 'HIGH' && mCompensatedVerified && confGeMedium && !negativeM) {
-      raw = 'BUILD_NOW';
-      rulesTriggered.push('RULE_BUILD_NOW_COMPENSATED');
-      reason =
-        'Feature-compensated build: breakout demand and open competitive window compensate for developing commercial proof.';
-    } else if (
-      isEarlyBet &&
-      (mSummary.band === 'LOW' || mSummary.band === 'MEDIUM' || mSummary.band === 'INSUFFICIENT') &&
-      !negativeM
-    ) {
-      raw = 'EARLY_BET';
-      rulesTriggered.push('RULE_EARLY_BET');
-      reason =
-        'High demand or fast-track momentum with open competitive window and unverified commercial signal. Early builder opportunity.';
-    } else if (
-      (prev &&
-        (prev.verdict === 'BUILD_NOW' || prev.verdict === 'EARLY_BET') &&
-        wDroppedInWindow) ||
-      (prev &&
-        prev.verdict === 'WINDOW_CLOSING' &&
-        wBand !== 'HIGH' &&
-        dGeMedium &&
-        prev.daysInCurrentVerdict <= 30)
-    ) {
-      raw = 'WINDOW_CLOSING';
-      rulesTriggered.push('RULE_WINDOW_CLOSING');
-      reason =
-        'Incumbents entering SERP or window closing. Immediate action or pivot required.';
-    } else if (dBand === 'LOW' || negativeM || wBand === 'LOW') {
-      raw = 'PASS';
-      rulesTriggered.push('RULE_PASS');
-      reason = negativeM
-        ? 'Strong negative commercial evidence observed.'
-        : dBand === 'LOW'
-        ? 'Demand volume or momentum is too low.'
-        : 'Competitive window is closed by incumbents.';
-    } else {
-      raw = 'WATCH';
-      rulesTriggered.push('RULE_WATCH');
-      reason = 'Signals are emerging or data is accumulating. Keep on radar.';
-    }
+    raw = 'WATCH';
+    rulesTriggered.push('RULE_WATCH');
+    reason = 'Signals are emerging or data is accumulating. Keep on radar.';
   }
 
   // 2. Publication gate (05 §5.0).
@@ -258,10 +241,6 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     // Bypass debounce on strong negative signal
     published = 'PASS';
     rulesTriggered.push('DEBOUNCE_BYPASS_NEGATIVE_M');
-  } else if (isCrowdedLocked) {
-    // Bypass debounce on claim slot exhaustion
-    published = 'WINDOW_CLOSING';
-    rulesTriggered.push('DEBOUNCE_BYPASS_CROWDED_LOCKED');
   } else if (prev) {
     // Check upgrade debounce (need 2 consecutive days)
     if ((raw === 'BUILD_NOW' || raw === 'EARLY_BET') && prev.verdict !== raw) {
@@ -287,6 +266,13 @@ export function evaluateVerdict(input: VerdictInput): VerdictResult {
     } else {
       published = raw;
     }
+  }
+
+  // 4. W_DROPPING 后置：只有在最终仍给出主动作结论时才打。
+  //    先打会与裁决自相矛盾——上面两条短路（PASS / WINDOW_CLOSING）已经"消费"
+  //    了这次降档，再贴一个"W 在降"的标志只会让下游误以为还有窗口可抢。
+  if (wDroppedInWindow && (published === 'BUILD_NOW' || published === 'EARLY_BET')) {
+    flags.push('W_DROPPING');
   }
 
   return {
