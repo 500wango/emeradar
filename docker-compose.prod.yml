@@ -13,6 +13,8 @@ x-app-environment: &app-environment
   SERP_API_KEY: ${SERP_API_KEY:-}
   BRAVE_API_KEY: ${BRAVE_API_KEY:-}
   AISA_API_KEY: ${AISA_API_KEY:-}
+  # AIsa 多源搜索的 discovery 种子查询；留空则关闭该源
+  AISA_SEARCH_QUERIES: ${AISA_SEARCH_QUERIES:-}
   BROWSERLESS_API_KEY: ${BROWSERLESS_API_KEY:-}
   # 邮件通道：SMTP 优先（自建 Stalwart / 任何 SMTP 服务商），其次 Resend。
   # 两个都没配时发送只返回 false 并写日志，不会伪造"已发送"。

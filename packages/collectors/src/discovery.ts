@@ -118,3 +118,134 @@ export class RssDiscoverySource implements DiscoverySource {
     }
   }
 }
+
+/**
+ * AIsa 多源搜索（`GET /apis/v1/search/smart`）。
+ *
+ * 注意两件事：
+ *   1. 这是 AIsa 聚合的**多源网页搜索**，不是 Google SERP；只能用于 discovery，
+ *      不能进 W 轴。SERP 仍走 `serp-collector` 的 DataForSEO/SerpAPI 路径。
+ *   2. 搜索必须带 `q`。旧实现 POST `{}` 到 Tavily 端点，只会拿到 422，这是它
+ *      长期 FAILED 0 items 的原因。
+ *
+ * discovery 本身没有输入，所以种子查询必须显式配置（`AISA_SEARCH_QUERIES`，
+ * 逗号或换行分隔）。没有配置时不要注册这个源——不要每天跑一个必然失败的任务。
+ */
+export class AIsaSearchDiscoverySource implements DiscoverySource {
+  readonly sourceId = 'src_aisa_search';
+  readonly provider = 'AISA_SEARCH';
+
+  constructor(
+    private readonly queries: string[],
+    private readonly apiKey = process.env.AISA_API_KEY,
+    private readonly endpoint = 'https://api.aisa.one/apis/v1/search/smart',
+    private readonly count = 10,
+    private readonly costPerRequestUsd = 0.001
+  ) {}
+
+  async discover(): Promise<DiscoveryResult | DiscoveryFailure> {
+    if (!this.apiKey) {
+      return {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'AISA_NOT_CONFIGURED',
+        message: 'AISA_API_KEY is not configured.',
+      };
+    }
+    if (this.queries.length === 0) {
+      return {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'AISA_NO_QUERIES',
+        message: 'AISA_SEARCH_QUERIES is empty; refusing to search without a query.',
+      };
+    }
+
+    const items: DiscoveryItem[] = [];
+    const seen = new Set<string>();
+    const rawPayloads: unknown[] = [];
+    let requests = 0;
+
+    try {
+      for (const query of this.queries.slice(0, 10)) {
+        const url = new URL(this.endpoint);
+        url.searchParams.set('q', query);
+        url.searchParams.set('count', String(this.count));
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${this.apiKey}` },
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!response.ok) {
+          throw new Error(`AIsa Smart Search returned ${response.status} for "${query}"`);
+        }
+        requests++;
+        const payload = (await response.json()) as any;
+        rawPayloads.push(payload);
+        const rows = payload?.webPages?.value;
+        if (!Array.isArray(rows)) {
+          throw new Error('AIsa Smart Search response does not expose webPages.value[]');
+        }
+        for (const row of rows) {
+          const sourceUrl = typeof row?.url === 'string' ? row.url : null;
+          const title = typeof row?.name === 'string' ? row.name : null;
+          if (!sourceUrl || !title || !/^https?:\/\//i.test(sourceUrl)) continue;
+          if (seen.has(sourceUrl)) continue;
+          seen.add(sourceUrl);
+          const excerpt =
+            typeof row?.snippet === 'string' && row.snippet.trim().length > 0
+              ? row.snippet.slice(0, 500)
+              : typeof row?.content === 'string'
+              ? row.content.slice(0, 500)
+              : undefined;
+          const publishedAt =
+            typeof row?.datePublished === 'string' && !Number.isNaN(Date.parse(row.datePublished))
+              ? new Date(row.datePublished)
+              : undefined;
+          const canonical = JSON.stringify({
+            url: sourceUrl,
+            title,
+            excerpt: excerpt ?? null,
+            publishedAt: publishedAt?.toISOString() ?? null,
+          });
+          items.push({
+            sourceItemId: sha256(sourceUrl),
+            provider: this.provider,
+            sourceUrl,
+            title,
+            excerpt,
+            publishedAt,
+            collectedAt: new Date(),
+            contentHash: sha256(canonical),
+            requestHash: requestHash(url.toString()),
+            metadata: {
+              query,
+              score: typeof row?.score === 'number' ? row.score : undefined,
+              siteName: typeof row?.siteName === 'string' ? row.siteName : undefined,
+            },
+          });
+        }
+      }
+    } catch (error) {
+      return {
+        status: 'FAILED',
+        retryable: true,
+        errorCode: 'AISA_SEARCH_ERROR',
+        message: (error as Error).message,
+      };
+    }
+
+    const rawContent = JSON.stringify({ source: this.provider, queries: this.queries, payloads: rawPayloads });
+    return {
+      status: 'OK',
+      items,
+      raw: { content: rawContent, contentHash: sha256(rawContent), mimeType: 'application/json' },
+      cost: {
+        sourceId: this.sourceId,
+        costUsd: Math.round(requests * this.costPerRequestUsd * 1e6) / 1e6,
+        category: 'INFRA',
+        units: requests,
+      },
+    };
+  }
+}

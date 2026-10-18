@@ -1,16 +1,24 @@
 import { query, transaction, getClient } from '@emeradar/db';
 import {
+  AIsaSearchDiscoverySource,
   DiscoverySource,
   HackerNewsDiscoverySource,
   RssDiscoverySource,
+  CostLedgerService,
 } from '@emeradar/collectors';
 
 async function getDiscoverySources(): Promise<DiscoverySource[]> {
   const sources: DiscoverySource[] = [];
 
-  // AIsa 的 Tavily 搜索曾经排在这里，但它向搜索端点 POST 一个空对象（没有 query），
-  // 只可能拿到 422；Lobste.rs 的 RSS 从生产机直连也是 500（2026-10-18）。两者都删掉，
-  // 不留一个每天报错、却被计作「数据源」的条目。
+  // AIsa 多源搜索：只有显式配置了种子查询才启用。它是网页搜索、不是 Google SERP，
+  // 只用于 discovery；没有查询时不要注册，避免每天一个必然失败的任务。
+  const aisaQueries = (process.env.AISA_SEARCH_QUERIES || '')
+    .split(/[\r\n,]+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (process.env.AISA_API_KEY && aisaQueries.length > 0) {
+    sources.push(new AIsaSearchDiscoverySource(aisaQueries));
+  }
 
   // 1. HackerNews Discovery Source
   sources.push(new HackerNewsDiscoverySource());
@@ -127,6 +135,9 @@ async function discoverSourcesInner(): Promise<{
     );
 
     const outcome = await source.discover();
+    if (outcome.cost && outcome.cost.costUsd > 0) {
+      await CostLedgerService.recordCost(outcome.cost);
+    }
     if (outcome.status === 'FAILED') {
       failed++;
       await query(
