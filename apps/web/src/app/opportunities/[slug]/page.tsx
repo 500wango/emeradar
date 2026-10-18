@@ -20,6 +20,7 @@ import { CommercialProofPanel } from '@/components/CommercialProofPanel';
 import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
 import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
+import { OpportunityFeedback } from '@/components/OpportunityFeedback';
 import { getServerI18n } from '@/lib/i18n/server';
 import { canOpenFullOpportunity, canOpenReport } from '@/lib/plan-access';
 import { safeExternalUrl } from '@/lib/format';
@@ -228,6 +229,7 @@ export default async function OpportunityWorkspacePage({
               {opportunity.primary_query}
             </code>
           </div>
+          <OpportunityFeedback opportunityId={opportunity.id} />
         </div>
 
         {/* D-M-W Metric Cards */}

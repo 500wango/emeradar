@@ -97,6 +97,7 @@ export interface TranslationDictionary {
   };
   nav: {
     opportunities: string;
+    inbox: string;
     scan: string;
     trackRecord: string;
     projects: string;

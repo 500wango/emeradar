@@ -1,6 +1,7 @@
 export * from './entitlement.service';
 export * from './audit.service';
 export * from './opportunity.service';
+export * from './inbox.service';
 export * from './report.service';
 export * from './project.service';
 export * from './credential.service';

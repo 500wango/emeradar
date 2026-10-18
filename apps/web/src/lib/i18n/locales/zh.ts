@@ -82,6 +82,7 @@ export const zh: TranslationDictionary = {
   },
   nav: {
     opportunities: '决策发现',
+    inbox: '机会收件箱',
     scan: '即时初筛',
     trackRecord: '可验证战绩',
     projects: '我的项目',

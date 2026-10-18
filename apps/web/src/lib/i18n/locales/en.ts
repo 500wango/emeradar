@@ -82,6 +82,7 @@ export const en: TranslationDictionary = {
   },
   nav: {
     opportunities: 'Opportunities',
+    inbox: 'Opportunity Inbox',
     scan: 'Live scan',
     trackRecord: 'Track Record',
     projects: 'Projects',
