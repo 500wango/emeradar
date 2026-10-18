@@ -59,7 +59,7 @@ export async function generateMetadata() {
 
 export default async function TrackRecordPage() {
   const data = await TrackRecordService.getPublicTrackRecord();
-  const { stats, episodes, cohorts = [], checkpoints = [] } = data;
+  const { stats, episodes, cohorts = [], checkpoints = [], builderOutcomes } = data;
   const { t, isZh } = await getServerI18n();
 
   const checkpoint = checkpoints[0];
@@ -169,6 +169,58 @@ export default async function TrackRecordPage() {
             </tbody>
           </table>
         </div>
+      </Panel>
+
+      {/* Builder outcomes */}
+      <Panel className="mt-8 overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-6">
+          <div>
+            <h2 className="font-display text-base font-bold text-fg">
+              {isZh ? '项目结果（Builder Outcomes）' : 'Builder Outcomes'}
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-subtle">
+              {isZh
+                ? '用户真正做出来之后的结果，按当初的裁决分组；样本不足 30 时不展示比例。'
+                : 'What happened after builders shipped, grouped by the original verdict. Rates are withheld below 30 projects.'}
+            </p>
+          </div>
+          <Badge tone="neutral">
+            {builderOutcomes?.sampleSize ?? 0} / {builderOutcomes?.minSample ?? 30}
+          </Badge>
+        </div>
+
+        {!builderOutcomes?.groups ? (
+          <p className="px-6 py-8 text-sm leading-relaxed text-fg-muted">
+            {isZh
+              ? `目前有 ${builderOutcomes?.sampleSize ?? 0} 个项目完成回访，达到 30 个后才公开分组结果。`
+              : `${builderOutcomes?.sampleSize ?? 0} projects have check-ins; grouped results are published at 30.`}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-line">
+                <tr>
+                  <th className={TH}>{isZh ? '原始裁决' : 'Verdict'}</th>
+                  <th className={TH}>{isZh ? '项目' : 'Projects'}</th>
+                  <th className={TH}>{isZh ? '已上线' : 'Launched'}</th>
+                  <th className={TH}>{isZh ? '有起色' : 'Traction'}</th>
+                  <th className={TH}>{isZh ? '已放弃' : 'Abandoned'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {builderOutcomes.groups.map((row: any) => (
+                  <tr key={row.verdict}>
+                    <td className={`${TD} font-mono text-xs font-bold text-fg`}>{row.verdict}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{row.total}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{row.launched}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{row.traction}</td>
+                    <td className={`${TD} font-mono text-xs text-fg-muted`}>{row.abandoned}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
 
       {/* Evaluated episodes */}

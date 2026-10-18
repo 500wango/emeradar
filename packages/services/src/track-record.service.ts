@@ -189,6 +189,47 @@ export class TrackRecordService {
       return projected;
     });
 
+    // 4. Builder outcomes: 最新一次回访按 verdict 分组。样本 <30 时只返回计数，
+    //    不对外给比例（06 §7.2：样本不足的 builder-outcome 只内部使用）。
+    const builderRes = await query<{
+      verdict: string;
+      total: number;
+      launched: number;
+      traction: number;
+      abandoned: number;
+    }>(
+      `WITH latest AS (
+         SELECT DISTINCT ON (project_id) project_id, status
+           FROM project_outcome_checkins
+          ORDER BY project_id, created_at DESC
+       )
+       SELECT COALESCE(c.verdict, 'UNKNOWN') AS verdict,
+              COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE l.status = 'LAUNCHED')::int AS launched,
+              COUNT(*) FILTER (WHERE l.status IN ('EARLY_TRACTION','TRACTION'))::int AS traction,
+              COUNT(*) FILTER (WHERE l.status = 'ABANDONED')::int AS abandoned
+         FROM latest l
+         JOIN projects p ON p.id = l.project_id
+         LEFT JOIN opportunity_cards c ON c.opportunity_id = p.opportunity_id
+        GROUP BY 1
+        ORDER BY 1`
+    );
+    const builderSampleSize = builderRes.rows.reduce((sum, row) => sum + row.total, 0);
+    const builderOutcomes = {
+      sampleSize: builderSampleSize,
+      minSample: 30,
+      groups:
+        builderSampleSize >= 30
+          ? builderRes.rows.map((row) => ({
+              verdict: row.verdict,
+              total: row.total,
+              launched: row.launched,
+              traction: row.traction,
+              abandoned: row.abandoned,
+            }))
+          : null,
+    };
+
     return {
       stats: {
         totalPredictions: episodes.length,
@@ -203,6 +244,7 @@ export class TrackRecordService {
       },
       episodes: publicEpisodes,
       cohorts,
+      builderOutcomes,
       checkpoints: ckpRes.rows,
     };
   }

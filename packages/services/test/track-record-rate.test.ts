@@ -87,6 +87,8 @@ describe('公开战绩的比率口径', () => {
     assert.strictEqual(record.stats.hitsCount, 1);
     // Q11：只有 T+30 结果、未满额、未关窗、无买断的 Episode 计入汇总，但逐行明细暂不披露。
     assert.strictEqual(record.stats.undisclosedEpisodes, 1);
+    assert.strictEqual(record.builderOutcomes.sampleSize, 0);
+    assert.strictEqual(record.builderOutcomes.groups, null, '样本 <30 时不得公开 builder 分组');
     assert.strictEqual(record.episodes.length, 0, '抢跑窗口仍在的 Episode 不该出现在逐行明细里');
     assert.strictEqual(
       record.stats.hitRate30d,
