@@ -115,7 +115,8 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
   if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
 
   const toolSignal = TOOL_SIGNAL.test(kw);
-  const includesSeed = kw.includes(seedLower);
+  // 必须按词边界匹配：种子 "api" 不能因为 "capital gains" 里含有 api 就通过。
+  const includesSeed = new RegExp(`\\b${seedLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(kw);
   if (BROAD_SEEDS.has(seedLower)) {
     if (!toolSignal) return false;
   } else if (!includesSeed) {

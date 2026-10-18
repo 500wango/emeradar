@@ -24,6 +24,7 @@ describe('种子候选过滤', () => {
 
   it('具体种子必须包含种子词，宽种子必须带工具名词', () => {
     assert.strictEqual(isCandidateKeyword(item('random business name'), 'generator'), false);
+    assert.strictEqual(isCandidateKeyword(item('capital gains calculator'), 'api'), false);
     assert.strictEqual(isCandidateKeyword(item('automation for freelancers'), 'for freelancers'), true);
     assert.strictEqual(isCandidateKeyword(item('market size for agencies'), 'for agencies'), false);
   });
