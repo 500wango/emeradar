@@ -37,7 +37,7 @@ function SectionMark({ index, children }: { index: string; children: React.React
 
 export function PricingClient({ entitlements, isLoggedIn = false }: PricingClientProps) {
   const { t, dictionary, isZh } = useI18n();
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('yearly');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
 
   const handleUpgrade = async (
     planCode: 'STARTER' | 'PRO',
-    cycle: 'monthly' | 'yearly' | 'lifetime' = billingCycle,
+    cycle: 'monthly' | 'quarterly' | 'yearly' | 'lifetime' = billingCycle,
   ) => {
     if (!isLoggedIn) {
       window.location.href = `/register?plan=${planCode.toLowerCase()}`;
@@ -197,7 +197,7 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
         </p>
 
         <div className="mt-9 inline-flex items-center gap-1 border border-line bg-surface-2 p-1">
-          {(['monthly', 'yearly'] as const).map((cycle) => (
+          {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
             <button
               key={cycle}
               type="button"
@@ -210,10 +210,10 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
                   : 'text-fg-subtle hover:text-fg'
               )}
             >
-              {cycle === 'monthly' ? p.monthly : p.yearly}
-              {cycle === 'yearly' && (
-                <span className={cn('text-[10px]', billingCycle === 'yearly' ? 'text-signal' : 'text-fg-subtle')}>
-                  {p.save20Short}
+              {cycle === 'monthly' ? p.monthly : cycle === 'quarterly' ? p.quarterly : p.yearly}
+              {cycle !== 'monthly' && (
+                <span className={cn('text-[10px]', billingCycle === cycle ? 'text-signal' : 'text-fg-subtle')}>
+                  {cycle === 'yearly' ? p.save20Short : p.save16Short}
                 </span>
               )}
             </button>
@@ -388,12 +388,22 @@ export function PricingClient({ entitlements, isLoggedIn = false }: PricingClien
             <div className="mt-6 border-b border-line pb-6">
               <div className="flex items-baseline gap-2">
                 <span className="font-mono text-4xl font-bold tabular-nums text-accent sm:text-5xl">
-                  {billingCycle === 'yearly' ? p.planProYearlyPrice : p.planProMonthlyPrice}
+                  {billingCycle === 'yearly'
+                    ? p.planProYearlyPrice
+                    : billingCycle === 'quarterly'
+                    ? p.planProQuarterlyPrice
+                    : p.planProMonthlyPrice}
                 </span>
-                <span className="font-mono text-xs text-fg-subtle">{p.perMonth}</span>
+                <span className="font-mono text-xs text-fg-subtle">
+                  {billingCycle === 'quarterly' ? p.perQuarter : p.perMonth}
+                </span>
               </div>
               <p className="mt-2 font-mono text-[11px] text-fg-subtle">
-                {billingCycle === 'yearly' ? p.planProBilledYearly : p.billedMonthly}
+                {billingCycle === 'yearly'
+                  ? p.planProBilledYearly
+                  : billingCycle === 'quarterly'
+                  ? p.planProBilledQuarterly
+                  : p.billedMonthly}
               </p>
             </div>
 

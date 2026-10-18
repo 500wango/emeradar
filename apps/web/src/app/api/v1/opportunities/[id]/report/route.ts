@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { EntitlementService, ReportService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { internalErrorResponse } from '@/lib/api-errors';
 import { getAuthUser, requireScope, requireVerifiedEmail } from '@/lib/auth-server';
+import { canOpenFullOpportunity } from '@/lib/plan-access';
 import { AppError } from '@emeradar/core';
 
 export async function GET(
@@ -24,20 +25,18 @@ export async function GET(
     // 与详情/研报页同一道门禁：Free 只允许本周精选那一条。之前这里漏了判断，
     // 任何 Free 会话只要拿到一个活跃机会 id 就能生成它的完整报告。
     const ent = await EntitlementService.getUserEntitlements(userId);
-    if (!ent.opportunityDetailFull) {
-      const weeklyId = await freeAccessibleOpportunityId(id);
-      if (!weeklyId) {
-        return NextResponse.json(
-          {
-            type: 'about:blank',
-            title: 'Plan Required',
-            status: 403,
-            detail: 'Full reports require a Builder Pro or Team plan.',
-            upgradeUrl: '/pricing?feature=report',
-          },
-          { status: 403 },
-        );
-      }
+    const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(id);
+    if (!canOpenFullOpportunity(ent, weeklyId)) {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Plan Required',
+          status: 403,
+          detail: 'Full reports require a Builder Pro or Team plan.',
+          upgradeUrl: '/pricing?feature=report',
+        },
+        { status: 403 },
+      );
     }
 
     const result = await ReportService.getOrGenerateReport(id, userId, locale, {

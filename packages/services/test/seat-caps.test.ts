@@ -35,12 +35,12 @@ async function seedSubscriber(id: string, lifetime: boolean) {
   );
 }
 
-describe('Phase 1 席位上限（新定价 2026-10：PRO 200 / FOUNDING 20）', () => {
-  it('Pro 满 200 席后月付/年付结账被拒绝，Founding 满 20 席后终身版被拒绝', async (t) => {
+describe('Phase 1 席位上限（v3.1：PRO 30 / FOUNDING 50）', () => {
+  it('Pro 满 30 席后月付/年付结账被拒绝，Founding 满 50 席后终身版被拒绝', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { StripeService, PRO_SEAT_CAP, FOUNDING_SEAT_CAP } = harness.services;
 
-    // 填满周期订阅席位（200 席）
+    // 填满周期订阅席位（30 席）
     for (let i = 0; i < PRO_SEAT_CAP; i++) await seedSubscriber(`usr_seat_rec_${i}`, false);
 
     for (const billingCycle of ['monthly', 'yearly'] as const) {
@@ -55,7 +55,7 @@ describe('Phase 1 席位上限（新定价 2026-10：PRO 200 / FOUNDING 20）', 
       );
     }
 
-    // 补满 20 个终身席位：终身版独立受 Founding 上限约束。
+    // 补满 50 个终身席位：终身版独立受 Founding 上限约束。
     for (let i = 0; i < FOUNDING_SEAT_CAP; i++) await seedSubscriber(`usr_seat_life_${i}`, true);
     await assert.rejects(
       () => StripeService.createCheckoutSession({ userId: BUYER, planCode: 'PRO', billingCycle: 'lifetime' }),

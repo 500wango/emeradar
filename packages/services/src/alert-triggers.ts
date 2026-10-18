@@ -10,10 +10,9 @@
  * docs/12 §2 定义的是内置触发器，用户在规则里**订阅触发器的组合**；而这里实现的
  * 是旧的按 `alert_rules.rule_type` 单值订阅的模型，两者不是同一套东西。本模块只
  * 让**能确定性求值**的类型可订阅：首发 6 条里，`VERDICT_CHANGE` / `WINDOW_CLOSING` /
- * `KILL_CRITERIA` 有完整求值路径；`CROWDING_SIGNAL` 的判据已写好，但
- * `crowding_daily` 的两个计数列**还没有生产者**（0019 只建了列），所以它登记在
- * `UNIMPLEMENTED_RULE_TYPES` 里、创建时被显式拒绝 —— 让用户订阅一个永远不会触发的
- * 规则，比不提供这个选项更糟（E3）。
+ * `KILL_CRITERIA` / `CROWDING_SIGNAL` 有完整求值路径（`crowding_daily` 由
+ * `crowding.service` 在每日观测里写入）。`NEW_ENTRANT` 是 Phase 2，创建时被显式拒绝 ——
+ * 让用户订阅一个永远不会触发的规则，比不提供这个选项更糟。
  */
 
 /** 当日与对照日的 SERP Top10，供 `NEW_ENTRANT` 使用。 */
@@ -49,6 +48,12 @@ export interface AlertFacts {
    * 缺失表示没有当日数据（无法求值），不是"竞争没加剧"。
    */
   crowding?: CrowdingFacts;
+  /**
+   * 仅 `CUSTOM_QUERY_PULSE_CONFIRMED` 需要：这条机会是否由用户自定义词即时初筛创建，
+   * 且本次观测走的是 7 天快车道（`FAST_TRACK`）。undefined 表示调用方没有提供，
+   * 直接返回 null 而不是猜测。
+   */
+  fromCustomQuery?: boolean;
 }
 
 /**
@@ -80,6 +85,7 @@ export type AlertRuleType =
   | 'VERDICT_CHANGE'
   | 'WINDOW_CLOSING'
   | 'CROWDING_SIGNAL'
+  | 'CUSTOM_QUERY_PULSE_CONFIRMED'
   | 'KILL_CRITERIA';
 
 /**
@@ -87,12 +93,16 @@ export type AlertRuleType =
  *
  * 不要把没写的规则塞进这里：可订阅却永远不响，比不提供这个选项更糟。
  */
-export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA'] as const;
+export const EVALUATED_RULE_TYPES = [
+  'VERDICT_CHANGE',
+  'WINDOW_CLOSING',
+  'KILL_CRITERIA',
+  'CROWDING_SIGNAL',
+  'CUSTOM_QUERY_PULSE_CONFIRMED',
+] as const;
 
 /** 已被拒绝创建的类型 → 拒绝理由（给人看的中文说明，用于 400 detail）。 */
 export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {
-  CROWDING_SIGNAL:
-    'CROWDING_SIGNAL 已登记，但 crowding_daily 的 verified_product_count / new_top10_entrants_30d 还没有生产者，暂不开放订阅。',
   NEW_ENTRANT:
     'NEW_ENTRANT 是 Phase 2 的 NEW_AUTHORITATIVE_ENTRANT；求值路径已存在，但首发不开放订阅。',
 };
@@ -214,9 +224,19 @@ export function evaluateAlertTrigger(ruleType: string, facts: AlertFacts): boole
       return facts.killTriggered ?? null;
 
     case 'CROWDING_SIGNAL':
-      // 判据已写好、数据源未实现（E3）：流水线暂时不会构造 crowding 事实，创建入口
-      // 也拒绝订阅。等生产者落地后，只需把它移进 EVALUATED_RULE_TYPES。
+      // 数据由 `crowding.service` 在每日观测里写入；流水线从 crowding_alert_state
+      // 读出"上一次推送"的读数，再喂给纯函数。
       return evaluateCrowdingSignal(facts.crowding);
+
+    case 'CUSTOM_QUERY_PULSE_CONFIRMED':
+      // 自定义词初筛创建的机会（`discovery_source='LIVE_SCAN'`）在 7 天快车道上
+      // 首次晋升 BUILD_NOW —— 这正是"脉冲确认"的那一天。不是首次晋升就不响。
+      if (facts.fromCustomQuery === undefined) return null;
+      return (
+        facts.fromCustomQuery === true &&
+        facts.verdict === 'BUILD_NOW' &&
+        facts.previousVerdict !== 'BUILD_NOW'
+      );
 
     default:
       return null;

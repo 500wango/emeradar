@@ -33,7 +33,7 @@ export const registerSchema = z.object({
 
 export const checkoutSchema = z.object({
   planCode: z.enum(['PRO', 'TEAM']),
-  billingCycle: z.enum(['monthly', 'yearly', 'lifetime']).default('yearly'),
+  billingCycle: z.enum(['monthly', 'quarterly', 'yearly', 'lifetime']).default('yearly'),
   returnUrl: z.string().max(2048).optional(),
 });
 
@@ -74,7 +74,13 @@ export const alertRuleSchema = z.object({
    * 已随 v3.1 的槽位一起删除，由 `CROWDING_SIGNAL` 取代。`CROWDING_SIGNAL` 目前
    * 只有枚举与求值骨架、没有数据生产者，创建时会被服务层 400 拒绝（E3）。
    */
-  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA', 'CROWDING_SIGNAL']),
+  ruleType: z.enum([
+    'VERDICT_CHANGE',
+    'WINDOW_CLOSING',
+    'KILL_CRITERIA',
+    'CROWDING_SIGNAL',
+    'CUSTOM_QUERY_PULSE_CONFIRMED',
+  ]),
   frequency: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']).optional(),
 });
 

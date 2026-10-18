@@ -484,9 +484,11 @@ export interface TranslationDictionary {
     title: string;
     desc: string;
     monthly: string;
+    quarterly: string;
     yearly: string;
     save20: string;
     save20Short: string;
+    save16Short: string;
     currentPlan: string;
     workspaceTier: string;
     monthlyReports: string;
@@ -525,8 +527,10 @@ export interface TranslationDictionary {
 
     planProTitle: string;
     planProMonthlyPrice: string;
+    planProQuarterlyPrice: string;
     planProYearlyPrice: string;
     planProBilledYearly: string;
+    planProBilledQuarterly: string;
     planProDesc: string;
     proFeatures: string[];
     lifetimeEarlyBirdTitle: string;
@@ -573,8 +577,10 @@ export interface TranslationDictionary {
     // Unit labels and inline status copy.
     perForever: string;
     perMonth: string;
+    perQuarter: string;
     oneTime: string;
     billedMonthly: string;
+    billedQuarterly: string;
     connectingStripe: string;
     cancelAnytime: string;
     lifetimeNote: string;

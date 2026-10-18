@@ -991,7 +991,7 @@ CREATE TABLE IF NOT EXISTS stripe_checkout_intents (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   plan_code TEXT NOT NULL REFERENCES plans(code),
-  billing_cycle TEXT NOT NULL CHECK (billing_cycle IN ('monthly','yearly','lifetime')),
+  billing_cycle TEXT NOT NULL CHECK (billing_cycle IN ('monthly','quarterly','yearly','lifetime')),
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   currency TEXT NOT NULL,
   mode TEXT NOT NULL CHECK (mode IN ('payment','subscription')),

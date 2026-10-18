@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
           ? 'lifetime'
           : object?.metadata?.billingCycle === 'yearly'
           ? 'yearly'
+          : object?.metadata?.billingCycle === 'quarterly'
+          ? 'quarterly'
           : 'monthly';
 
         // For payment-mode (lifetime) checkouts "completed" can fire before the

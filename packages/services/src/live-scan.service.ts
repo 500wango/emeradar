@@ -167,8 +167,8 @@ export class LiveScanService {
       await client.query(
         `INSERT INTO opportunities (
           id, slug, title, status, market_country, research_language,
-          recommended_archetype, execution_class
-         ) VALUES ($1, $2, $3, 'CANDIDATE', $4, $5, $6, $7)`,
+          recommended_archetype, execution_class, discovery_source
+         ) VALUES ($1, $2, $3, 'CANDIDATE', $4, $5, $6, $7, 'LIVE_SCAN')`,
         [oppId, slug, title, marketCountry, language, recommendedArchetype, executionClass]
       );
 

@@ -27,6 +27,7 @@ import {
   writeCommercialSnapshot,
   writeFailedCommercialSnapshot,
 } from './commercial-assembly';
+import { computeCrowding, storeCrowding } from '../crowding.service';
 
 const SKIP_COMMERCIAL_DOMAINS = [
   'github.com',
@@ -554,6 +555,11 @@ export async function observeOpportunity(
   // `verifiedProductCount`，lifecycle 的「3+ 已验证产品 → CONTESTED」分支暂时
   // 不会成立。接线时要连同 `new_top10_entrants_30d` 一起补。
 
+  // 拥挤透明度：写 `crowding_daily`，并把 verified_product_count 传给生命周期。
+  // 两个 SERP 计数不在评分里使用，只供展示与 CROWDING_SIGNAL。
+  const crowding = await computeCrowding(opp.id);
+  await storeCrowding(opp.id, obsDate, crowding);
+
   const isFastTrack =
     historyDays >= 7 &&
     historyDays < 14 &&
@@ -594,6 +600,7 @@ export async function observeOpportunity(
     // A failed collection this cycle is not evidence about the market (05 §5.0).
     criticalSourceFailure: serpOutcome.status !== 'OK' || acOutcome.status !== 'OK',
     activityRatio90d,
+    verifiedProductCount: crowding.verifiedProductCount,
     recommendation: {
       queryTypes: {
         informationalRatio,

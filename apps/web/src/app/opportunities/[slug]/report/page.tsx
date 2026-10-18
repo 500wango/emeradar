@@ -6,6 +6,7 @@ import { ArrowLeft, Clock, Lock, Sparkles } from 'lucide-react';
 import { AuthService, EntitlementService, OpportunityService, ReportService, freeAccessibleOpportunityId } from '@emeradar/services';
 import { ReportStudioClient } from '@/components/ReportStudioClient';
 import { getServerI18n } from '@/lib/i18n/server';
+import { canOpenFullOpportunity } from '@/lib/plan-access';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/Badge';
 import { buttonVariants } from '@/components/ui/Button';
@@ -38,7 +39,7 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
   // generation still spends the free monthly report quota inside ReportService.
   const ent = await EntitlementService.getUserEntitlements(session.user.id);
   const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(slug);
-  if (!ent.opportunityDetailFull && !weeklyId) redirect('/pricing?feature=opportunity-detail');
+  if (!canOpenFullOpportunity(ent, weeklyId)) redirect('/pricing?feature=opportunity-detail');
 
   let detail: any;
   try {

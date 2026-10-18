@@ -51,13 +51,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (billingCycle !== 'monthly' && billingCycle !== 'yearly' && billingCycle !== 'lifetime') {
+    if (
+      billingCycle !== 'monthly' &&
+      billingCycle !== 'quarterly' &&
+      billingCycle !== 'yearly' &&
+      billingCycle !== 'lifetime'
+    ) {
       return NextResponse.json(
         {
           type: 'about:blank',
           title: 'Invalid Billing Cycle',
           status: 400,
-          detail: 'Billing cycle must be monthly, yearly, or lifetime.',
+          detail: 'Billing cycle must be monthly, quarterly, yearly, or lifetime.',
+        },
+        { status: 400 }
+      );
+    }
+    // 季度 Builder Pass 只作为 PRO 的售卖方式（13 §3.1）；STARTER 的季度价不在
+    // 首发范围，避免同一个 plan 出现两套未经确认的价格。
+    if (billingCycle === 'quarterly' && planCode !== 'PRO') {
+      return NextResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Invalid Billing Cycle',
+          status: 400,
+          detail: 'Quarterly billing is available for Builder Pro only.',
         },
         { status: 400 }
       );

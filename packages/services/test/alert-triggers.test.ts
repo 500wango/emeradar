@@ -25,6 +25,13 @@ describe('告警触发器求值', () => {
   const entrantFacts = {
     ...baseFacts,
     killTriggered: false,
+    fromCustomQuery: true,
+    crowding: {
+      verifiedProductCount: 0,
+      previousVerifiedProductCount: null,
+      newTop10Entrants30d: 0,
+      previousNewTop10Entrants30d: null,
+    },
     serpEntrants: {
       today: [{ rank: 1, domain: 'acme.com', resultType: 'OFFICIAL' }],
       prior: [{ rank: 4, domain: 'blog.example', resultType: 'SPECIALIST' }],
@@ -147,6 +154,45 @@ describe('告警触发器求值', () => {
     });
   });
 
+  describe('CUSTOM_QUERY_PULSE_CONFIRMED：自定义词 7 天脉冲晋升', () => {
+    it('自定义词机会首次晋升 BUILD_NOW 时触发', () => {
+      assert.strictEqual(
+        evaluateAlertTrigger('CUSTOM_QUERY_PULSE_CONFIRMED', {
+          verdict: 'BUILD_NOW',
+          previousVerdict: 'WATCH',
+          fromCustomQuery: true,
+        }),
+        true
+      );
+    });
+
+    it('不是自定义词、不是首次晋升、没有来源信息时不触发/不求值', () => {
+      assert.strictEqual(
+        evaluateAlertTrigger('CUSTOM_QUERY_PULSE_CONFIRMED', {
+          verdict: 'BUILD_NOW',
+          previousVerdict: 'WATCH',
+          fromCustomQuery: false,
+        }),
+        false
+      );
+      assert.strictEqual(
+        evaluateAlertTrigger('CUSTOM_QUERY_PULSE_CONFIRMED', {
+          verdict: 'BUILD_NOW',
+          previousVerdict: 'BUILD_NOW',
+          fromCustomQuery: true,
+        }),
+        false
+      );
+      assert.strictEqual(
+        evaluateAlertTrigger('CUSTOM_QUERY_PULSE_CONFIRMED', {
+          verdict: 'BUILD_NOW',
+          previousVerdict: 'WATCH',
+        }),
+        null
+      );
+    });
+  });
+
   it('未知类型返回 null，而不是 false', () => {
     // 返回 false 会被调用方当成"今天不触发"悄悄吞掉，掩盖"根本没有求值路径"
     // 这个事实。null 逼调用方显式处理。
@@ -157,7 +203,7 @@ describe('告警触发器求值', () => {
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: false }), false);
   });
 
-  describe('CROWDING_SIGNAL：拥挤度首次跨过阈值（首发；数据源未实现）', () => {
+  describe('CROWDING_SIGNAL：拥挤度首次跨过阈值（首发；crowding_daily 已有生产者）', () => {
     const crowding = (overrides: Record<string, number | null> = {}) => ({
       verifiedProductCount: 0,
       previousVerifiedProductCount: null,
@@ -207,10 +253,10 @@ describe('告警触发器求值', () => {
       assert.strictEqual(evaluateAlertTrigger('CROWDING_SIGNAL', baseFacts), null);
     });
 
-    it('只登记、不开放订阅：枚举有它，EVALUATED 没有它', () => {
-      assert.strictEqual(isEvaluatedRuleType('CROWDING_SIGNAL'), false);
-      assert.ok(UNIMPLEMENTED_RULE_TYPES.CROWDING_SIGNAL.length > 10);
-      assert.ok(!(EVALUATED_RULE_TYPES as readonly string[]).includes('CROWDING_SIGNAL'));
+    it('已进入可订阅集合：枚举、EVALUATED 与求值路径一致', () => {
+      assert.strictEqual(isEvaluatedRuleType('CROWDING_SIGNAL'), true);
+      assert.ok((EVALUATED_RULE_TYPES as readonly string[]).includes('CROWDING_SIGNAL'));
+      assert.strictEqual(UNIMPLEMENTED_RULE_TYPES.CROWDING_SIGNAL, undefined);
     });
   });
 

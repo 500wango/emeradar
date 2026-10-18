@@ -22,7 +22,8 @@ import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-ep
 import { PublicPublicationService } from '../public-publication.service';
 import { buildCannibalizationIndex } from '../publication-policy';
 import { sendTransactionalEmail } from '../email.service';
-import { evaluateAlertTrigger, isEvaluatedRuleType } from '../alert-triggers';
+import { evaluateAlertTrigger, isEvaluatedRuleType, type CrowdingFacts } from '../alert-triggers';
+import { loadCrowding } from '../crowding.service';
 import { attachAutocompleteClusters } from './discover-candidates';
 
 const PIPELINE_LOCK_ID = 481516;
@@ -409,22 +410,70 @@ export async function runDailyPipeline(
         killTriggered = killCache.get(rule.opportunity_id);
       }
 
+      // CUSTOM_QUERY_PULSE_CONFIRMED：只有当这条机会来自用户自定义词初筛
+      // （`discovery_source='LIVE_SCAN'`）且本轮走 7 天快车道时才参与求值。
+      let fromCustomQuery: boolean | undefined;
+      if (rule.rule_type === 'CUSTOM_QUERY_PULSE_CONFIRMED') {
+        const sourceRes = await client.query<{ discovery_source: string | null }>(
+          `SELECT discovery_source FROM opportunities WHERE id = $1`,
+          [rule.opportunity_id]
+        );
+        fromCustomQuery =
+          sourceRes.rows[0]?.discovery_source === 'LIVE_SCAN' &&
+          (match.output.flags ?? []).includes('FAST_TRACK');
+      }
+
+      // CROWDING_SIGNAL：当日计数来自 crowding_daily，上一次推送的读数来自
+      // crowding_alert_state（按规则保存）。没有当日行就不求值。
+      let crowding: CrowdingFacts | undefined;
+      if (rule.rule_type === 'CROWDING_SIGNAL') {
+        const today = await loadCrowding(rule.opportunity_id, obsDate);
+        if (!today) continue;
+        const stateRes = await client.query<{
+          last_verified_product_count: number | null;
+          last_new_top10_entrants_30d: number | null;
+        }>(
+          `SELECT last_verified_product_count, last_new_top10_entrants_30d
+             FROM crowding_alert_state WHERE rule_id = $1`,
+          [rule.id]
+        );
+        const prior = stateRes.rows[0];
+        crowding = {
+          verifiedProductCount: today.verifiedProductCount,
+          previousVerifiedProductCount: prior?.last_verified_product_count ?? null,
+          newTop10Entrants30d: today.newTop10Entrants30d,
+          previousNewTop10Entrants30d: prior?.last_new_top10_entrants_30d ?? null,
+        };
+      }
+
       const fires = evaluateAlertTrigger(rule.rule_type, {
         verdict: match.output.verdict,
         previousVerdict: match.previousVerdict,
         killTriggered,
+        crowding,
+        fromCustomQuery,
       });
       if (fires !== true) continue;
 
       const title =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `Entry window closing: ${match.title}`
+          : rule.rule_type === 'CROWDING_SIGNAL'
+          ? `Crowding rising: ${match.title}`
+          : rule.rule_type === 'CUSTOM_QUERY_PULSE_CONFIRMED'
+          ? `Custom query pulse confirmed: ${match.title}`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `Kill criterion triggered: ${match.title}`
           : `Verdict changed: ${match.title}`;
       const body =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `${match.primaryQuery} entered WINDOW_CLOSING. ${match.whyNowSummary}`
+          : rule.rule_type === 'CROWDING_SIGNAL'
+          ? `${match.primaryQuery}: ${crowding?.verifiedProductCount ?? 0} verified products and ${
+              crowding?.newTop10Entrants30d ?? 0
+            } new Top-10 entrant(s) in the last 30 days. Competition is intensifying; this does not limit GO.`
+          : rule.rule_type === 'CUSTOM_QUERY_PULSE_CONFIRMED'
+          ? `${match.primaryQuery}: your custom query confirmed a 7-day demand pulse and is now BUILD_NOW. Move before the window closes.`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `${match.primaryQuery}: a stated stop condition was met today. Re-check the kill criteria on the report before building further.`
           : `${match.primaryQuery} moved from ${match.previousVerdict} to ${match.output.verdict}. ${match.whyNowSummary}`;
@@ -433,6 +482,24 @@ export async function runDailyPipeline(
          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
         [`ntf_${obsDate}_${rule.id}`, rule.user_id, title, body, rule.opportunity_id]
       );
+      if (rule.rule_type === 'CROWDING_SIGNAL' && crowding) {
+        await client.query(
+          `INSERT INTO crowding_alert_state (
+             rule_id, last_verified_product_count, last_new_top10_entrants_30d, last_fired_on, updated_at
+           ) VALUES ($1, $2, $3, $4::date, NOW())
+           ON CONFLICT (rule_id) DO UPDATE SET
+             last_verified_product_count = EXCLUDED.last_verified_product_count,
+             last_new_top10_entrants_30d = EXCLUDED.last_new_top10_entrants_30d,
+             last_fired_on = EXCLUDED.last_fired_on,
+             updated_at = NOW()`,
+          [
+            rule.id,
+            crowding.verifiedProductCount,
+            crowding.newTop10Entrants30d,
+            obsDate,
+          ]
+        );
+      }
       alertsTriggered++;
       pendingEmails.push({ to: rule.email, subject: title, body, idempotencyKey: `alert/${rule.id}/${obsDate}` });
     }

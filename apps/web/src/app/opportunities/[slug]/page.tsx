@@ -21,6 +21,7 @@ import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
 import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
 import { getServerI18n } from '@/lib/i18n/server';
+import { canOpenFullOpportunity, canOpenReport } from '@/lib/plan-access';
 import { safeExternalUrl } from '@/lib/format';
 import { PageFrame } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
@@ -47,7 +48,7 @@ export default async function OpportunityWorkspacePage({
   const ent = await EntitlementService.getUserEntitlements(session.user.id);
   // Free 只能打开本周精选那一条（13 §3.2），资格与 Feed 同源；其余机会照旧引导升级。
   const weeklyId = ent.opportunityDetailFull ? null : await freeAccessibleOpportunityId(slug);
-  if (!ent.opportunityDetailFull && !weeklyId) redirect('/pricing?feature=opportunity-detail');
+  if (!canOpenFullOpportunity(ent, weeklyId)) redirect('/pricing?feature=opportunity-detail');
 
   let data: any;
   try {
@@ -65,9 +66,8 @@ export default async function OpportunityWorkspacePage({
   // 报告只对已发布的 BUILD_NOW / EARLY_BET 生成（ReportService 的硬条件）。
   // 周案例（PASS / WINDOW_CLOSING / WATCH）必然不满足，渲染入口只会把用户带到
   // "EVIDENCE GATE NOT MET"。
-  const reportable = opportunity.verdict === 'BUILD_NOW' || opportunity.verdict === 'EARLY_BET';
   // Free 只能打开周案例；周案例是历史案例，但 13 §3.2 给它 1 份预览额度。
-  const canOpenReport = reportable || (!ent.opportunityDetailFull && Boolean(weeklyId));
+  const reportAvailable = canOpenReport(ent, weeklyId, opportunity.verdict);
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -637,7 +637,7 @@ export default async function OpportunityWorkspacePage({
                 </ul>
               </div>
 
-              {canOpenReport && (
+              {reportAvailable && (
                 <div className="pt-4 border-t border-line">
                   <Link
                     href={`/opportunities/${opportunity.slug}/report`}

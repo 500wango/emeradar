@@ -135,6 +135,21 @@ describe('订阅写侧：唯一事实源与展示镜像', () => {
     assert.strictEqual((await subRow(USER)).stripe_payment_intent_id, 'pi_test_lifecycle');
   });
 
+  it('季度激活写 QUARTER 与 SUBSCRIPTION，周期末端约 3 个月', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { StripeService } = harness.services;
+    const quarterlyUser = 'usr_lifecycle_quarterly';
+    await freshUser(quarterlyUser);
+
+    await StripeService.activateSubscription(quarterlyUser, 'PRO', 'quarterly');
+
+    const row = (await harness.db.query<any>(`SELECT * FROM subscriptions WHERE user_id = $1`, [quarterlyUser])).rows[0];
+    assert.strictEqual(row.billing_interval, 'QUARTER');
+    assert.strictEqual(row.purchase_kind, 'SUBSCRIPTION');
+    const days = (new Date(row.current_period_end).getTime() - Date.now()) / 86_400_000;
+    assert.ok(days > 80 && days < 100, `季度周期末端应在 ~90 天后，实际 ${days.toFixed(1)}`);
+  });
+
   it('PAST_DUE 起算一次且不重设，恢复时清空', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { StripeService } = harness.services;

@@ -7,7 +7,7 @@ import { processPaymentEvent } from './stripe-payment.service';
 export interface CheckoutSessionOptions {
   userId: string;
   planCode: 'STARTER' | 'PRO' | 'TEAM';
-  billingCycle?: 'monthly' | 'yearly' | 'lifetime';
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
   returnUrl?: string;
 }
 
@@ -29,27 +29,30 @@ const PLAN_PRICES = {
   STARTER: {
     name: 'Starter',
     monthly: 4900, // $49
+    quarterly: 12900, // $129/quarter (3 × $49 = $147, ~12% off)
     yearly: 47000, // $39.17/mo * 12 = $470 (20% off)
   },
   PRO: {
     name: 'Builder Pro',
     monthly: 7900, // $79
+    quarterly: 19900, // $199/quarter (3 × $79 = $237, ~16% off；docs 20 区间上限)
     yearly: 79000, // $65.83/mo * 12 = $790 (17% off)
   },
   TEAM: {
     name: 'Scale Team',
     monthly: 19900, // $199
+    quarterly: 49900, // $499/quarter（TEAM 仅设计合作方，不开放结账）
     yearly: 199000, // $165.83/mo * 12 = $1,990 (17% off)
   },
 } as const;
 
-const LIFETIME_AMOUNT_CENTS = 129900; // $1,299 (Founding Legacy, 限量 20 席)
+const LIFETIME_AMOUNT_CENTS = 149900; // $1,499 (Founding Lifetime, 限量 50 席；docs 10 §4.4)
 
 /** Phase 1 供给约束（新定价方案 2026-10）：阶梯化席位上限，按需扩容。 */
 export const STARTER_SEAT_CAP = 100;
-export const PRO_SEAT_CAP = 200; // Phase 1 先开放 50 席
+export const PRO_SEAT_CAP = 30; // docs 10 §4.4：首发 30 个 Pro 席位
 export const TEAM_SEAT_CAP = 30;
-export const FOUNDING_SEAT_CAP = 20; // Founding Legacy 限量
+export const FOUNDING_SEAT_CAP = 50; // docs 10 §4.4：Founding 50 席，不占 Pro 席位
 
 /** 终身订阅的 `current_period_end` 哨兵值（见 activateSubscription）。 */
 const LIFETIME_PERIOD_END_SQL = `TIMESTAMPTZ '9999-12-31 23:59:59+00'`;
@@ -172,8 +175,13 @@ export class StripeService {
       ? LIFETIME_AMOUNT_CENTS
       : billingCycle === 'yearly'
       ? config.yearly
+      : billingCycle === 'quarterly'
+      ? config.quarterly
       : config.monthly;
+    // 季度 Builder Pass 不是独立 plan_code，而是 PRO 权益在 QUARTER 下的售卖方式
+    // （03 §3、13 §3.1）：Stripe 侧就是月付 × 3。
     const interval = billingCycle === 'yearly' ? 'year' : 'month';
+    const intervalCount = billingCycle === 'quarterly' ? '3' : null;
 
     // 席位上限放在建会话（以及开发模拟激活）之前：满额后不应再让人付款（付完才发现
     // 没座位，就是收了钱无物可交）。竞态下可能略微超卖一两席，阶梯化上限可接受；
@@ -281,6 +289,7 @@ export class StripeService {
     form.append('line_items[0][price_data][product_data][name]', `Emeradar ${config.name} (${isLifetime ? 'Founding Lifetime' : billingCycle})`);
     form.append('line_items[0][price_data][unit_amount]', String(amountCents));
     if (!isLifetime) form.append('line_items[0][price_data][recurring][interval]', interval);
+    if (intervalCount) form.append('line_items[0][price_data][recurring][interval_count]', intervalCount);
     form.append('line_items[0][quantity]', '1');
     form.append('success_url', `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&success=true`);
     form.append('cancel_url', `${returnUrl}?canceled=true`);
@@ -345,7 +354,7 @@ export class StripeService {
   static async activateSubscription(
     userId: string,
     planCode: 'STARTER' | 'PRO' | 'TEAM',
-    billingCycle: 'monthly' | 'yearly' | 'lifetime' = 'monthly',
+    billingCycle: 'monthly' | 'quarterly' | 'yearly' | 'lifetime' = 'monthly',
     link: StripeLinkOptions = {}
   ): Promise<void> {
     await transaction(async (client) => {
@@ -387,12 +396,13 @@ export class StripeService {
       // 03 §3 / 13 §3.1：`billing_interval` 记录这条订阅的计费间隔，
       // `purchase_kind` 区分订阅与一次性 Founding Lifetime。0020 建了列，但写入方
       // 在这里；缺了它，新的终身购买会永远停在默认的 SUBSCRIPTION。
-      const billingInterval = billingCycle === 'yearly' ? 'YEAR' : 'MONTH';
+      const billingInterval = billingCycle === 'yearly' ? 'YEAR' : billingCycle === 'quarterly' ? 'QUARTER' : 'MONTH';
       const purchaseKind = billingCycle === 'lifetime' ? 'FOUNDING_LIFETIME' : 'SUBSCRIPTION';
       const periodEndSql = `CASE
         WHEN $4 = 'lifetime' THEN TIMESTAMPTZ '9999-12-31 23:59:59+00'
         WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
         WHEN $4 = 'yearly' THEN NOW() + interval '1 year'
+        WHEN $4 = 'quarterly' THEN NOW() + interval '3 months'
         ELSE NOW() + interval '1 month'
       END`;
 
@@ -540,6 +550,8 @@ export class StripeService {
             ? 'lifetime'
             : session.metadata?.billingCycle === 'yearly'
             ? 'yearly'
+            : session.metadata?.billingCycle === 'quarterly'
+            ? 'quarterly'
             : 'monthly';
           await this.activateSubscription(userId, planCode, billingCycle, {
             stripeCustomerId: typeof session.customer === 'string' ? session.customer : null,
