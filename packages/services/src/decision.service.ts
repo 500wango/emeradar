@@ -4,9 +4,6 @@ import type { PoolClient } from '@emeradar/db';
 import { canonicalizeJson } from '@emeradar/ledger';
 import { EmeradarError, ErrorCode } from '@emeradar/core';
 import { EntitlementService } from './entitlement.service';
-import { SlotService } from './slot.service';
-import { StakeService, CREDENTIAL_TYPES, isCredentialType, probeCredential, type CredentialProbe } from './stake.service';
-import { normalizeCredentialHost } from './credential-host';
 import { hiddenFromViewer } from './stealth-lock-policy';
 
 export const PASS_REASONS = [
@@ -83,14 +80,10 @@ export interface GoAndExportInput {
   /** 用户当下渲染的那一条裁决。必填：GO 必须绑定他实际读到的推理。 */
   verdictId: string;
   reportId?: string;
-  /** 可选的当场质押。给了就先探针校验，通过了才进入事务。 */
-  credential?: { type: string; url: string };
 }
 
 export interface GoAndExportResult {
   projectId: string;
-  slotClaimId: string;
-  stakeDeadlineAt: string;
   /**
    * 点火包的导出地址（09 §5.3）。装配本身属于 Epic 1.9，此处只返回**凭据**：
    * 端点存在与否由项目是否由 GO 建立决定，而不是由 URL 猜。
@@ -102,30 +95,34 @@ function launchKitUrl(projectId: string): string {
   return `/api/v1/projects/${projectId}/launch-kit`;
 }
 
+/** 409 ALREADY_GO：重复 GO 不是错误，而是一次幂等的"已经在了"。 */
+function alreadyGo(projectId: string | undefined) {
+  return new EmeradarError(
+    ErrorCode.ALREADY_GO,
+    'You have already started a project from this opportunity.',
+    409,
+    { details: { project_id: projectId ?? null } }
+  );
+}
+
 export class DecisionService {
   /**
    * 原子 GO（ADR-018、PRD §1.7 第 5 条、10 §4.3、13 §4.3）。
    *
-   * 一个事务内完成四件事：扣一次 `atomic_go_export_monthly` → 占一个形态槽位 →
-   * 建 Project → 解锁该形态点火包。
+   * 一个事务内完成三件事：预占一次 `atomic_go_export_monthly` → 写 GO 决策 →
+   * 建 Project 壳并授权点火包。
    *
-   * 为什么必须是同一个事务：这四件事若分头提交，"先建项目、事后补 GO"就成了一个
+   * 为什么必须是同一个事务：这三件事若分头提交，"先建项目、事后补 GO"就成了一个
    * 可观测状态，而 GO 一旦可以被事后补，点火包就同样可以被事后补——绕过 API 即可
    * 白拿付费交付物，那正是 ADR-018 要防的。
    *
-   * 网络调用（凭证探针）**在事务之外**：一个 6 秒超时的探针会把 `opportunity_slots`
-   * 的目标行锁住 6 秒，把"四人抢最后一个槽位"变成一串串行等待。探针先跑完，事务里
-   * 只写它的结论。
+   * v3.1 起这里**没有**槽位认领、凭证探针或质押期限：并发 GO 各扣各的配额，不做
+   * 任何"最后一个名额"检查（01 §1.8 第 5 条）。重复 GO 是幂等的 409 ALREADY_GO，
+   * 不重复扣减配额。
    */
-  static async goAndExport(
-    userId: string,
-    input: GoAndExportInput,
-    options: { fetchImpl?: typeof fetch; now?: Date } = {}
-  ): Promise<GoAndExportResult> {
-    const now = options.now ?? new Date();
-
-    const opportunityRes = await query<{ id: string; title: string; status: string; execution_class: string }>(
-      `SELECT o.id, o.title, o.status, o.execution_class
+  static async goAndExport(userId: string, input: GoAndExportInput): Promise<GoAndExportResult> {
+    const opportunityRes = await query<{ id: string; title: string; status: string }>(
+      `SELECT o.id, o.title, o.status
          FROM opportunities o
          JOIN opportunity_cards c ON c.opportunity_id = o.id
         WHERE o.id = $1 AND ${hiddenFromViewer('o.id', '$2')}`,
@@ -142,10 +139,12 @@ export class DecisionService {
     );
     const verdict = verdictRes.rows[0];
     if (!verdict) {
+      // PRECONDITION_FAILED 的 HTTP 语义是 422：请求本身合法，但"你看到的那条裁决"
+      // 已经不是当前状态。10 §4.3 把重载页面列为唯一正确的下一步。
       throw new EmeradarError(
         ErrorCode.PRECONDITION_FAILED,
         'The cited verdict does not belong to this opportunity. Reload the page — the verdict you were shown is no longer current.',
-        409
+        422
       );
     }
 
@@ -159,59 +158,37 @@ export class DecisionService {
       }
     }
 
-    // 有逾期未处理的项目就先处理（10 §1.1 的 STAKE_REQUIRED）。放在最前面是因为
-    // 它问的是"你上一个承诺兑现了吗"，比"这个月还有没有额度"更根本。
-    const overdue = await query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM projects
-        WHERE user_id = $1 AND stake_status = 'PENDING' AND stake_deadline_at < $2`,
-      [userId, now]
-    );
-    if ((overdue.rows[0]?.count ?? 0) > 0) {
-      throw new EmeradarError(
-        ErrorCode.STAKE_REQUIRED,
-        'You have a project whose stake window (7/14/21 days by execution class) has passed without a verified credential. Its slot is released at the next sweep; submit a credential to keep it.',
-        422,
-        { details: { overdueProjects: overdue.rows[0].count } }
-      );
-    }
-
-    // 凭证探针在事务外跑。失败**不消耗配额**：为一个打不开的页面扣掉一次月度额度
-    // 不是用户能接受的代价，而 GO 还没成立。
-    let probe: CredentialProbe | null = null;
-    if (input.credential) {
-      if (!isCredentialType(input.credential.type)) {
-        throw new EmeradarError(
-          ErrorCode.VALIDATION_ERROR,
-          `credential.type must be one of ${CREDENTIAL_TYPES.join(', ')}.`,
-          400
-        );
-      }
-      const terms = await DecisionService.opportunityTerms(input.opportunityId);
-      probe = await probeCredential({
-        url: input.credential.url,
-        credentialType: input.credential.type,
-        terms,
-        fetchImpl: options.fetchImpl,
-      });
-      if (!probe.ok) {
-        throw new EmeradarError(
-          ErrorCode.CREDENTIAL_UNVERIFIED,
-          probe.reason ?? 'The submitted credential could not be verified.',
-          422,
-          { details: { probe } }
-        );
-      }
-    }
-
-    const projectId = `prj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
+    // v3.1（01 §1.8 第 5 条、ADR-018、13 §4）：一次原子事务只剩三件事——
+    // 扣一次 `atomic_go_export_monthly`、建 Project 壳、授权点火包。
+    //
+    // 没有槽位、没有容量上限、没有活跃 GO 上限、没有质押、没有凭证门禁。凭证核验是
+    // GO 之后的可选动作（`credential_status`），失败不释放任何资源，也不退配额。
+    //
+    // 点火包的**内容**也不在这里装配：它依赖报告、证据与冻结快照，还可能调用 LLM，
+    // 任何一步失败都会把 GO 一起回滚。这里只保证"存在该用户对该 decision_id 的 GO
+    // Project"这条授权成立，内容由首次导出时懒装配（见 LaunchKitService）。
     return transaction(async (client) => {
-      // 1) 扣配额。放第一位：免费层在这里拿到 PLAN_REQUIRED，额度用尽拿到
-      //    QUOTA_EXCEEDED，两者都不该被"槽位刚好也满了"的 409 盖过去——别人占满了
-      //    是换条机会的事，自己没额度是换套餐的事，前端给的是完全不同的引导。
+      // 1) 重复 GO 先于配额预占：同一 (用户, 机会, 裁决) 已经有项目时，重试不该再扣
+      //    一次额度，也不该被并发写进第二条项目。这一步在事务里，与下面的插入共享
+      //    同一快照，所以"先查后插"在两个并发请求之间也是安全的。
+      const existing = await client.query<{ id: string }>(
+        `SELECT p.id
+           FROM projects p
+           JOIN decisions d ON d.id = p.decision_id
+          WHERE p.user_id = $1 AND d.user_id = $1
+            AND d.decision = 'GO'
+            AND d.opportunity_id = $2
+            AND d.verdict_id = $3
+          LIMIT 1`,
+        [userId, input.opportunityId, verdict.id]
+      );
+      if (existing.rows[0]) throw alreadyGo(existing.rows[0].id);
+
+      // 2) 配额。放第一位：免费层在这里拿到 PLAN_REQUIRED，额度用尽拿到
+      //    QUOTA_EXCEEDED，两者都不该被后面的任何失败盖过去。
       const quota = await EntitlementService.reserveAtomicGoQuota(client, userId);
 
-      // 2) 决策。与项目同事务：一条决策至多一个项目（I6），而"有项目没决策"会让
+      // 3) 决策。与项目同事务：一条决策至多一个项目（I6），而"有项目没决策"会让
       //    这条项目的来源无法被审计。
       const decision = await DecisionService.insertGoDecision(client, {
         userId,
@@ -220,22 +197,14 @@ export class DecisionService {
         verdictRowHash: verdict.row_hash,
       });
 
-      // 3) 建项目。`stake_status` 默认 PENDING、期限 = now + stake_window_days。
-      //
-      // 先建项目再占槽，是因为 schema 自身的依赖方向就是这样：
-      // `slot_claims.project_id` 是 NOT NULL 外键且**立即检查**，认领行不可能先于
-      // 项目行存在。10 §4.3 描述的"占槽 → 建 Project"是**概念顺序**（先判定有没有
-      // 位置、再落地），不是语句顺序；两者在同一个事务里等价，而逆着外键写只会得到
-      // 一个 23503。占槽失败时整个事务回滚，不会留下一个没有槽位的项目。
-      const stakeDeadlineAt = StakeService.deadlineFrom(
-        now,
-        StakeService.windowDaysFor(opportunity.execution_class)
-      );
+      // 4) 项目壳。`credential_status` 起步是 UNVERIFIED；`stake_*` 是 v3.0 的遗留列，
+      //    v3.1 的 GO 不写它们（0020 删除）。
+      const projectId = `prj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       await client.query(
         `INSERT INTO projects
            (id, user_id, opportunity_id, decision_id, report_id, title, domain, build_type,
-            status, launch_date, target_keywords, stake_status, stake_deadline_at, go_quota_period_start)
-         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','PENDING',$8,$9)`,
+            status, launch_date, target_keywords, credential_status, go_quota_period_start)
+         VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'IN_DEVELOPMENT',NULL,'{}','UNVERIFIED',$8)`,
         [
           projectId,
           userId,
@@ -244,89 +213,28 @@ export class DecisionService {
           input.reportId ?? null,
           opportunity.title,
           input.archetype,
-          stakeDeadlineAt,
           quota.periodStart,
         ]
       );
 
-      // 4) 占槽。并发抢同一形态最后一个槽位时，只有这一个条件递增能让其中一个事务
-      //    拿到行；其余的在这里抛 SLOT_TAKEN，整笔回滚（含已扣的配额）。
-      const claim = await SlotService.claim(client, {
-        opportunityId: input.opportunityId,
-        archetype: input.archetype,
-        userId,
-        projectId,
-        claimedAt: now,
-        deadlineAt: stakeDeadlineAt,
-      });
-
-      if (probe && input.credential) {
-        await client.query(
-          `INSERT INTO project_credentials
-             (id, project_id, credential_type, url, host, verification_state, probe, checked_at)
-           VALUES ($1,$2,$3,$4,$5,'VERIFIED',$6::jsonb,NOW())`,
-          [
-            `crd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            projectId,
-            input.credential.type,
-            probe.finalUrl ?? input.credential.url,
-            // 归一化主机名是 SERP 排名匹配的键（02 §5）。这里曾经写死 NULL，于是从
-            // GO 入口提交凭证的项目永远不会被任何快照匹配到——追踪静默地什么也不做，
-            // 而界面上没有任何东西显示它没在做。
-            normalizeCredentialHost(probe.finalUrl ?? input.credential.url),
-            JSON.stringify({
-              ok: probe.ok,
-              httpStatus: probe.httpStatus,
-              title: probe.title,
-              h1: probe.h1,
-              metaDescription: probe.metaDescription,
-              relevance: probe.relevance,
-              matchedTerms: probe.matchedTerms,
-            }),
-          ]
+      return { projectId, launchKitUrl: launchKitUrl(projectId) };
+    }).catch(async (error: any) => {
+      // 并发同一 decision：唯一索引是最后一道闸。事务（含配额预占）已经整体回滚，
+      // 这里回读既有项目，把 23505 翻译成带 `project_id` 的 409。
+      if (error?.code === '23505' && String(error?.constraint ?? '') === 'idx_projects_decision') {
+        const existing = await query<{ id: string }>(
+          `SELECT p.id
+             FROM projects p
+             JOIN decisions d ON d.id = p.decision_id
+            WHERE p.user_id = $1 AND d.opportunity_id = $2 AND d.verdict_id = $3
+              AND d.decision = 'GO'
+            LIMIT 1`,
+          [userId, input.opportunityId, verdict.id]
         );
-        // 注意 `project_credentials_one_verified` 是每项目一条的部分唯一索引，
-        // 所以这里必须先删掉可能的旧 REJECTED 行再置 VERIFIED——同一事务内先插后改
-        // 不会撞索引，因为此刻只有刚插入的这一条。
-        await client.query(`UPDATE projects SET stake_status = 'VERIFIED' WHERE id = $1`, [projectId]);
-      }
-
-      return {
-        projectId,
-        slotClaimId: claim.slotClaimId,
-        stakeDeadlineAt: stakeDeadlineAt.toISOString(),
-        launchKitUrl: launchKitUrl(projectId),
-      };
-    }).catch((error: any) => {
-      // 唯一索引是并发下的兜底，但它的冲突不能以 500 的形式泄漏出去：
-      //   - `idx_projects_decision`：同一 (用户, 机会, 裁决) 的 GO 是幂等的，
-      //     所以重复点击会复用同一条决策，再建项目就撞上这条索引（I6）。
-      //   - `slot_claims_one_active_per_user_opportunity`：同一用户在同一机会上
-      //     只能有一条活跃认领（I11）。按用户取的事务锁让上面那层预检查在同用户
-      //     并发下已经够用，这里兜的是它够不到的情形。
-      const constraint = String(error?.constraint ?? '');
-      if (error?.code === '23505' && (constraint === 'idx_projects_decision' || constraint === 'slot_claims_one_active_per_user_opportunity')) {
-        throw new EmeradarError(
-          ErrorCode.CONFLICT,
-          'You have already started a project from this opportunity.',
-          409
-        );
+        throw alreadyGo(existing.rows[0]?.id);
       }
       throw error;
     });
-  }
-
-  /** 机会的主词与簇内词，供凭证探针判定相关性。 */
-  private static async opportunityTerms(opportunityId: string): Promise<string[]> {
-    const res = await query<{ term: string }>(
-      `SELECT COALESCE(q.query_text, c.primary_query) AS term
-         FROM opportunity_cards c
-         LEFT JOIN opportunity_queries oq ON oq.opportunity_id = c.opportunity_id
-         LEFT JOIN queries q ON q.id = oq.query_id
-        WHERE c.opportunity_id = $1 AND COALESCE(q.query_text, c.primary_query) IS NOT NULL`,
-      [opportunityId]
-    );
-    return res.rows.map((row) => row.term);
   }
 
   /**
@@ -375,6 +283,17 @@ export class DecisionService {
    * slightly older verdict would push the caller back into guessing.
    */
   static async record(userId: string, input: RecordDecisionInput): Promise<RecordedDecision> {
+    // v3.1：GO 只有一条入口——`POST /opportunities/{id}/go`。它扣配额、建 Project、
+    // 授权点火包，三者同生共死；本端点只记录意见（PASS），收下 GO 就等于开了一条
+    // 不扣配额、不建项目的旁路（01 §1.8 第 5 条、ADR-018）。
+    if (input.decision === 'GO') {
+      throw new EmeradarError(
+        ErrorCode.VALIDATION_ERROR,
+        'GO is only accepted by POST /api/v1/opportunities/{id}/go; this endpoint records opinions (PASS) only.',
+        400
+      );
+    }
+
     const reasons = input.decision === 'PASS' ? cleanPassReasons(input.reasons ?? []) : [];
     if (input.decision === 'PASS' && reasons.length === 0) {
       throw new EmeradarError(
@@ -414,26 +333,6 @@ export class DecisionService {
 
     const id = `dcs_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const channel = 'WEB';
-
-    /**
-     * GO is idempotent per (user, opportunity, verdict).
-     *
-     * A GO is a commitment, so re-committing to the same verdict is the same act
-     * rather than a new one — and the client makes two calls (decision, then
-     * project), so a failure between them would otherwise leave a stray GO
-     * behind on every retry. PASS is deliberately *not* deduplicated: reasons
-     * are a judgement that can legitimately change.
-     */
-    if (input.decision === 'GO') {
-      const existingRes = await query<{ id: string; verdict_id: string }>(
-        `SELECT id, verdict_id FROM decisions
-         WHERE user_id = $1 AND opportunity_id = $2 AND verdict_id = $3 AND decision = 'GO'
-         LIMIT 1`,
-        [userId, input.opportunityId, verdict.id]
-      );
-      const existing = existingRes.rows[0];
-      if (existing) return { id: existing.id, verdictId: existing.verdict_id };
-    }
 
     const rowHash = calculateDecisionRowHash({
       id,

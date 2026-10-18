@@ -13,13 +13,13 @@ import { ReportService } from './report.service';
  * 形态点火包（Launch Kit）的存取（10 §4.4、09 §5.3、ADR-018/019）。
  *
  * 这个服务只回答一个问题：**这个人能不能拿到这份产物**。而答案不是"他有没有权限"，
- * 是"他有没有为它付过一次原子立项"——所以准入判据落在 `slot_claims` 上，不落在
- * `projects` 上。一个 Project 可以由别的路径产生（实验项目），而那些 Project 从来
- * 没有解锁过任何点火包。
+ * 是"他有没有为它付过一次原子立项"——所以准入判据落在"这个 Project 是否引用了该
+ * 用户的一条 GO 决策"上。一个 Project 可以由别的路径产生（实验项目、`decision_id`
+ * 为空），那些 Project 从来没有解锁过任何点火包。
  *
  * 两件事必须一起成立，缺一不可：
- *   1. **只有在 GO 事务里建立的项目才有**。没有认领记录就是 404，没有"补一次 GO"
- *      的路径（10 §4.4 明写不存在"先拿点火包再决定要不要 GO"）。
+ *   1. **只有在 GO 事务里建立、且决策确实是该用户的 GO 的项目才有**。否则就是 404，
+ *      没有"补一次 GO"的路径（10 §4.4 明写不存在"先拿点火包再决定要不要 GO"）。
  *   2. **产物一旦装配就冻结**。09 §5.3 硬约束 1 要求同一 `(opportunity, snapshot,
  *      archetype, template_version)` 必得 bit-for-bit 相同的产物，而产物里有一段
  *      LLM 叙述（ADR-019，≤ 500 字）——它不可能被确定性重算。所以首次装配写库，
@@ -80,9 +80,12 @@ export class LaunchKitService {
   /**
    * 取回（必要时首次装配）某个 Project 的形态点火包。
    *
-   * 准入顺序刻意是"项目 → 认领 → 报告 → 装配"：先确认这个位置真的被认领过，再花
+   * 准入顺序刻意是"项目 → GO 授权 → 报告 → 装配"：先确认这次 GO 真的发生过，再花
    * 任何力气去装配。反过来（先装配再判准入）会把一次越权请求变成一次真实的计算与
    * 一次 LLM 调用。
+   *
+   * v3.1 的授权只认 `decision_id`：槽位与认领已从产品中删除，归档也不再撤销 GO 的
+   * 交付物——用户付过的那次配额买的是这份产物。
    */
   static async getOrCreate(
     projectId: string,
@@ -95,8 +98,8 @@ export class LaunchKitService {
     // 这条路也是"重复导出不重复扣额"（10 §4.4）在实现上的落点——它什么都没扣，
     // 因为它在第一次装配之后就没有再走过任何计费路径。
     const stored = await query<LaunchKitRow>(
-      `SELECT * FROM launch_kits WHERE slot_claim_id = $1`,
-      [claim.slotClaimId]
+      `SELECT * FROM launch_kits WHERE decision_id = $1`,
+      [claim.decisionId]
     );
     if (stored.rows[0]) return LaunchKitService.hydrate(stored.rows[0], true);
 
@@ -120,19 +123,22 @@ export class LaunchKitService {
       templateVersion: LAUNCH_KIT_TEMPLATE_VERSION,
     });
 
-    const launchKitId = `lkit_${claim.slotClaimId}`;
+    // 主键与唯一键都落在 decision 上：一次 GO 至多一份点火包。用 decision 而不是
+    // project，是因为"授权"的凭据就是那一条决策（同一 decision 至多一个项目，I6）。
+    const launchKitId = `lkit_${claim.decisionId}`;
     await query(
       `INSERT INTO launch_kits (
-         id, report_id, project_id, slot_claim_id, archetype, schema_version,
+         id, report_id, project_id, decision_id, archetype, schema_version,
          template_version, snapshot_id, scoring_config_version, research_language,
          files, narrative, content_hash
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)
-       ON CONFLICT (slot_claim_id) DO NOTHING`,
+       -- 部分唯一索引不会被裸的 (decision_id) 推断到，冲突目标要带上同一个谓词。
+       ON CONFLICT (decision_id) WHERE decision_id IS NOT NULL DO NOTHING`,
       [
         launchKitId,
         report.reportId,
         projectId,
-        claim.slotClaimId,
+        claim.decisionId,
         claim.archetype,
         bundle.schemaVersion,
         bundle.templateVersion,
@@ -148,8 +154,8 @@ export class LaunchKitService {
     // 回读而不是直接把刚装配的对象返回：并发下（同一用户两个标签页同时导出）这里
     // 可能撞上另一个请求先插入的那一行，而"谁先落库谁算数"正是冻结的含义。
     const persisted = await query<LaunchKitRow>(
-      `SELECT * FROM launch_kits WHERE slot_claim_id = $1`,
-      [claim.slotClaimId]
+      `SELECT * FROM launch_kits WHERE decision_id = $1`,
+      [claim.decisionId]
     );
     const row = persisted.rows[0];
     if (!row) {
@@ -232,18 +238,19 @@ export class LaunchKitService {
   }
 
   /**
-   * 准入：这个 Project 是不是由一个活跃的原子认领产生的。
+   * 准入：这个 Project 是不是该用户一次原子 GO 的落地。
    *
-   * 判据取 `slot_claims.state = 'CLAIMED'`（D2 对"活跃认领"的唯一定义）。已释放
-   * 的认领返回 404——10 §4.4 把这三种情形并列为"没有资源"：未 GO、非本人、Project
-   * 已释放。释放意味着这个位置已经回到池子里给别人了，此时仍然发一份写着"你该铺
-   * 哪些路由"的产物，等于把刚让出的窗口又交代了一遍。
+   * 判据是"存在该用户对该 `decision_id` 的 GO Project"（v3.1、10 §4.4）：项目必须
+   * 引用一条决策，那条决策必须是 GO，且属于同一个人。没有 GO、或引用的是别人的
+   * 决策，都按"没有资源"返回 404；项目存在但不是本人的则是 403。
+   *
+   * 归档**不**撤销这份产物：v3.1 没有槽位可释放，用户花掉的那次配额换来的就是点火包。
    */
   private static async claimFor(
     projectId: string,
     userId: string
   ): Promise<{
-    slotClaimId: string;
+    decisionId: string;
     opportunityId: string;
     archetype: ReturnType<typeof normalizeArchetype>;
     researchLanguage: string;
@@ -252,21 +259,22 @@ export class LaunchKitService {
     const res = await query<{
       user_id: string;
       opportunity_id: string;
+      decision_id: string | null;
+      decision_kind: string | null;
+      decision_user_id: string | null;
       archetype: string | null;
       research_language: string | null;
       scoring_config_version: string | null;
-      slot_claim_id: string | null;
-      claim_state: string | null;
     }>(
-      `SELECT p.user_id, p.opportunity_id, p.build_type AS archetype,
+      `SELECT p.user_id, p.opportunity_id, p.decision_id, p.build_type AS archetype,
+              d.decision AS decision_kind, d.user_id AS decision_user_id,
               o.research_language,
               (SELECT v.scoring_config_version FROM verdicts v
                 WHERE v.opportunity_id = p.opportunity_id
-                ORDER BY v.obs_date DESC, v.created_at DESC LIMIT 1) AS scoring_config_version,
-              sc.id AS slot_claim_id, sc.state AS claim_state
+                ORDER BY v.obs_date DESC, v.created_at DESC LIMIT 1) AS scoring_config_version
          FROM projects p
          JOIN opportunities o ON o.id = p.opportunity_id
-         LEFT JOIN slot_claims sc ON sc.project_id = p.id
+         LEFT JOIN decisions d ON d.id = p.decision_id
         WHERE p.id = $1`,
       [projectId]
     );
@@ -279,10 +287,10 @@ export class LaunchKitService {
       // 什么：项目 id 本身不可枚举，而"这不是你的"与"这不存在"对用户是不同的信息。
       throw new EmeradarError(ErrorCode.FORBIDDEN, 'This project belongs to another account.', 403);
     }
-    if (!row.slot_claim_id || row.claim_state !== 'CLAIMED') {
+    if (!row.decision_id || row.decision_kind !== 'GO' || row.decision_user_id !== userId) {
       throw new EmeradarError(
         ErrorCode.NOT_FOUND,
-        'This project has no launch kit: only a project created by an atomic GO has one, and it must still hold its slot.',
+        'This project has no launch kit: only a project created by an atomic GO has one.',
         404
       );
     }
@@ -294,7 +302,7 @@ export class LaunchKitService {
       );
     }
     return {
-      slotClaimId: row.slot_claim_id,
+      decisionId: row.decision_id,
       opportunityId: row.opportunity_id,
       archetype: normalizeArchetype(row.archetype),
       researchLanguage: row.research_language ?? 'en-US',

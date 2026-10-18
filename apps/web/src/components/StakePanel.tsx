@@ -29,7 +29,8 @@ export interface StakeCredentialRow {
 
 interface StakeStatus {
   stakeStatus: string;
-  stakeDeadlineAt: string;
+  /** v3.1：GO 之后建立的项目没有截止时间，这里就是 null。 */
+  stakeDeadlineAt: string | null;
   credentials: StakeCredentialRow[];
 }
 
@@ -107,8 +108,8 @@ export function StakePanel({
 
   const verified = status.stakeStatus === 'VERIFIED';
   const expired = status.stakeStatus === 'EXPIRED_RELEASED';
-  const deadline = new Date(status.stakeDeadlineAt);
-  const daysLeft = Math.ceil((deadline.getTime() - Date.now()) / 86_400_000);
+  const deadline = status.stakeDeadlineAt ? new Date(status.stakeDeadlineAt) : null;
+  const daysLeft = deadline ? Math.ceil((deadline.getTime() - Date.now()) / 86_400_000) : null;
 
   return (
     <div className="mt-4 rounded-sm border border-line bg-surface p-4">
@@ -127,7 +128,7 @@ export function StakePanel({
           </Badge>
         ) : (
           <Badge tone="warn" size="sm">
-            {`STAKE PENDING · ${Math.max(0, daysLeft)}d`}
+            {daysLeft === null ? 'CREDENTIAL UNVERIFIED' : `STAKE PENDING · ${Math.max(0, daysLeft)}d`}
           </Badge>
         )}
       </div>
@@ -141,7 +142,9 @@ export function StakePanel({
       ) : (
         <>
           <p className="mt-2 text-xs leading-relaxed text-fg-muted">
-            {t('projects.stakeDesc', { date: deadline.toISOString().slice(0, 10) })}
+            {deadline
+              ? t('projects.stakeDesc', { date: deadline.toISOString().slice(0, 10) })
+              : t('projects.stakeDescNoDeadline')}
           </p>
 
           <div className="mt-3 space-y-2">

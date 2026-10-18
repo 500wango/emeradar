@@ -70,7 +70,12 @@ export const stealthLockPurchaseSchema = z.object({
 export const decisionSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200),
   verdictId: z.string().trim().min(1).max(200),
-  decision: z.enum(['GO', 'PASS']),
+  /**
+   * 只收意见（PASS）。GO 必须走 `POST /opportunities/{id}/go`：它扣配额、建 Project、
+   * 授权点火包，三者同生共死。这个端点收下 GO 就等于开了一条不扣配额、不建项目的
+   * 旁路（01 §1.8 第 5 条、ADR-018）。
+   */
+  decision: z.literal('PASS'),
   reasons: z.array(z.string().max(500)).max(20).optional(),
 });
 
@@ -113,20 +118,15 @@ export const credentialTypeSchema = z.enum(['DOMAIN_URL', 'STORE_LISTING_URL', '
 /**
  * 原子 GO 的请求体（10 §4.3）。
  *
- * `archetype` 必填：占的是**哪个形态的队**是用户的选择，服务端不替他挑。
- * `credential` 可选：当场提交凭证能让用户一次走完 GO 与质押；不提交就得在
- * `stake_deadline_at` 之前补上。
+ * `archetype` 必填：这条机会要按哪个形态落地是用户的选择，服务端不替他挑。
+ * 这里**没有** `credential`：v3.1 的凭证核验是 GO 之后的可选动作，走
+ * `POST /projects/{id}/credentials`（阶段 C 由 stake 路由改名而来），失败不释放
+ * 资源、不退配额。
  */
 export const goSchema = z.object({
   archetype: z.nativeEnum(BuildArchetype),
   verdictId: z.string().trim().min(1).max(200),
   reportId: z.string().trim().max(200).optional(),
-  credential: z
-    .object({
-      type: credentialTypeSchema,
-      url: z.string().trim().url().max(2000),
-    })
-    .optional(),
 });
 
 /** 承诺质押凭证（10 §4.5）。 */

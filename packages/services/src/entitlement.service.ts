@@ -44,6 +44,25 @@ export interface UserEntitlementsInfo {
   renewsAt: string | null;
 }
 
+/**
+ * 结转后的**余额**上限（01 §1.8 第 5 条："Pro 每月 3 次，未用完结转一期，结转后余额
+ * 上限 6"）。它封的是"上期剩余能带过来多少"，不是套餐本身的面额：TEAM 之类的历史
+ * 套餐面额高于 6，按 `min(base + carryover, 6)` 直接压会让一个已存在的订阅凭空被削额。
+ */
+export const ATOMIC_GO_ROLLOVER_CAP = 6;
+
+export interface AtomicGoUsage {
+  feature: 'atomic_go_export_monthly';
+  /** 当前计费周期的起点（`YYYY-MM-DD`）。 */
+  period: string;
+  /** 本期可用上限，含结转；`-1` 表示不限（ADMIN）。 */
+  limit: number;
+  used: number;
+  remaining: number;
+  /** 本期实际可用的结转换算量（已按余额上限截断）。 */
+  carryover_available: number;
+}
+
 export class EntitlementService {
   /**
    * The one way to resolve a user's plan, shared by every quota read here.
@@ -351,7 +370,7 @@ export class EntitlementService {
 
     const period = EntitlementService.periodFor(row);
     const carryover = await EntitlementService.settleAndReadCarryover(client, userId, row, period, base);
-    const effective = base + carryover;
+    const effective = EntitlementService.atomicGoLimit(base, carryover);
 
     const counter = await client.query<{ used: number }>(
       `INSERT INTO usage_counters (user_id, feature, period_start, used)
@@ -407,22 +426,34 @@ export class EntitlementService {
     );
     const usedInPrevious = priorUsed.rows[0]?.used ?? 0;
     const leftover = Math.max(0, base - usedInPrevious);
-    if (leftover > 0) {
-      // `units > 0` 是 CHECK 约束，所以零剩余不留行 —— 一行 "0 结转" 只会让
-      // "这个月为什么是 5 次"多出一条需要解释的记录。
+    // 写出的是**真正可用**的结转量：先按余额上限截断，账上就不会出现一个永远用不到的
+    // 数字。`units > 0` 是 CHECK 约束，所以零剩余不留行。
+    const units = EntitlementService.capCarryover(base, leftover);
+    if (units > 0) {
       await client.query(
         `INSERT INTO usage_carryovers (user_id, feature, from_period_start, units)
          VALUES ($1, 'atomic_go_export_monthly', $2, $3)
          ON CONFLICT (user_id, feature, from_period_start) DO NOTHING`,
-        [userId, previous, leftover]
+        [userId, previous, units]
       );
     }
+
+    // 标记"这行结转已被本期消费"。标记的是**哪个周期**在用，不是"用完了"：本期后续
+    // 的预占必须仍看到同一个上限，否则同一个月的第二次 GO 会在中途被抽走额度。
+    // 下个月读的是另一行（`from_period_start` 是这一期），所以不会重复计入。
+    await client.query(
+      `UPDATE usage_carryovers SET consumed_in_period = $3
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly'
+          AND from_period_start = $2 AND consumed_in_period IS NULL`,
+      [userId, previous, period]
+    );
 
     const carried = await client.query<{ total: string | null }>(
       `SELECT SUM(units)::text AS total FROM usage_carryovers
         WHERE user_id = $1 AND feature = 'atomic_go_export_monthly'
-          AND from_period_start = $2 AND consumed_in_period IS NULL`,
-      [userId, previous]
+          AND from_period_start = $2
+          AND (consumed_in_period IS NULL OR consumed_in_period = $3)`,
+      [userId, previous, period]
     );
     return Number.parseInt(carried.rows[0]?.total ?? '0', 10) || 0;
   }
@@ -656,5 +687,100 @@ export class EntitlementService {
       const used = counter.rows[0].used;
       return { remaining: Math.max(0, limit - used), limit, used };
     });
+  }
+
+  /**
+   * 本期上限 = 套餐面额 + 被余额上限截断后的结转量。
+   *
+   * `ATOMIC_GO_ROLLOVER_CAP` 封的是**结转余额**：PRO 3 + 3 = 6；面额本来就高于上限的
+   * 历史套餐（TEAM）不会被压到 6——那不是"结转封顶"，而是削套餐。
+   */
+  private static atomicGoLimit(base: number, carryover: number): number {
+    return base + EntitlementService.capCarryover(base, carryover);
+  }
+
+  /** 把结转量截断到"面额 + 结转 ≤ 余额上限"；面额已超高时不再接受结转。 */
+  private static capCarryover(base: number, carryover: number): number {
+    const room = Math.max(0, ATOMIC_GO_ROLLOVER_CAP - base);
+    return Math.max(0, Math.min(carryover, room));
+  }
+
+  /**
+   * 13 §3.2 / 10 §4.3 的用量视图：`GET /billing/usage`。
+   *
+   * 只读，不结算也不写结转行：查看用量不该改变账。`carryover_available` 由上一期的
+   * 使用量现算（与预占时的结算公式相同），所以用户在本月第一次 GO 之前也能看到自己
+   * 到底还有几次额度。
+   */
+  static async getAtomicGoUsage(userId: string): Promise<AtomicGoUsage> {
+    const res = await query<{
+      role: string;
+      entitlements: any;
+      subscription_period_start: Date | null;
+      created_at: Date | null;
+    }>(
+      `SELECT u.role, u.created_at,
+              ${EntitlementService.effectiveEntitlements()} AS entitlements,
+              s.current_period_start AS subscription_period_start
+         FROM users u
+         ${EntitlementService.entitlementPlanJoin()}
+        WHERE u.id = $1 AND u.status = 'ACTIVE'`,
+      [userId]
+    );
+    const row = res.rows[0];
+    if (!row) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
+
+    const period = EntitlementService.periodFor(row);
+    const feature = 'atomic_go_export_monthly' as const;
+
+    if (row.role === 'ADMIN') {
+      return { feature, period, limit: -1, used: 0, remaining: -1, carryover_available: 0 };
+    }
+
+    const ent = row.entitlements || {};
+    const base = typeof ent.atomic_go_export_monthly === 'number' ? ent.atomic_go_export_monthly : 0;
+
+    const usedRes = await query<{ used: number }>(
+      `SELECT used FROM usage_counters
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly' AND period_start = $2`,
+      [userId, period]
+    );
+    const used = usedRes.rows[0]?.used ?? 0;
+
+    const carryover = base > 0
+      ? await EntitlementService.readCarryoverFor(userId, row, period, base)
+      : 0;
+    const limit = EntitlementService.atomicGoLimit(base, carryover);
+
+    return {
+      feature,
+      period,
+      limit,
+      used,
+      remaining: Math.max(0, limit - used),
+      carryover_available: carryover,
+    };
+  }
+
+  /** `getAtomicGoUsage` 的只读版结算：不写 `usage_carryovers`。 */
+  private static async readCarryoverFor(
+    userId: string,
+    row: { subscription_period_start?: Date | string | null; created_at?: Date | string | null },
+    period: string,
+    base: number
+  ): Promise<number> {
+    const anchor = row.subscription_period_start ?? row.created_at ?? null;
+    if (!anchor) return 0;
+    const dayBefore = new Date(`${period}T00:00:00Z`);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    const previous = EntitlementService.quotaPeriodStart(new Date(anchor), dayBefore);
+    if (previous >= period) return 0;
+
+    const priorUsed = await query<{ used: number }>(
+      `SELECT used FROM usage_counters
+        WHERE user_id = $1 AND feature = 'atomic_go_export_monthly' AND period_start = $2`,
+      [userId, previous]
+    );
+    return EntitlementService.capCarryover(base, Math.max(0, base - (priorUsed.rows[0]?.used ?? 0)));
   }
 }

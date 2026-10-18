@@ -188,6 +188,11 @@ export function DecisionBar({
         // RFC9457 的 `upgrade` 是 `{required_plan, url}`。取 `url` 而不是整个对象：
         // 前端要的是一个链接，套餐名只用于文案，塞进 href 会得到 "[object Object]"。
         if (data.upgrade?.url) setUpgradeUrl(String(data.upgrade.url));
+        // 重复 GO：第一次已经成立，直接去那条项目。配额没有被再扣一次。
+        if (data.code === 'ALREADY_GO' && data.details?.project_id) {
+          router.push(`/projects/${data.details.project_id}`);
+          return;
+        }
         if (data.code === 'SLOT_TAKEN') {
           const alternatives: string[] = Array.isArray(data.details?.alternatives)
             ? data.details.alternatives
@@ -206,7 +211,7 @@ export function DecisionBar({
         setPending(null);
         return;
       }
-      router.push(`/projects/${data.projectId}`);
+      router.push(`/projects/${data.project_id}`);
     } catch (err: any) {
       setError(err.message);
       setPending(null);

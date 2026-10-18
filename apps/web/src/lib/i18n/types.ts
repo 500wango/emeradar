@@ -768,6 +768,7 @@ export interface TranslationDictionary {
     awaitingGsc: string;
     stakeTitle: string;
     stakeDesc: string;
+    stakeDescNoDeadline: string;
     stakeVerified: string;
     stakePending: string;
     stakeExpired: string;

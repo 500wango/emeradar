@@ -15,9 +15,9 @@ import { makeDisposableDb } from './helpers/disposable-db';
  * 形态点火包（Epic 1.9、ADR-018/019、09 §5.3）。
  *
  * 这块要验的只有两件事，而它们都是**承诺**而不是功能：
- *   1. **没有 GO 就没有点火包**。准入判据必须落在 `slot_claims` 上，而不是落在
- *      `projects` 上——否则任何一个能被创建出来的项目都会顺带解锁点火包，而
- *      ADR-018 的全部意义就是"不点 GO 不得导出"。
+ *   1. **没有 GO 就没有点火包**。准入判据是"该项目引用了该用户的一条 GO 决策"，
+ *      而不是"存在某个项目"——否则任何一个能被创建出来的项目都会顺带解锁点火包，
+ *      而 ADR-018 的全部意义就是"不点 GO 不得导出"。
  *   2. **同一份输入必得同一份产物**（硬约束 1）。这条不能靠"看起来一样"来验，
  *      只能靠字节：同一输入两次装配得到同一个 `content_hash`、同一串 zip 字节，
  *      而输入里任何一项（形态、模板版本、快照、界面语言）变了都必须变。
@@ -176,6 +176,14 @@ async function seedFixture() {
   }
 }
 
+async function decisionOf(projectId: string): Promise<string> {
+  const res = await harness.db.query<{ decision_id: string }>(
+    `SELECT decision_id FROM projects WHERE id = $1`,
+    [projectId]
+  );
+  return res.rows[0].decision_id;
+}
+
 describe('点火包的准入：没有 GO 就没有产物', () => {
   /**
    * 钩子挂在这一组而不是文件级：`setup()` 建库并改写连接池，且会断言池此前没有建立
@@ -285,8 +293,8 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { query } = harness.db;
 
-    const row = await query<{ project_id: string; slot_claim_id: string; snapshot_id: string }>(
-      `SELECT lk.project_id, lk.slot_claim_id, lk.snapshot_id
+    const row = await query<{ project_id: string; decision_id: string; snapshot_id: string }>(
+      `SELECT lk.project_id, lk.decision_id, lk.snapshot_id
          FROM launch_kits lk JOIN projects p ON p.id = lk.project_id
         WHERE p.user_id = $1 LIMIT 1`,
       [OWNER]
@@ -300,15 +308,15 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
       () =>
         query(
           `INSERT INTO launch_kits (
-             id, report_id, project_id, slot_claim_id, archetype, schema_version,
+             id, report_id, project_id, decision_id, archetype, schema_version,
              template_version, snapshot_id, scoring_config_version, research_language,
              files, content_hash
            )
-           SELECT 'lkit_bogus', report_id, project_id, slot_claim_id, 'LIGHTWEIGHT_TOOL',
+           SELECT 'lkit_bogus', report_id, project_id, decision_id, 'LIGHTWEIGHT_TOOL',
                   schema_version, template_version, snapshot_id, scoring_config_version,
                   research_language, files, content_hash
-             FROM launch_kits WHERE slot_claim_id = $1`,
-          [row.rows[0].slot_claim_id]
+             FROM launch_kits WHERE decision_id = $1`,
+          [row.rows[0].decision_id]
         ),
       (error: any) => error?.code === '23514' && String(error?.constraint) === 'launch_kits_archetype_check',
       '拼错的形态被写进了 launch_kits'
@@ -336,7 +344,7 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
     );
   });
 
-  it('归档释放槽位之后同样拿不到（位置已经回池子了）', async (t) => {
+  it('归档不撤销点火包：v3.1 没有可释放的槽位，GO 的交付物仍归用户', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { DecisionService, ProjectService, LaunchKitService } = harness.services;
 
@@ -350,14 +358,12 @@ describe('点火包的准入：没有 GO 就没有产物', () => {
 
     await ProjectService.updateProjectStatus(started.projectId, ARCHIVER, 'ARCHIVED');
 
-    // 10 §4.4 把"未 GO / 非本人 / Project 已释放"并列为没有资源。释放意味着这个
-    // 位置已经给了别人，此时再发一份写着"你该铺哪些路由"的产物，等于把刚让出的
-    // 窗口又交代了一遍。
-    await assert.rejects(
-      () => LaunchKitService.getOrCreate(started.projectId, ARCHIVER),
-      (error: any) => error?.code === 'NOT_FOUND' && error?.status === 404,
-      '槽位已释放的项目仍然能导出点火包'
-    );
+    // 10 §4.4 的"没有资源"只剩两种：未 GO 与 非本人。v3.1 的归档只改项目状态，
+    // 没有槽位回到池子里，也没有"位置给别人了"——那次 GO 花掉的配额换来的就是这份
+    // 产物，归档不该把它收回。
+    const afterArchive = await LaunchKitService.getOrCreate(started.projectId, ARCHIVER);
+    assert.strictEqual(afterArchive.cached, true, '归档后重新装配了产物');
+    assert.strictEqual(afterArchive.launchKitId, `lkit_${await decisionOf(started.projectId)}`);
   });
 
   it('别人的项目是 403，不存在的项目是 404', async (t) => {

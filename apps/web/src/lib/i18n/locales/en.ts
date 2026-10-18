@@ -813,6 +813,7 @@ export const en: TranslationDictionary = {
     awaitingGsc: 'Awaiting GSC data',
     stakeTitle: 'Commitment stake',
     stakeDesc: 'Submit one verifiable credential before {date}, or this seat is released. A spent GO credit is not refunded.',
+    stakeDescNoDeadline: 'Submit one verifiable credential whenever your site is live. There is no deadline, and the launch kit you already unlocked stays yours.',
     stakeVerified: 'Verified',
     stakePending: 'Pending',
     stakeExpired: 'Released',

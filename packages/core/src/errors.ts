@@ -169,8 +169,11 @@ export const ErrorCode = {
    * 前端据此给完全不同的引导（10 §1.1、16 §3.3）。
    */
   SLOT_TAKEN: 'SLOT_TAKEN',
-  /** 该用户同时活跃的 GO 已达 `active_go_slots_max`（默认 2）。与"别人的槽位满了"无关。 */
-  ACTIVE_SLOTS_EXCEEDED: 'ACTIVE_SLOTS_EXCEEDED',
+  /**
+   * 同一 (用户, 机会, 裁决) 已经 GO 过。v3.1 的重复 GO 是幂等的：响应带既有
+   * `details.project_id`，配额不再重复扣减（01 §1.8 第 5 条、ADR-018）。
+   */
+  ALREADY_GO: 'ALREADY_GO',
   /** 存在质押逾期未处理的项目，须先处理才能发起新的 GO。 */
   STAKE_REQUIRED: 'STAKE_REQUIRED',
   /** 质押凭证的 HTTP 探针校验未通过（页面不可达 / 与机会主词相关性不足）。 */

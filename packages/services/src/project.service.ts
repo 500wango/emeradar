@@ -611,7 +611,7 @@ export class ProjectService {
         );
         for (const claim of claims.rows) {
           // 归档释放槽位但**不退还已扣配额**：额度是在 GO 的那一刻花掉的，
-          // 事后退还等于把"每月 5 次"变成"随便占、随时退"。
+          // 事后退还等于把"每月 3 次"变成"随便占、随时退"。
           await SlotService.release(client, {
             slotClaimId: claim.id,
             state: 'RELEASED',

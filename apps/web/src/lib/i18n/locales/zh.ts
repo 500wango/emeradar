@@ -813,6 +813,7 @@ export const zh: TranslationDictionary = {
     awaitingGsc: '等待 GSC 数据同步',
     stakeTitle: '承诺质押',
     stakeDesc: '请在 {date} 前提交一枚可核验的凭证，否则这个位置会被释放。已消耗的立项额度不退。',
+    stakeDescNoDeadline: '站点上线后随时可以提交一枚可核验的凭证。没有截止时间，已解锁的点火包也不会因此失效。',
     stakeVerified: '已核验',
     stakePending: '待核验',
     stakeExpired: '已释放',

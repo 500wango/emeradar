@@ -18,8 +18,6 @@ import { stealthHiddenPredicate, hiddenFromViewer } from './stealth-lock-policy'
 export const DEFAULT_SLOT_CAPACITY = 2;
 /** 一条机会全部形态的容量之和上限（05 §7.1 `slots.max_capacity_total`、不变量 I10）。 */
 export const MAX_CAPACITY_TOTAL = 6;
-/** 同一用户同时活跃的 GO 上限（05 §7.1 `slots.max_active_go_per_user`、13 §3.2）。 */
-export const MAX_ACTIVE_GO_PER_USER = 2;
 
 /**
  * 一条机会最多提供几个形态的队。由 `MAX_CAPACITY_TOTAL / DEFAULT_SLOT_CAPACITY`
@@ -158,18 +156,6 @@ export class SlotService {
     };
   }
 
-  /** 该用户当前活跃的 GO 数（D2：唯一判据是 `slot_claims.state = 'CLAIMED'`）。 */
-  static async countActiveClaims(userId: string): Promise<number> {
-    const res = await query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count
-         FROM slot_claims sc
-         JOIN projects p ON p.id = sc.project_id
-        WHERE sc.user_id = $1 AND sc.state = 'CLAIMED' AND p.stake_status = 'PENDING'`,
-      [userId]
-    );
-    return res.rows[0]?.count ?? 0;
-  }
-
   /**
    * 占用一个槽位。**必须在调用方的事务里执行**——它与扣配额、建 Project 是同一个
    * 原子操作的三段，任何一段单独提交都会留下一个可以被绕过的中间态。
@@ -189,9 +175,9 @@ export class SlotService {
       deadlineAt: Date;
     }
   ): Promise<{ slotClaimId: string }> {
-    // 同一用户的并发 GO 必须先串行化，否则 `active_go_slots_max` 的检查会是一个
-    // 竞态：两个人格（两个标签页）同时 GO 两条不同机会，各自读到 1 < 2 就都放行。
-    // 按用户加事务级锁，比在每条机会上分别加锁更直接。
+    // 同一用户的同一机会上只能有一条活跃认领（见下面的 duplicate 检查）。按用户加
+    // 事务级锁，让"先查后插"在同用户并发下也成立。v3.1 起 GO 不再走这条路，活跃 GO
+    // 上限（`active_go_slots_max`）随之取消；这个文件整体属于阶段 C 的删除范围。
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`go:${input.userId}`]);
 
     // 买断保护期内别人不能占槽（PRD §1.7 第 5 条、03 §17 I13）。这一道闸必须**与
@@ -237,17 +223,6 @@ export class SlotService {
         'You already hold a slot on this opportunity.',
         409,
         { details: { slotClaimId: duplicate.rows[0].id } }
-      );
-    }
-
-    const active = await SlotService.countActiveClaimsWithin(client, input.userId);
-    const slotsMax = await SlotService.activeSlotsMaxWithin(client, input.userId);
-    if (active >= slotsMax) {
-      throw new EmeradarError(
-        ErrorCode.ACTIVE_SLOTS_EXCEEDED,
-        `You already have ${active} active claim(s); the limit is ${slotsMax}. Finish or archive one before starting another.`,
-        409,
-        { details: { active, slotsMax } }
       );
     }
 
@@ -341,45 +316,5 @@ export class SlotService {
       [opportunityId]
     );
     return res.rows.map((row) => row.archetype);
-  }
-
-  private static async countActiveClaimsWithin(client: PoolClient, userId: string): Promise<number> {
-    const res = await client.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count
-         FROM slot_claims sc
-         JOIN projects p ON p.id = sc.project_id
-        WHERE sc.user_id = $1 AND sc.state = 'CLAIMED' AND p.stake_status = 'PENDING'`,
-      [userId]
-    );
-    return res.rows[0]?.count ?? 0;
-  }
-
-  /**
-   * 该用户套餐允许的活跃 GO 上限。读的是目录里的 `active_go_slots_max`，
-   * 缺键时按 0 处理——**失败关闭**：读不到额度就不给额度，而不是给一个默认的 2。
-   */
-  private static async activeSlotsMaxWithin(client: PoolClient, userId: string): Promise<number> {
-    const res = await client.query<{ slots_max: string | null; role: string }>(
-      `SELECT u.role,
-              (COALESCE(p.entitlements, '{}'::jsonb)
-               || COALESCE(NULLIF(s.entitlements_snapshot, '{}'::jsonb), '{}'::jsonb))
-                ->>'active_go_slots_max' AS slots_max
-         FROM users u
-         LEFT JOIN LATERAL (
-           SELECT plan_code, entitlements_snapshot FROM subscriptions
-            WHERE user_id = u.id
-              AND ((status IN ('ACTIVE','TRIALING') AND current_period_end > NOW())
-                OR (status = 'PAST_DUE' AND past_due_since > NOW() - INTERVAL '7 days'))
-            LIMIT 1
-         ) s ON true
-         LEFT JOIN plans p ON p.code = COALESCE(s.plan_code, 'FREE')
-        WHERE u.id = $1 AND u.status = 'ACTIVE'`,
-      [userId]
-    );
-    const row = res.rows[0];
-    if (!row) throw new EmeradarError(ErrorCode.UNAUTHORIZED, 'User not found', 404);
-    if (row.role === 'ADMIN') return Number.MAX_SAFE_INTEGER;
-    const parsed = row.slots_max === null ? 0 : Number.parseInt(row.slots_max, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 }

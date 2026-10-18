@@ -77,18 +77,25 @@ describe('decisionSchema', () => {
     expect(pass.reasons).toEqual(['DEMAND_TOO_THIN']);
     expect(pass.verdictId).toBe('vdt_o1_2026-10-06');
 
-    // Reasons stay optional: only a PASS needs them, and that rule lives in the
-    // service because it depends on the decision value.
+    // Reasons stay optional at the shape layer: "a PASS needs at least one" is a
+    // service rule, not a shape rule.
     expect(
-      parseInput(decisionSchema, { opportunityId: 'o1', verdictId: 'v1', decision: 'GO' }).reasons
+      parseInput(decisionSchema, { opportunityId: 'o1', verdictId: 'v1', decision: 'PASS' }).reasons
     ).toBeUndefined();
+
+    // v3.1: GO is not accepted here at all. It spends a quota credit and creates
+    // the project in one transaction, so it has its own endpoint; accepting GO on
+    // this "record an opinion" endpoint would be a quota-free bypass (ADR-018).
+    expect(
+      caught(() => parseInput(decisionSchema, { opportunityId: 'o1', verdictId: 'v1', decision: 'GO' })).status
+    ).toBe(400);
 
     expect(caught(() => parseInput(decisionSchema, { reasons: ['x'] })).status).toBe(400);
     // The regression that motivated making verdictId required: without it the
     // server picked "the latest verdict" itself and could cite a row the user
     // had never been shown.
     expect(
-      caught(() => parseInput(decisionSchema, { opportunityId: 'o1', decision: 'GO' })).status
+      caught(() => parseInput(decisionSchema, { opportunityId: 'o1', decision: 'PASS' })).status
     ).toBe(400);
     expect(caught(() => parseInput(decisionSchema, { opportunityId: 'o1', verdictId: 'v1' })).status).toBe(400);
     expect(
