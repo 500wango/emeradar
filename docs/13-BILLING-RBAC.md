@@ -27,11 +27,11 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 
 | 套餐 | 定位 |
 |------|------|
-| `FREE` | 体验 + 准实时精选消费者；转化入口。**无认领槽位权限**——免费层不能 GO，也就拿不到点火包（PRD §1.7 第 6 条） |
-| `PRO` | 核心付费套餐：全量实时 Feed、完整 Detail、**原子立项（锁槽 + 导出 AI 点火包）**、自定义词初筛与 7 天脉冲雷达、Watchlist/Alerts、Project 追踪。计费间隔支持月付 / **季度 Builder Pass** / 年付 |
+| `FREE` | 体验 + 准实时精选消费者；转化入口。**无 GO 权限**——免费层不能 GO，也就拿不到点火包（PRD §1.8 第 6 条） |
+| `PRO` | 核心付费套餐：全量实时 Feed、完整 Detail、**GO 点火（扣配额 + 建 Project 壳 + 导出 AI 点火包）**、自定义词初筛与 7 天脉冲雷达、Watchlist/Alerts、凭证核验后的 Project 追踪。计费间隔支持月付 / **季度 Builder Pass** / 年付 |
 | `TEAM` | 历史兼容值；不在结账页出现，不提供 workspace 或多席位功能 |
 
-**`STEALTH_BUYOUT` 不是一个 `plan_code`**，而是单次增值商品（PRD §8.1）：它买的不是订阅权益，所以不进 `plans` 表、不产生续费，落库为 `stealth_locks`（03 §12）而不是 `subscriptions`。购买资格由数据而非规格决定——`已认领槽位 == 0` 才可下单。
+v3.1 起不再有 `STEALTH_BUYOUT` 或任何单次买断商品；`plans` 只承载订阅权益。
 
 ### 3.2 `entitlements` 结构（`plans.entitlements` jsonb）
 ```json
@@ -47,15 +47,13 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
     "live_scan_lifetime": { "type": "quota", "period": "LIFETIME", "limit": 1 },
     "live_scan_monthly": { "type": "quota", "period": "MONTH", "limit": 15 },
     "pulse_radar": { "type": "boolean", "value": true },
-    "atomic_go_export_monthly": { "type": "quota", "period": "MONTH", "limit": 5, "rollover": true },
-    "active_go_slots_max": { "type": "number", "value": 2 },
+    "atomic_go_export_monthly": { "type": "quota", "period": "MONTH", "limit": 3, "rollover": true, "rollover_cap": 6 },
     "launch_kit_export": { "type": "boolean", "value": true },
-    "stealth_buyout": { "type": "boolean", "value": true },
     "report_preview_monthly": { "type": "quota", "period": "MONTH", "limit": 1 },
     "watchlist_max_items": { "type": "number", "value": 200 },
     "alert_rules_max": { "type": "number", "value": 20 },
     "kill_criteria_max_per_opportunity": { "type": "number", "value": 5 },
-    "alert_channels": { "type": "set", "value": ["EMAIL", "WEBHOOK"] },
+    "alert_channels": { "type": "set", "value": ["EMAIL"] },
     "projects_max": { "type": "number", "value": 50 },
     "gsc_connections_max": { "type": "number", "value": 50 },
     "api_access": { "type": "boolean", "value": false },
@@ -69,8 +67,7 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
   - `quota`：周期性配额（按 `period` 重置，消耗记录于 `usage_events` / `usage_counters`）
   - `quota` 加 `"rollover": true`：**跨月累计**（PRD §8.1），期末剩余额度写入 `usage_carryovers`，下期叠加
 - **`period: "LIFETIME"` 是终身额度**，实现上用固定哨兵日期 `1970-01-01` 作为 `usage_counters.period_start`（03 §3），因此与周期额度共用同一套原子预占逻辑，不需要为它写第二份并发控制。
-- **2026-10-18 状态更新**：`feed_selected_weekly` 已落地——Feed 列表（`/feed`、`GET /opportunities`）对 Free 只返回 `WeeklySelectionService` 选出的那一条（T5.5，`5a8eecc`）；详情、研报与详情 API 对 Free 只放行同一条（`freeAccessibleOpportunityId`，判据同源，因而不可能放出空槽 `BUILD_NOW`），其余机会照旧 404 / 引导升级。比较页对 Free 仍按延迟过滤：Free 至多只有一条可见机会，比较需要 2–3 条，放开没有意义。`feed_delay_days` 列保留，它眼下是读路径判断「是否 Free」的唯一开关；撤列是后续清理，不影响用户可见行为。以下为历史记录：
-- **`feed_delay_days` 仍然存在，仍是 Free 层实时性的开关；`feed_selected_weekly` 尚未落地。** PRD §7.1 废除的是"Free 延迟 45 天"这个**方案**，不是这一列：`0004_atomic_go_and_slot_backfill.sql` 刻意保留了它，并在注释里写明排序理由——**在 `feed_selected_weekly` 落地之前撤掉它，免费用户会直接拿到实时 Feed，而那是 15 §8 定为 P0 事故的"空槽窗口泄露"**。所以撤列的前置条件是"每周 1 条准实时精选先落地"（资格口径见 15 §3），而不是 PRD 升版本身。今天的实际承担者仍是 `feed_delay_days`（`entitlement.service.ts` → Feed 列表 / 比较 / 机会详情与研报等读路径）。
+- **2026-10-18 状态更新**：`feed_selected_weekly` 已落地——Feed 列表（`/feed`、`GET /opportunities`）对 Free 只返回 `WeeklySelectionService` 选出的那一条；详情、研报与详情 API 对 Free 只放行同一条（`freeAccessibleOpportunityId`，判据同源）。**选中口径是"已失去抢跑价值"**（见 15 §3）：`WINDOW_CLOSING` / `PASS`、生命周期已进入 `CONTESTED` / `MATURE` / `DEAD`、或距上一次 `BUILD_NOW` / `EARLY_BET` 已满 14 天；不再按"槽位是否被占满 / 是否有空槽"筛选。若当周无符合项，回退到最近一条已公开案例并标注日期。比较页对 Free 仍按延迟过滤：Free 至多只有一条可见机会，比较需要 2–3 条，放开没有意义。`feed_delay_days` 列仅为读路径判断"是否 Free"的兼容开关，不再是 Free 内容延迟方案。
 
 - `FREE` 与 `PRO` 的默认值（初始假设，定价与具体额度以 Phase 0 预售访谈结果为准，见 01 §12 决策 5）：
 
@@ -85,14 +82,12 @@ Status: Approved ｜ 依赖：01 §8、03、10 ｜ 被依赖：09、12、16、17
 | `live_scan_lifetime` | `{ LIFETIME, 1 }`（**半遮罩**展示，见 10 §4.3） | — |
 | `live_scan_monthly` | — | `{ MONTH, 15 }` |
 | `pulse_radar` | `false` | `true` |
-| `atomic_go_export_monthly` | —（**无 GO 权限**） | `{ MONTH, 5, rollover: true }` |
-| `active_go_slots_max` | `0` | `2` |
+| `atomic_go_export_monthly` | —（**无 GO 权限**） | `{ MONTH, 3, rollover: true, rollover_cap: 6 }` |
 | `launch_kit_export` | `false` | `true` |
-| `stealth_buyout` | `false` | `true` |
 | `report_preview_monthly` | `{ MONTH, 1 }`（**不可导出**） | — |
 | `watchlist_max_items` | 5 | 200 |
 | `alert_rules_max` | `0`（**不支持自动化告警**，PRD §8.1） | 20 |
-| `alert_channels` | `[]` | `["EMAIL","WEBHOOK"]` |
+| `alert_channels` | `[]` | `["EMAIL"]`（站内通知随账号默认提供；`WEBHOOK` 在 Gate 1 之后开放） |
 | `projects_max` | `0`（不能 GO 就无法建项目；**既有项目不删除，降级后只读**） | 50 |
 | `gsc_connections_max` | `0` | 50（GSC 为可选增强项，非必选） |
 | `api_access` | `false` | `false`（首发不售卖；字段保留，Phase 2 再打开） |
@@ -112,7 +107,7 @@ interface EntitlementService {
   check(userId: string, feature: string, opts?: { units?: number }): Promise<EntitlementResult>;
   /** 原子预占配额（在入队/开始前调用，DB 层面 UPDATE ... WHERE used + units <= limit 原子保障，杜绝超卖） */
   reserve(userId: string, feature: string, units: number, requestId: string): Promise<ReservationResult>;
-  /** 任务彻底失败时的补偿回滚（仅对未产生任何有效产出的彻底失败退回配额） */
+  /** GO 事务回滚时的补偿（事务未提交则配额未扣，通常无需调用） */
   refund(userId: string, feature: string, units: number, requestId: string, reason: string): Promise<void>;
   /** 查询当前用量与周期 */
   getUsage(userId: string, feature: string): Promise<{ used: number; limit: number; period_start: string }>;
@@ -129,14 +124,14 @@ type ReservationResult =
 - **预占与补偿机制（Hold & Release Pattern）**：
   - 为防止异步任务在排队与执行窗口期（30–90 秒）遭高并发调用绕过配额产生严重超卖，对 `quota` 周期型配额实行**入队即原子预占**（`reserve`）；
   - `reserve` 利用 PostgreSQL 行锁与条件更新：`UPDATE usage_counters SET used = used + :units WHERE user_id = :uid AND feature = :f AND period_start = :p AND used + :units <= :limit`；若受影响行数为 0 则直接返回 `QUOTA_EXCEEDED` 快速拒绝；
-  - **报告生成不扣额**（09 §6）：额度只在原子 GO（`atomic_go_export_monthly`）时扣减一次，报告与点火包是这次 GO 的产出，生成失败时重试生成，**不释放、不退还配额**。旧版"报告彻底失败时 `refund`"属于 Hold & Release 口径的残留，已删除（30 R16）。`refund` 仅保留给 GO 事务本身回滚（事务未提交则配额从未被扣，无需显式退还）与 Q5 裁决后可能出现的"首次逾期退还"。
+  - **报告生成不扣额**（09 §6）：额度只在原子 GO（`atomic_go_export_monthly`）时扣减一次，报告与点火包是这次 GO 的产出，生成失败时重试生成，**不释放、不退还配额**。旧版"报告彻底失败时 `refund`"属于 Hold & Release 口径的残留，已删除（30 R16）。`refund` 只保留给 GO 事务本身回滚的情况；事务未提交则配额从未被扣，无需显式退还。
 
 ### 4.2 周期计算
 - `quota` 类型的 `period_start`：`MONTH` 按用户所在订阅的计费周期起始日（`subscriptions.current_period_start`）对齐，而非自然月，避免"月中订阅当月配额被稀释"的观感问题；`WEEK` 按该周期起始日对齐的 7 天窗口；`FREE` 套餐（无订阅）按账户创建日对齐的自然月滚动。
 - **`LIFETIME` 用固定哨兵日期 `1970-01-01`** 作为 `period_start`。这不是把终身额度塞进周期模型凑数——而是让终身额度与周期额度共享同一套 `reserve` / `refund` 原子预占与并发控制（§4.1），否则一个 feature 要维护第二份"只此一次"的判定逻辑，而两份逻辑迟早会不一致。
-- ****跨月累计（Rollover）** 只在 `entitlements` 标注了 `"rollover": true` 的 feature 上生效**（首发仅 `atomic_go_export_monthly`）。周期切换到下一期时，把上一期 `limit - used` 的剩余额度以一行写入 `usage_carryovers`（03 §3），本期可用额度 = `limit + Σ 未被消费的结转`。只结转**一期**：不无限累积，否则用户攒够额度后可以在一个月内把整套 Feed 立项完，槽位机制会被自己的配额绕开。结转行逐笔留存，使"额度去哪了"可被回答，而不是靠一个会漂移的余额数字。
-  - **已裁决（30 Q3，PRD v2.2 §8.1）**：只结转一期，结转后可用余额上限 **10 次**（`limit + 结转 ≤ 10`，超出部分不结转）。
-  - **供给约束（30 Q6，PRD v2.2 §8.1）**：Phase 1 期间 Pro 席位上限 **30**（结账前校验活跃 Pro 订阅数，满额后结账页显示候补）；Gate 1 后按实测的月均可认领槽位数重算配额与席位。
+- **跨月累计（Rollover）只在 `entitlements` 标注了 `"rollover": true` 的 feature 上生效**（首发仅 `atomic_go_export_monthly`）。周期切换到下一期时，把上一期 `limit - used` 的剩余额度以一行写入 `usage_carryovers`（03 §3），本期可用额度 = `limit + Σ 未被消费的结转`。只结转**一期**，且有效上限封顶 **6 次**（`limit + 结转 ≤ 6`，超出部分不结转）。结转行逐笔留存，使"额度去哪了"可被回答，而不是靠一个会漂移的余额数字。
+  - **已裁决（PRD v3.1 §8.1）**：Pro 每月 3 次 GO；只结转一期，结转后可用余额上限 6 次。
+  - **席位约束**：Phase 1 期间 Pro 席位上限 **30**（结账前校验活跃 Pro 订阅数，满额后结账页显示候补）。Gate 1 后按实际用量与毛利表重算配额与席位；席位不再与任何"槽位"概念绑定。
 - `usage_counters` 按 `(user_id, feature, period_start)` 累加，读取路径优先查计数器（O(1)），仅在计数器缺失时回溯 `usage_events` 重建（用于处理时区 / 周期边界的异常情况）。
 
 ### 4.3 各服务的调用点
@@ -145,21 +140,14 @@ type ReservationResult =
 |----------|-----------|------------|------|
 | `LiveScanService.scan`（Free） | `live_scan_lifetime` | `reserve`（`LIFETIME` 哨兵周期），且必须先通过反滥用闸门（§7） | 结果**半遮罩**（10 §4.3）；额度消耗后**不退还**——退还等于把终身 1 次变成无限次 |
 | `LiveScanService.scan`（Pro） | `live_scan_monthly` | `reserve` | 全量展示，可一键转 7 天脉冲雷达 |
-| `DecisionService.goAndExport` | `atomic_go_export_monthly`（+ `active_go_slots_max` 上限检查） | **单事务原子操作**：`reserve` 配额 → 占 1 个形态槽位 → 建 Project → 解锁该形态点火包 | PRD §1.7 第 5 条「不点 GO 绝不允许导出」。并发抢同一槽位只有一个成功（10 §4）；配额与槽位必须同事务，否则绕过 API 即可白拿点火包 |
+| `DecisionService.goAndExport` | `atomic_go_export_monthly` | **单事务原子操作**：`reserve` 配额 → 建 Project 壳（`decision_id` 唯一）→ 解锁并导出该裁决的 AI 点火包 | PRD §1.8 第 5 条「不点 GO 绝不允许导出」。**没有槽位容量检查**：GO 不是抢占稀缺资源，而是购买一次立项与导出权限；并发提交各扣各的配额，由 `decision_id` 唯一约束防止同一裁决重复建项 |
 | `ReportService.preview`（Free） | `report_preview_monthly` | `reserve` | 仅在线预览；Free 的 `launch_kit_export` 恒为 `false`，无导出路径 |
-| `ReportService.request`（Pro） | 不单独扣额 | `check` | Pro 的报告与点火包由 `atomic_go_export_monthly` 在 GO 时一并解锁，不设第二份额度——否则"锁槽一次"与"导出一次"会分叉成两个可分别绕过的闸门 |
+| `ReportService.request`（Pro） | 不单独扣额 | `check` | Pro 的报告与点火包由 `atomic_go_export_monthly` 在 GO 时一并解锁，不设第二份额度——否则"GO 一次"与"导出一次"会分叉成两个可分别绕过的闸门 |
 | `DecisionService.watch` | `watchlist_max_items` | `check` | 检查当前 Watchlist 行数 < 上限 |
 | `AlertService.createRule` | `alert_rules_max` | `check` | 同上，行数上限检查 |
 | `OpportunityService.compare` | `compare_max_items` | `check` | 请求体 `ids.length` ≤ 上限，非消耗型 |
-| `ProjectService.submitCredential` | 不单独扣额 | `check` | 质押凭证提交只做归属与格式校验；额度已在 GO 时扣减，**逾期释放槽位时不退还**（PRD §1.7 第 5 条），**例外：每位用户首次逾期退还 1 次配额**（`refund`，按 `users.first_stake_refund_used_at` 判定只退一次）。质押窗口按所选形态的执行规模：S 7 天 / M 14 天 / L 21 天；接受应用商店审核期间的预发布着陆页（30 Q5，PRD v2.2） |
-| `StealthLockService.purchase` | `stealth_buyout` | `check` + 下单事务内校验 `Σclaimed == 0` | 一次性商品，不走 quota；资格由数据决定而不是套餐。另有"同一用户同时至多一笔待付占位"的闸（10 §4.5b）——它不是额度，是防止用免费占位遮蔽全网 |
+| `ProjectService.submitCredential` | 不单独扣额 | `check` | 凭证提交是**自愿**的：只做归属与格式校验，无质押截止日，不占用任何容量，也不因过期而释放任何资源。核验通过（`VERIFIED_OWNER`）后才进入公开记录、North Star 与 Gate 1 统计；未核验项目仍可在本人账户内查看 |
 | REST API Key 调用 | `api_access` | `check` | 布尔前置检查 |
-
-**买断的这笔钱记在哪**：`stripe_checkout_intents` 用不了——它的 `plan_code` 是 `NOT NULL REFERENCES plans(code)`，而买断不是套餐（§3.1），硬塞进去会给"哪些钱是订阅收入"这个问题制造第二份答案。落点：
-
-- 成交事实在 `stealth_locks`（`amount_usd` + `provider_payment_id`），它是这笔收入的**唯一真源**。
-- 同时在 `stripe_purchases` 补一行 `payment:<pi>` 归属（该表允许只有 PI、没有订阅的行，见 03 §13）。**这一行不是记账用的，是归因用的**：入站的 `charge.refunded` / 争议事件按 `payment_intent` 去 `stripe_purchases` 找唯一一行，找不到就抛错并被 `retry-stripe-attributions` 每小时重试——一次拒付会变成一条永久 500 的循环，而锁还挂着。
-- **退款后果**：买断属一次性商品，一经付款不退（与 Founding Lifetime 同口径）。但**拒付（dispute）与供应商侧退款是客观事件，不能靠"我们规定不退"当它不存在**：一旦发生，把该锁置 `VOID`（机会立即回到公共池、打码解除），并在 `audit_log` 留痕。让它继续挂着，等于用一次拒付换 60 天的独占——那会让买断成为一条"付不付钱都行"的路径。
 
 **`reserve` 需感知 Rollover**：读侧可用额度为 `limit + Σ 未消费结转`（§4.2），因此 §4.1 的条件更新 `WHERE used + :units <= :limit` 中的 `:limit` 必须是**含结转的有效上限**，而不是 `entitlements` 里的原始 `limit`。把有效上限在事务内算出并作为参数传入，是把这条规则只写在一处的最简单办法。
 
@@ -168,16 +156,14 @@ type ReservationResult =
 
 - 「申请追踪」创建 `CANDIDATE`，不视为 `feed_realtime`，也不扣任何配额。
 - `opportunity_detail_full` 对 `CANDIDATE` 关闭：调用方看到观察状态、缺了哪一类证据、预计何时可复评。已发布裁决的完整详情才按套餐打开。
-- **Free 的实时体验由 `feed_selected_weekly` 承担，而不是延迟**：每周 1 条**刚满足 `CROWDED_LOCKED` 或刚进入 `WINDOW_CLOSING`** 的已发布机会。**仍有空余槽位的黄金 `BUILD_NOW` 严禁进入免费可见范围**——这是"准实时样本防背刺"（PRD §7.1），免费层看到的是真实且足够震撼的案例，但抢跑价值 100% 留给付费用户。资格判据见 15 §3。**冷启动回退（30 Q10，PRD v2.2）**：7 天内没有新的合格案例时，回退展示最近一条曾满足准实时资格的历史案例，并标注「历史案例」；回退永远不放宽资格判据本身（空槽 `BUILD_NOW` 仍严禁出现）。
-- **Free 没有 GO 权限**（`active_go_slots_max = 0`）：不能认领槽位，也就不能创建 Project、不能导出报告或点火包。免费层能读到的报告只有每月 1 份历史案例预览，且不可导出。
+- **Free 的实时体验由 `feed_selected_weekly` 承担，而不是延迟**：每周 1 条**已失去抢跑价值**的已发布机会——当前裁决为 `WINDOW_CLOSING` / `PASS`，或生命周期已进入 `CONTESTED` / `MATURE` / `DEAD`，或距上一次 `BUILD_NOW` / `EARLY_BET` 已满 14 天。**仍处于 `BUILD_NOW` / `EARLY_BET` 且窗口未关闭的机会严禁进入免费可见范围**——这是"准实时样本防背刺"（PRD §7.1），免费层看到的是真实且足够震撼的案例，但抢跑价值 100% 留给付费用户。资格判据见 15 §3。**冷启动回退（PRD v3.1）**：当周没有新的合格案例时，回退展示最近一条已公开案例并标注日期；回退永远不放宽资格判据本身（活跃 `BUILD_NOW` / `EARLY_BET` 仍严禁出现）。
+- **Free 没有 GO 权限**：Free 套餐不含 `atomic_go_export_monthly`，不能创建 Project、不能导出报告或点火包。免费层能读到的报告只有每月 1 份历史案例预览，且不可导出。
 - Pro 的实时信息流每天最多 10 条已发布决定，而不是无限关键词审计；候选观察区对实时套餐开放，对 Free 只读。
 - **报告与 AI 点火包在 GO 之后才解锁**，两者同属一次原子立项；同一快照重复查看不重复扣额（09 §6）。
 - **季度 Builder Pass 不是独立 `plan_code`**，而是 PRO 权益在 `billing_interval = 'QUARTER'` 下的售卖方式（03 §3）。这样同一份权益只有一个真源，避免 `PRO` 与 `BUILDER_PASS` 两套配额各自漂移。
-- **Stealth Buyout 是单次增值商品**，不进 `plans`、不产生续费、不授予任何订阅权益；下单资格由数据决定（`已认领槽位 == 0`），落库为 `stealth_locks`（03 §12）。**待付窗口 35 分钟**（Stripe 会话下限 30 分钟）；同一账号 30 天内累计 2 次未付作废后，取消其买断下单资格（`403 STEALTH_BUYOUT_SUSPENDED`；按规范化身份 `email_identities` / 设备指纹归并待 T5.8），防止多账号轮流用待付窗口免费遮蔽机会（30 Q8，PRD v2.2；10 §4.5b）。
-- **兜底承诺（30 Q7，PRD v2.2 §8.1）**：只保留一条可计量的触发条件——连续 2 周全平台合格 `BUILD_NOW` + `EARLY_BET` 为 0 时，所有活跃 Pro 订阅自动延长 7 天。补偿只给时长或额度，**不退现金**；触发判定读账本 `verdicts`，不读任何团队可调的阈值。
-- **活跃 GO 的口径（30 Q15，PRD v2.2 §1.7 第 5 条）**：`active_go_slots_max = 2` 只计 `stake_status = 'PENDING'` 的 GO；质押核验通过（`VERIFIED`）后不再计入这条上限，但它占用的形态槽位不变。
+- **兜底承诺（PRD v3.1 §8.1）**：连续 2 周全平台合格 `BUILD_NOW` + `EARLY_BET` 为 0 时，所有活跃 Pro 订阅自动延长 7 天。补偿只给时长或额度，**不退现金**；触发判定读账本 `verdicts`，不读任何团队可调的阈值。
 - Team 为历史兼容值，不在结账页出现，也不对应当前可用的 workspace 或多席位功能。
-- Founding Pro Lifetime 为一次性 `$399` 付款，复用当前 Pro 权益与月度配额，以 `purchase_kind = 'FOUNDING_LIFETIME'` 标记，不产生续费事件。付款后不提供退款。终身版不承诺无限报告、无限抓取或未来高成本模块，当前仅作为首发早鸟方案。**限额 50 席，售罄即止**（30 Q12，PRD v2.2 §8.1）：结账前在同一事务内校验 `purchase_kind = 'FOUNDING_LIFETIME'` 的已付行数 < 50。
+- Founding Pro Lifetime 为一次性 **`$1,499`** 付款，复用当前 Pro 权益与月度配额，以 `purchase_kind = 'FOUNDING_LIFETIME'` 标记，不产生续费事件。付款后不提供退款。终身版不承诺无限报告、无限抓取或未来高成本模块。**限额 50 席，售罄即止，且不占用 30 个 Pro 席位**（首发总席位上限 80）：结账前在同一事务内校验 `purchase_kind = 'FOUNDING_LIFETIME'` 的已付行数 < 50，并按 §4.2 单独校验活跃 Pro 订阅 < 30。
 
 ## 5. 配额耗尽与降级 UX
 - REST：见 10 §1.1 错误格式，`QUOTA_EXCEEDED` / `PLAN_REQUIRED`，响应体含 `upgrade.url`。
@@ -224,7 +210,7 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 | **G4 设备指纹 30 天限流** | 同一设备指纹在 30 天内至多触发 1 次；判定依据是 `lifetime_scan_grants` 而非账号计数。**IP 只作风险信号**（计入 §7.2 检测），不单独拒绝 | 03 §2。`usage_counters` 只防同一账号重复领取，防不住换号重领；IP 单独拒绝会批量误伤共用代理出口的华语 Builder（30 Q9） |
 
 - 额度状态机：`reserve` 扣减 `live_scan_lifetime`（LIFETIME 哨兵周期）**与**写入一行 `lifetime_scan_grants` 必须在**同一事务**内完成。只写其中一边，都会留下一条可被利用的路径——只扣配额则换号即可绕过，只写指纹则同号可重复领取。
-- **不退还**：初筛额度一旦消耗即不可退（PRD §1.7 第 5 条 对配额退还的一贯口径）。这里与报告生成的 Hold & Release 不同：报告是异步任务，失败时用户没有拿到任何产出，理应退还；初筛是同步返回结果的动作，"失败"本身就是一次有效产出。
+- **不退还**：初筛额度一旦消耗即不可退（PRD §1.8 第 5 条对配额退还的一贯口径）。报告与点火包同样如此：它们是 GO 的产出，生成失败时重试生成，不退还 GO 配额（§4.1）。两者都不是"失败即退款"的异步任务。
 - **拿不到指纹时**：要求该 OAuth 账号注册满 **30 天**才发放免费初筛，否则拒绝并提示原因（30 Q9，PRD v2.2 F14）。旧口径"放行但不记录"已废除——屏蔽指纹脚本即可绕过。这类拒绝与放行都计数并在管理后台暴露。
 
 ### 7.2 检测信号
@@ -236,8 +222,8 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 | 终身初筛的**无指纹放行**比例异常 | 单日无指纹放行 > 总发放的 30% | 告警：可能有人在系统性规避 G4 |
 | Webhook 目标地址指向内网 / 保留地址段（SSRF 防护） | 创建时校验 | 拒绝创建，返回 `VALIDATION_ERROR` |
 | GSC OAuth 异常（短时间内连接大量不同 Property） | 1 小时内 ≥ 10 个 Property | 标记待审核（GSC 已降为可选增强项，此信号优先级随之下降） |
-| 同一机会在 24 小时内被同一账户反复重新生成报告 | ≥ 5 次 | 计入 quota 消耗，天然被 `atomic_go_export_monthly` 约束；仅记录用于产品分析 |
-| GO 后质押逾期率异常 | 单账户累计逾期 ≥ 2 次 | 标记待审核；额度不退还已由 §4.3 保证，此处只做人工评估是否限制其后续认领 |
+| 同一账户在 24 小时内反复重试生成同一点火包 | ≥ 5 次 | 同一 GO 快照的重试不扣额；记录用于识别异常重试，不单独限流 |
+| 凭证核验失败率异常 | 单账户 30 天内被拒 ≥ 3 次 | 标记待审核；不自动封禁，人工判断是否属于归属争议或伪造 |
 
 - 检测结果进入 `/admin/review-queue`（10 §4.9），由 `ADMIN` / `SUPPORT` 处理，首发不做自动封号。
 
@@ -253,23 +239,22 @@ Merchant of Record（00 ADR-007，具体供应商见 01 §12 决策 4）；本�
 ## 10. 测试要求（18 §3）
 | 用例 | 期望 |
 |------|------|
-| Free 用户请求导出 AI 点火包或创建 Project | `403 PLAN_REQUIRED`（`active_go_slots_max = 0`） |
+| Free 用户请求导出 AI 点火包或创建 Project | `403 PLAN_REQUIRED`（Free 不含 `atomic_go_export_monthly`） |
 | Free 用户第二次请求实时初筛 | `403 QUOTA_EXCEEDED`（`LIFETIME` 哨兵周期已用尽） |
 | 换一个账号、同一设备指纹在 30 天内请求实时初筛 | 被反滥用闸门拒绝（G4），且拒绝理由不区分具体闸门 |
 | 同一 Gmail 的 `+别名` 变体尝试注册第二个账号 | 注册被拒（G1 归一化后 `canonical_email` 冲突） |
 | 并发排队多个报告生成请求，配额仅剩 1 | 只有 1 个成功获得 `reserve` 并进入 `QUEUED`，其余并发请求立即返回 `403 QUOTA_EXCEEDED` |
-| 报告生成彻底失败且无任何有效章节产出 | 触发 `refund`，用户配额恢复原状 |
+| GO 事务提交后报告生成彻底失败 | 不 `refund`（配额已随 GO 消耗）；同一快照重试生成，不重复扣额 |
 | 实时初筛请求失败（上游超时） | **不退还** `live_scan_lifetime`（同步动作的失败仍是一次有效产出） |
 | 同快照重复查看已就绪报告 | 零额外配额消耗，直接返回缓存结果 |
-| 四人并发对同一机会同一形态点 GO，该形态仅剩 1 个槽位 | 只有 1 人成功；其余返回槽位已满，且**无人的配额被扣减** |
-| GO 后质押窗口（S 7 / M 14 / L 21 天）内未提交凭证，用户此前已逾期过 | 槽位释放、`stake_status = 'EXPIRED_RELEASED'`、**已扣配额不退还** |
-| 同上，但这是该用户首次逾期 | 槽位释放，且退还 1 次配额；`users.first_stake_refund_used_at` 被写入，第二次逾期不再退 |
-| 同一规范化身份 30 天内第 2 次待付买断作废后再次下单 | `422 STEALTH_LOCK_UNAVAILABLE` |
-| 无设备指纹、OAuth 账号注册不满 30 天，领取免费初筛 | 拒绝；不扣额度、不写 `lifetime_scan_grants` |
-| 用户有 2 个 `PENDING` 质押 + 1 个 `VERIFIED`，再次 GO | 拒绝 `409 ACTIVE_SLOTS_EXCEEDED`；若其中 1 个转为 `VERIFIED`，再次 GO 成功 |
-| 对 `Σclaimed > 0` 的机会发起 Stealth Buyout | 下单被拒（非处女地） |
-| Pro 上月 5 次立项只用了 3 次，本月查看可用额度 | 显示 5 + 2 = 7（Rollover），且 `usage_carryovers` 有对应行 |
+| 四人并发的配额均为 1，各自对 4 个不同裁决点 GO | 4 人全部成功：GO 无槽位容量上限，每次 GO 各自扣 1 次配额 |
+| 同一用户对同一 `decision_id` 再次 GO | 拒绝（`409`，`launch_kits.decision_id` 唯一）；配额不重复扣减 |
+| GO 后始终未提交凭证 | Project 保持 `credential_status = 'UNVERIFIED'`；不释放任何资源、不退还配额，也不影响公开裁决 |
+| 提交域名 DNS TXT 核验，token 正确 | `credential_status = 'VERIFIED_OWNER'`；项目进入 North Star / Gate 1 / 公开记录统计 |
+| 提交的错误 token 核验失败 | 保持 `UNVERIFIED` 或 `REJECTED`；不进入任何计数 |
+| Free 当周精选选中一条 `WINDOW_CLOSING` 机会 | 详情与研报放行；若另一条为活跃 `BUILD_NOW`，仍对 Free 404 |
+| Pro 上月 3 次 GO 一次未用，本月查看可用额度 | 显示 6（本期 3 + 结转 3，封顶 6），且 `usage_carryovers` 有对应行 |
 | 订阅从 `PRO` 降级为 `FREE`，Watchlist 超限 | 超出部分只读可见，无法新增关注 |
-| 订阅从 `PRO` 降级为 `FREE`，既有 Project 仍在 | 只读可见、不删除；`stake_status = 'PENDING'` 的质押仍按原定 `stake_deadline_at` 结算 |
+| 订阅从 `PRO` 降级为 `FREE`，既有 Project 仍在 | 只读可见、不删除；凭证核验状态保留，不因降级而改变 |
 | Webhook 目标为 `127.0.0.1` | 创建请求被拒绝 |
 | `invoice.payment_failed` 后 8 天未恢复 | 权益自动降级为 `FREE` 对应值 |

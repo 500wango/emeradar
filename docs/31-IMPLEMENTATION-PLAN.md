@@ -1,6 +1,8 @@
 # 31 — 整改实施计划（Implementation Plan）
 
-Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01 v2.2、30 ｜ 被依赖：19
+Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1）｜ 依赖：01 v3.1、30 ｜ 被依赖：19
+
+**v3.1 基线（2026-10-18）**：PRD v3.1 删除了槽位、认领、质押、Stealth Lock 与买断。本文 §1 中描述的槽位/质押/买断代码是**待拆除的存量**，不是要继续实现的目标；§5 新增的拆除任务优先于任何功能扩展。下游与代码未同步前，以 01-PRD v3.1 为准。
 
 **本文是什么**：把 `30` 的整改项（R）与 PRD v2.2 的裁决（Q）拆成可开工的工程任务：每条写清改哪个文件、做什么、怎么验收。里程碑与 Gate 的节奏以 `30 §5` 为准，本文只负责「到代码的最后一公里」。
 
@@ -19,10 +21,10 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 | W 新鲜度 | 只有统一的「近期有 SERP 快照」布尔值，不分层级 | `scoring/src/window.ts:14` | R5 |
 | 市场 W | 不存在；`W_score` 直接含 `0.15·(100 − crowdingIndex)` | `scoring/src/window.ts:33` | R12 / Q2 |
 | 补偿规则 | 接受 `independentDomainsCount ≥ 2` | `scoring/src/verdict.ts` | R11 / Q1 |
-| 槽位上限 | `MAX_CLAIMS_PER_OPPORTUNITY = 5`，被三处引用 | `services/src/claim-policy.ts:16`、`opportunity.service.ts`、`pipeline/observe-opportunity.ts:525` | R19 |
-| 战绩延迟 | `PUBLIC_DELAY_DAYS = 45` | `services/src/track-record.service.ts:75` | R19 / Q11 |
-| 质押窗口 | `STAKE_WINDOW_DAYS = 7`，不分执行规模 | `services/src/project.service.ts:15`、`stake.service.ts:384` | Q5 |
-| 待付窗口 | `STEALTH_RESERVATION_GRACE_MINUTES = 45`，`STEALTH_CHECKOUT_SESSION_MINUTES = 35` | `services/src/stealth-lock-policy.ts:29,41` | Q8 |
+| 槽位上限 | `MAX_CLAIMS_PER_OPPORTUNITY = 5`，被三处引用；**v3.1 待拆除** | `services/src/claim-policy.ts:16`、`opportunity.service.ts`、`pipeline/observe-opportunity.ts:525` | R19 / v3.1 |
+| 战绩延迟 | `PUBLIC_DELAY_DAYS = 45`；**v3.1 已废除，待拆除** | `services/src/track-record.service.ts:75` | R19 / Q11 / v3.1 |
+| 质押窗口 | `STAKE_WINDOW_DAYS = 7`；**v3.1 待拆除** | `services/src/project.service.ts:15`、`stake.service.ts:384` | Q5 / v3.1 |
+| 待付窗口 | `STEALTH_RESERVATION_GRACE_MINUTES = 45`、`STEALTH_CHECKOUT_SESSION_MINUTES = 35`；**v3.1 待拆除** | `services/src/stealth-lock-policy.ts:29,41` | Q8 / v3.1 |
 | 点火包词表 | `clusterQueries` 缺省为 `[]`，服务层从不传入 | `report/src/generator.ts:360`、`launch-kit.ts:626` | R8 |
 | 评估规格 | 只有 `ev-1.0` | `services/src/prediction-episode.service.ts:78` | R2 |
 | 告警投递 | 只写站内 `notifications`，告警路径不调用邮件服务 | `services/src/alert-triggers.ts` | R14 / Q4 |
@@ -46,7 +48,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 | T1.3 | 市场 W | `window.ts` 同时输出 `wBand`（含拥挤，展示用）与 `marketWBand`（不含拥挤）；账本带日期的 W 历史改记 `marketWBand`；`WINDOW_CLOSING` 只读它 | Golden：认领不触发窗口关闭（Q2） |
 | T1.4 | 补偿规则收紧 | `verdict.ts` 的 `mVerified` 改为 `HIGH`，或 `MEDIUM ∧ (hasTransactionTraction ∨ pricingPersistentDays ≥ 90)` | Golden：纯装饰性 MEDIUM 最多 `EARLY_BET`（Q1） |
 | T1.5 | INFERRED-only 不挡发布 | 资格判定里删去这一条，改在 `BUILD_NOW` 分支前拦截 | Golden：INFERRED-only 的 `EARLY_BET` |
-| T1.6 | 槽位真源统一 | 删除 `MAX_CLAIMS_PER_OPPORTUNITY`；`isCrowdedLocked` 与展示一律读 `opportunity_slots` 的 `Σclaimed == Σcapacity`；活跃谓词统一用 `activeClaimPredicate`（D2） | 三条读路径共用一个函数；grep `MAX_CLAIMS` 为 0 |
+| T1.6 | 删除槽位真源（v3.1） | 删除 `MAX_CLAIMS_PER_OPPORTUNITY`、`opportunity_slots` / `slot_claims` 读写与 `isCrowdedLocked`；拥挤度改为读 `crowding_daily` 的 `verified_product_count` / `top10_specialist_count` / `new_top10_entrants_30d`，**不进入 W、不限制 GO** | 三条读路径不再引用槽位；grep `MAX_CLAIMS` / `opportunity_slots` / `slot_claims` 为 0；Golden：拥挤度不进入 W |
 | T1.7 | 产出守卫 | Yield 告警只发 Admin 通知，删除任何自动改阈值的路径（05 §7.2） | 单测：断流 7 天只产生告警，不产生新配置 |
 | T1.8 | `sc-1.1.0` 进 SHADOW | T1.1–T1.5 打包为新配置版本，写 `verdicts_shadow` 14 天 | 第 14 天出差异报告 |
 | T1.9 | 生产 v2 纪元确认 | 核对生产库每日管线是否稳定写入 `hash_version ≥ 2` 行；若没有，先修管线 | 连续 7 天无缺日 |
@@ -91,7 +93,7 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 **T3.1 / T3.3 实施状态**：已落地。`report.service.ts` 从 `opportunity_queries`（非 PRIMARY 角色）读簇内词并显式传入，`generator.ts` 的 `clusterQueries` 改为必填；无观测词时点火包输出 `KEYWORDS_UNAVAILABLE.md`（PSEO 形态同时省略 `routes.yaml`）。词表与路由输出 `slug / target_keyword / intent / title / h1 / meta_description`，`volume_tier` 已删除（无词量源，排序只按查询词，保证可重算）；`title / h1 / meta_description` 只用关键词与机会标题装配，不随界面语言变化（14 §5.4）。模板版本升到 1.1。
 - **T3.2 已落地（偏离：不用 LLM）**：迁移 `0012` 给 `queries` 加 `intent` 列与不可改写触发器；初筛入库簇内词时同步打标，报告读冻结列，存量行（NULL）首次读取时补写一次。分类器是确定性规则（`classifyQueryIntent`），不是 `llm/classifier.ts`——重算不调模型这一性质（ADR-020）由此成立，代价是意图粒度粗于 LLM 分类；若要换成 LLM，只需改写入侧，冻结列与读路径不变。其它入库路径（`discover-candidates`、`incubate-candidates`、seed）还没有同步打标，靠读时补写兜底。
-- T3.4 已落地：初筛新建机会时入库并返回最多 15 个长尾词（`SCREENER_LONGTAIL_LIMIT`，此前入库 5 个、返回未截断的建议词），重复扫描改从 `opportunity_queries` 的簇内词读取，与报告、点火包同源；买断打码中的机会不返回词表。
+- T3.4 已落地：初筛新建机会时入库并返回最多 15 个长尾词（`SCREENER_LONGTAIL_LIMIT`，此前入库 5 个、返回未截断的建议词），重复扫描改从 `opportunity_queries` 的簇内词读取，与报告、点火包同源。**v3.1 待改**：存量"买断打码中的机会不返回词表"的分支随 T5.3 删除，词表可见性只由套餐初筛配额决定。
 - T3.5（盲审，需要人工）未做。
 
 ### M4 预售（第 1–8 周，并行，非工程）
@@ -102,28 +104,28 @@ Status: Approved ｜ Owner: 工程 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01
 
 | # | 任务 | 改动 | 验收 |
 |---|------|------|------|
-| T5.1 | 质押窗口分档 | `STAKE_WINDOW_DAYS` 改为按 `execution_class` 取 7/14/21；接受预发布页；首次逾期退配额（新迁移加记录列） | 18 §4.2 Q5 两条用例 |
-| T5.2 | 活跃 GO 口径 | `ACTIVE_SLOTS_EXCEEDED` 只计质押未核验的 GO（Q15） | 18 §4.2 Q15 用例 |
-| T5.3 | 待付窗口 | `STEALTH_RESERVATION_GRACE_MINUTES = 35`、`STEALTH_CHECKOUT_SESSION_MINUTES = 31`（必须短于前者）；30 天内 2 次未付作废后取消买断资格 | 现有 stealth 测试改值后全绿；新增资格取消用例 |
-| T5.4 | 告警 MVP | 保留 `rule_type` 单值模型；补齐 6 条首发触发器的求值（含 `evaluateKillPredicate`，按现存 `{metric, op, threshold}` 结构实现）；接入 `email.service.ts` 投递 | 12 §2 标「首发」的 6 条都有求值路径和 Email 投递 |
-| T5.5 | Free 精选 | 实现 `feed_selected_weekly`；7 天无新案例时回退历史案例并标注（Q10） | 13 §3.2 用例 |
+| T5.1 | 拆除质押与窗口（v3.1） | 删除 `STAKE_WINDOW_DAYS`、`StakeService`、`projects.stake_*`、`stake_overdue_refunds` 与逾期释放作业；凭证核验改为可选、无截止时间、不释放资源、不退还配额 | grep `stake_` / `STAKE_WINDOW` 为 0；18 §4.1「凭证核验可选且与配额解耦」 |
+| T5.2 | 删除活跃 GO 上限（v3.1） | 删除 `ACTIVE_SLOTS_EXCEEDED` 与活跃 GO 计数；GO 只受月度配额（3 次、结转上限 6）约束 | 4 个各余 1 次配额的用户并发 GO 全部成功；同一 `decision_id` 重复 GO 为 `409 ALREADY_GO` |
+| T5.3 | 拆除买断（v3.1） | 删除 `stealth-lock-policy.ts`、`STEALTH_*` 常量、`stealth_locks` / `stealth_lock_displays` 读写与全部买断端点 | grep `STEALTH_` / `stealth_lock` 为 0；公开层无打码/买断分支 |
+| T5.4 | 告警 MVP（v3.1 口径） | 保留 `rule_type` 单值模型；补齐 6 条首发触发器（含 `CROWDING_SIGNAL` 取代 `SLOTS_LAST_ONE`）的求值（`evaluateKillPredicate` 按现存 `{metric, op, threshold}` 结构）；接入 `email.service.ts` 投递 | 12 §2 标「首发」的 6 条都有求值路径和 Email 投递 |
+| T5.5 | Free 精选（v3.1 口径） | 实现 `feed_selected_weekly`：只选已失去抢跑价值的机会（`WINDOW_CLOSING` / `PASS`、`CONTESTED` / `MATURE` / `DEAD`、或连续 14 天非 `BUILD_NOW` / `EARLY_BET`）；当周无新案例时回退最近一条已公开案例并标注日期 | 13 §3.2 用例；活跃 `BUILD_NOW` / `EARLY_BET` 永不入选 |
 | T5.6 | Demo 词 | `GET /screener/demos` 与详情接口，只读冻结快照；Admin 维护 | 10 §4.3b；p95 < 200ms |
 | T5.7 | 初筛进度 | `GET /screener/scans/{id}` 返回阶段 `status`；前端分步进度条 | 16 §3.2c |
 | T5.8 | 反滥用 | 设备指纹为主；IP 只记风险分；无指纹时要求 OAuth 账号满 30 天（Q9） | 13 §7.1 用例 |
-| T5.9 | 公开战绩全量 | 删除 `PUBLIC_DELAY_DAYS`；汇总纳入全部 v2 Episode；逐行明细按 Q11 三条件披露 | 15 §8 三项指标有采集点 |
+| T5.9 | 公开战绩全量（v3.1 口径） | 删除 `PUBLIC_DELAY_DAYS`；汇总纳入全部 v2 Episode；逐行明细只在机会已失去抢跑价值或完成 T+90 后披露，**不再有槽位满额 / 买断 / 打码分支** | 15 §8 三项指标有采集点 |
 | T5.10 | 兜底与席位 | 连续 2 周 0 产出自动延长 7 天；Pro 席位上限 30、Founding 50 席售罄即止 | 13 用例 |
 
-**T5.2 实施状态**：已落地。`SlotService.countActiveClaims` 与 GO 闸门里的计数都改为只数 `projects.stake_status = 'PENDING'` 的认领；质押核验通过后不再占活跃名额，但形态槽位不释放。
+**T5.2 实施状态（⚠ v3.1 已废除）**：存量代码用 `SlotService.countActiveClaims` 与 `projects.stake_status = 'PENDING'` 限制活跃 GO。v3.1 没有活跃 GO 上限，这些计数与 `ACTIVE_SLOTS_EXCEEDED` 必须在 T5.2 中整体拆除，而不是改成别的口径。
 
-**T5.1 实施状态**：已落地。GO 按 `opportunities.execution_class` 取 7/14/21 天（`StakeService.windowDaysFor`）；首次逾期退 1 次配额，由新迁移 `0009`（`projects.go_quota_period_start` 与 `stake_overdue_refunds`，user_id 主键保证只退一次）支撑，退回 GO 当时计费的周期。预发布着陆页作为凭证：探针已接受 `PUBLIC_PAGE_URL`，未另改。
+**T5.1 实施状态（⚠ v3.1 已废除）**：存量代码按 `execution_class` 取 7/14/21 天，并由迁移 `0009`（`go_quota_period_start`、`stake_overdue_refunds`）支撑首次逾期退配额。v3.1 中凭证核验没有截止时间、不释放资源、不退还配额；`stake.service.ts`、相关列与退款记录表随 T5.1 删除，历史数据只作离线归档。
 
-**T5.9 实施状态**：已落地。`PUBLIC_DELAY_DAYS` 已删除；公开战绩汇总纳入全部 `hash_version ≥ 2` 的 Episode，逐行明细按 Q11 的先到者披露（已完成 T+90、机会槽位满额、当前为 `WINDOW_CLOSING`、或存在已付款的买断，保护期内以打码形式出现）；`stats.undisclosedEpisodes` 公开「已计入但尚未逐行披露」的数量。15 §8 的三项指标采集点尚未单独接线。
+**T5.9 实施状态（v3.1 需改）**：`PUBLIC_DELAY_DAYS` 已删除；公开战绩汇总纳入全部 `hash_version ≥ 2` 的 Episode。**逐行明细的披露判据要改**：存量实现按「已完成 T+90、机会槽位满额、当前为 `WINDOW_CLOSING`、或存在已付款买断」先到者披露；v3.1 只保留「已完成 T+90」或「已失去抢跑价值」，删除槽位满额与买断分支，打码字段一并移除。15 §8 的三项指标采集点尚未单独接线。
 
-**T5.3 已落地（偏离 PRD v2.2 Q8 的 15 分钟）**：Stripe Checkout 会话有效期下限是 30 分钟，待付窗口若短于会话，会出现"占位已作废、结账页仍可付款"（钱已收、交付物不在）。所以窗口取 35 分钟 = 30 + 5 分钟余量，会话 31 分钟。资格取消按账号计（`user_id`），错误码 `403 STEALTH_BUYOUT_SUSPENDED`；"同一设备"维度要等 T5.8 的设备指纹落地后再加。若要真正做到 15 分钟，需要在作废时主动调用 Stripe 的 expire session 接口，目前没有这条出站能力。
+**T5.3 实施状态（⚠ v3.1 已废除）**：存量 `stealth-lock-policy.ts`、35 分钟待付窗口与 `STEALTH_BUYOUT_SUSPENDED` 全部随 T5.3 删除；不存在"待付占位"或"买断资格"。
 
-**T5.5 已落地（Feed 与列表 API）**：`WeeklySelectionService.getWeeklySelectedCase` 只选槽位满额或当前为 `WINDOW_CLOSING` 的机会（M 轴 INSUFFICIENT 与买断保护期内的不选，空槽 `BUILD_NOW` 永不入选），7 天内无新案例时回退最近一条历史案例并标 `historical: true`。Free 用户的 `/feed` 页与 `GET /opportunities` 现在走 `listFreeWeeklyFeed`，只返回这一条（或空），不再返回延迟 N 天的整本 Feed。**仍未改的**：机会详情、对比、研报页的 `minAgeDays` 仍读 `feed_delay_days`（Free 本来就被 `opportunityDetailFull` 挡在详情之外，这几处对 Free 实际不可达）；「每周 1 条」是选取逻辑保证的，没有单独的按周配额计数器。
+**T5.5 实施状态（v3.1 需改）**：`WeeklySelectionService.getWeeklySelectedCase` 目前只选槽位满额或 `WINDOW_CLOSING` 的机会，这是 v3.0 口径。必须改为「已失去抢跑价值」三判据（裁决 / 生命周期 / 连续 14 天非活跃），并删除买断保护期与 `isCrowdedLocked` 过滤；`historical: true` 回退逻辑可保留。Free 用户的 `/feed` 与 `GET /opportunities` 已走 `listFreeWeeklyFeed`，本轮只改选取判据。
 
-**T5.4 部分落地**：`evaluateKillPredicate` 已在 `@emeradar/scoring` 按现存 `{metric, op, threshold}` 结构实现（指标限 `weak_result_ratio` 与三轴基点，畸形谓词或指标缺失返回 null，不当作未触发）；`KILL_CRITERIA` 已进入可订阅与可求值类型，每日流水线按机会求值一次并缓存，触发的谓词置 `TRIGGERED`，同一机会的多个订阅者都会收到。`SLOTS_LAST_ONE` 已实现（某形态剩余槽位恰为 1，每条规则只提醒一次），迁移 `0010` 放宽了 `alert_rules.rule_type` 的 CHECK，创建入口的 schema 开放 `KILL_CRITERIA` 与 `SLOTS_LAST_ONE`。`PROJECT_SERP_RANK_JUMP` 已实现，但**不走 `alert_rules`**：它是项目属主的通知，没有「订阅某条机会」这一步——`RankingService.recordFromSerp` 写入当日名次时按 `detectRankJump` 判定（首次入榜 / 首次进入更好的 Top 100·30·10 档 / 较上次观测跃升 ≥ `RANK_JUMP_THRESHOLD`=10），命中就给属主写站内通知，同一项目同一词同一天只一条。**只有站内通知，没有 Email**。`CUSTOM_QUERY_PULSE_CONFIRMED` 仍未实现（依赖 7 天脉冲雷达，仓库里没有）。Email 投递沿用既有的告警邮件路径。
+**T5.4 部分落地（v3.1 需改）**：`evaluateKillPredicate`、`KILL_CRITERIA`、`PROJECT_SERP_RANK_JUMP` 已实现；`CUSTOM_QUERY_PULSE_CONFIRMED` 仍未实现（依赖 7 天脉冲雷达）。**`SLOTS_LAST_ONE` 必须删除**，替换为 `CROWDING_SIGNAL`（`verified_product_count` 达到 3 或 `new_top10_entrants_30d` 增加），迁移中放宽的 CHECK 同步改值。`PROJECT_SERP_RANK_JUMP` 仍只写站内通知，没有 Email。`CROWDING_SIGNAL` 只提示竞争加剧，不限制 GO。
 
 **T5.6 / T5.7 / T5.8 未做，原因是前置缺失而不是工作量**：
 - **T5.6 部分落地**：迁移 `0013` 的 `screener_demos`（至多 3 条）、`ScreenerDemoService`、匿名可读的 `GET /api/v1/screener/demos` 与 `/demos/{id}` 已实现，只读冻结快照，快照缺失回 503 `DEMO_UNAVAILABLE`、不回退实时采集。**还缺**：Admin 维护入口，以及把真实初筛结果冻结进 `snapshot` 的动作（现在表是空的，所以接口会列出 0 条）。

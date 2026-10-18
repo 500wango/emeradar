@@ -1,6 +1,6 @@
 # 18 — 测试策略与质量工程规格（QA & Test Strategy）
 
-Status: Draft ｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 ｜ 被依赖：19
+Status: Draft ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1：GO 配额、无槽位/质押/买断）｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 ｜ 被依赖：19
 
 ## 1. 目的与原则
 
@@ -9,7 +9,7 @@ Status: Draft ｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 �
 **核心原则**：
 1. **确定性第一**：评分纯函数（`@app/scoring`）与账本哈希链（`@app/ledger`）实行 100% 严苛的 Golden 测试，杜绝跨架构、跨版本的浮点与时间漂移；
 2. **LLM 结果必须经过确定性严查**：大模型生成的内容必须通过编译期般的自动化断言（Schema、硬数字占位符保真度、证据引用有向图），评测集纳入常规 CI；
-3. **数据库不变量自动断言**：DDL 中的 I1 至 I14 不变量必须在 CI 集成测试中执行主动攻击测试；
+3. **数据库不变量自动断言**：DDL 中的 I1 至 I13 不变量必须在 CI 集成测试中执行主动攻击测试；
 4. **测试分层与轻量敏捷**：2–3 人团队不维护冗杂低效的低质用例，重点构建高价值契约测试与金字塔分层保障。
 
 ---
@@ -20,7 +20,7 @@ Status: Draft ｜ 依赖：01 §3 & §10、05 §10、06 §5、08 §10、09 §7 �
 flowchart TD
   E2E[端到端测试 E2E<br/>Playwright 核心主链路 5–10 个]
   LLM_EVAL[LLM 离线基准评测集<br/>U1–U6 结构化标注集]
-  INTEG[集成测试 Integration<br/>DB 不变量 I1–I14 / pg-boss 队列 / Entitlement 并发]
+  INTEG[集成测试 Integration<br/>DB 不变量 I1–I13 / pg-boss 队列 / Entitlement 并发]
   CONTRACT[契约测试 Contract<br/>OpenAPI 破坏性检测 / JSON Schema 校验]
   UNIT[纯函数单元测试 Unit<br/>@app/scoring Golden 固件 / 无前视测试 / 哈希链]
 
@@ -66,7 +66,7 @@ flowchart TD
 | **两级爬取降级** | 模拟 SPA 壳页面返回空文本，触发 Tier 2 检测 | 确认 `fetch_tier` 被标记为 `HEADLESS`，并正确调用无头浏览器驱动 |
 | **S6 咨询锁互斥** | 两个 Worker 实例同时对同一 `obs_date` 调度 S6 账本归档 | 一个持有 `pg_advisory_lock` 执行批量写入，另一个跳过执行，绝不重复生成行哈希 |
 
-### 4.1 交付闭环、槽位与反滥用用例（PRD §1.7、ADR-018、ADR-021）
+### 4.1 交付闭环、GO 配额与反滥用用例（PRD §1.8、ADR-018、ADR-021）
 
 以下用例覆盖首发商业闭环与防白嫖机制，均为发布前必过项：
 
@@ -74,26 +74,20 @@ flowchart TD
 |------|----------------|----------|
 | **Fast-Track 快车道（05 §5.0）** | 机会 `history_days = 8`、`new_queries_7d = 4` 且斜率显著 | 允许以 7 天历史进入资格评估并打 `FAST_TRACK`；**不**因 < 14 天落入 `WATCH` + `PARTIAL_DATA` |
 | **特征补偿 `RULE_BUILD_NOW_COMPENSATED`（05 §5.1）** | D=HIGH、W=HIGH、M=MEDIUM（≥2 独立定价站或初现交易代理）、conf ≥ MEDIUM | `raw_verdict = BUILD_NOW`，`explanation` 命中 `RULE_BUILD_NOW_COMPENSATED`；M=LOW 或无 observed 证据时**不得**补偿 |
-| **按形态切分槽位（ADR-018）** | 机会含 `[TOOL×2][PSEO×2]`；仅 TOOL 两个槽被占 | **不得**熔断（不置 `isCrowdedLocked` / `WINDOW_CLOSING`），W 轴照常计算；仅当 `Σclaimed == Σcapacity` 全部形态占满时才熔断。反例：任一形态空槽即不熔断，必须断言 |
-| **原子 GO 并发（ADR-018、10 §原子 GO）** | 4 个用户并发对同一形态仅剩 1 槽点击 GO | **恰好 1 个成功**（占槽 + 扣月度导出配额 + 建 Project + 解锁该形态点火包在**同一事务**内完成），其余立即失败；`opportunity_slots.claimed`、`slot_claims` 与 `usage_counters` 三方一致，无超卖 |
-| **承诺质押 3 类凭证（PRD F10）** | 分别提交 `DOMAIN_URL` / `STORE_LISTING_URL` / `PUBLIC_PAGE_URL`，探针 `<title>`/`<h1>`/`<meta>` 相关性通过 | 三类均置 `stake_status = VERIFIED`，槽位保留；探针不相关或超时则 `REJECTED` |
-| **质押 7 天逾期释放且配额不退（PRD §1.7 第 5 条、03 I12）** | GO 后 7 天内未提交凭证或不通过 | `stake_status = EXPIRED_RELEASED`，槽位释放回公共池，`slot_claims` 与 `opportunity_slots.claimed` 同步递减；**已扣减的月度导出配额不退还** |
-| **处女地独占买断（03 I13、PRD §1.7 第 5 条）** | ① `Σclaimed == 0` 下单；② 已有任一用户 GO（`Σclaimed > 0`）后下单；③ 同一用户已有一笔待付占位时再下单；④ 待付占位超窗口后**不跑任何作业** | ① 成功生成 `stealth_locks(ACTIVE)` + `stealth_lock_displays`（账本打码 60 天）；② **下单事务必须被拒** `422`，买断按钮置灰并**写明原因**；③ `409 STEALTH_LOCK_PENDING` 且附续付链接，不产生第二把锁；④ 机会自行重新可见（判据自愈，见 03 §17 I13——把正确性挂在作业上等于让一次调度故障变成无尽遮蔽） |
-| **买断可见性矩阵（10 §7）** | 保护期内，持有者与非持有者分别请求 Feed / 详情 / 研报 / 槽位 / 告警规则（创建**与列表**）/ 通知列表 / 公开页 / 公开战报 | Feed 与比较对**双方都**排除；详情 / 研报 / 槽位 / 告警规则 / 通知对持有者 `200`、对非持有者 `404`（与"不存在"同形，列表类是**该行不出现**）；公开页 `200` 且已打码；公开战报里该 Episode **仍在**分子分母，只是标题被替换 |
-| ↑ 该矩阵的两条执行纪律 | ① **按数据枚举读路径，不按函数清单**：凡是能返回该机会标题 / slug / 词根 / id 的端点都算在内。首发演练正是在这里查出一条侧门——研报端点原样返回 21 KB 全文，而"我接线了哪几个函数"这张清单看起来是齐的。② **判据落在服务层，不只加在路由上**：路由挡得住 HTTP，挡不住服务层直调（点火包就是直调） | ② 的反例可验：删掉 `ReportService.getOrGenerateReport` 的 `viewerId` 判据、只留路由上的检查，点火包那条路径就会在保护期内吐出真实标题 |
-| ↑ **两处刻意例外，不是漏网**（10 §7） | ① 告警规则 / 通知**列表**是整行不出现，不是把标题打码（行里的 `opportunity_id` 直接嵌了 slug）。② 用户**自己已经建好的项目**（`GET /projects`、`/projects/{id}`）上的机会字段**照常显示**。扫描时这两处会命中词根，属预期 | ② 必须断言**能看到**：买家买的是向前的「不被发现、不被占用」，读者早就掌握了该机会，抹掉标题只会把用户自己的看板弄坏。把它当漏网"修"掉是本条的主要回归风险 |
-| **打码时机：挂在付款上，不挂在占位上**（15 §3.1 第 7 条） | 对一条**已有真实公开页**的处女地机会下单（未付款），此时分别读 API 详情与公开页 | API 侧对非持有者 `404`、Feed 里不出现；公开页**仍是真实 slug 的 200 且未打码**——本条**必须断言"没被打码"**。提前打码等于给一个不付款的 Pro 用户一根把任意公开页踢出 sitemap 的杠杆（`STEALTH_LOCK_PENDING` 只限流、不授权）。付款落账后同一页才必须变成打码态 |
-| **买断打码不泄漏（10 §8.4、15 §8，0 容忍）** | 取一条词根独特的被买断机会，扫全部 `/api/v1/public/*` 响应体 | 响应体（含 `<title>`、slug、JSON-LD、公开战报）中**扫不到真实词根子串**；`is_stealth_masked` / `masked_label` / `unmasked_at` 三个字段齐备 |
+| **GO 无槽位并发（ADR-018、10 §4.3）** | 4 个各余 1 次配额的用户分别对 4 条不同裁决并发 `POST /go`；随后同一用户对同一 `decision_id` 再 GO 一次 | 4 个请求全部 `201`，各自建出 Project 并解锁点火包，`usage_counters.used` 各 +1；重复请求返回 `409 ALREADY_GO` 且配额**不重复扣减**。库中不存在任何 `opportunity_slots` / `slot_claims` 读写 |
+| **GO 配额与结转（13 §4.2）** | Pro 用户当月用满 3 次，次月再 GO 4 次；另测 Free 用户 GO | 次月可用余额为 3 + 3（上限 6），第 7 次返回 `403 QUOTA_EXCEEDED`；Free 返回 `403 PLAN_REQUIRED` |
+| **凭证核验可选且与配额解耦（13 §4.3、03 §17）** | ① GO 后不提交任何凭证；② 提交 `DOMAIN_URL` 并写入 `META_TOKEN`；③ 提交错误 token；④ GO 后等待超过任意历史"质押窗口" | ① Project 存在、`credential_status='UNVERIFIED'`、点火包可用；② 转 `VERIFIED_OWNER` 并开启排名追踪；③ 转 `REJECTED`；④ 不释放任何资源、不退还配额。凭证核验没有截止时间 |
+| **已删除机制不存在（v3.1）** | 扫描 schema、迁移、API 路由与服务层 | 不存在 `stealth_locks` / `stealth_lock_displays` / `STEALTH_BUYOUT` / `stake_status` / `active_go_slots_max`；没有买断或打码端点；任何付费动作都不改变机会可见性 |
 | **反滥用-邮箱归一化（13 §7.1、17 §2.5）** | 同一自然人用 `j.doe+free@gmail.com` 与 `jdoe@gmail.com` 先后注册领取终身免费初筛 | 归一为同一 `canonical_email`，第二次领取被拒；非 Gmail 域**不**剥离点号（不同人不得误合并） |
 | **反滥用-指纹 30 天限流（03 §2）** | 同一 `fingerprint_hash`/`ip_hash` 30 天内第二次触发免费实时初筛；随后注销账户并重注册 | 第二次被拒；注销后 `lifetime_scan_grants` 哈希**保留**（`user_id` 置 NULL）、`device_fingerprints` **删除**，重注册仍无法再领 |
 | **两阶段初筛与半遮罩可见性（F3）** | Free 用户提交自定义词；Pro 用户提交同词 | 第 1 阶段 5 秒内返回静态初筛卡；Free 的具体弱结果 URL、收钱竞品域名与 15 长尾词在**API 响应与渲染层双重不可得**（高斯模糊），Pro 全量可见 |
 | **`STALE_DATA` 72h 宽限（ADR-021、05 §5.3）** | 某源 72 小时内偶发失败 | 沿用最近成功快照档位并打 `STALE_DATA`；**不发布降档 Verdict、不投递降级告警**；连续失败 73 小时后该轴才置 `INSUFFICIENT` 并恢复降档与告警 |
 | **`WINDOW_CLOSING` 的 14 天约束（05 §5.1）** | ① 降档发生在 `obs_date` 前 14 天内且 `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`；② 降档发生在 30 天前或无前置已发布裁决 | ① 触发 `WINDOW_CLOSING`；② **不得**触发，低 W 只能落入 `WATCH` 或 `PASS` |
-| **公开资格-空槽一律不得公开（15 §3 第 1 条、§8，0 容忍）** | 一条 `BUILD_NOW`、槽位仍有空余的机会进 S8 发布循环；另一条**根本没有槽位行**的机会同样进入 | 两条均 `public_pages.status = 'DRAFT'`、`eligibility.admission.basis = null`、`blockedBy` 含 `OPEN_SLOTS`。**「没有槽位行」不得被读成「已满额」**（`0 >= 0` 的反面），必须单列一条断言。反向断言同样必须：`content` 里该机会的真实 slug 与正文**仍在**——本判据不负责打码，打码只归买断 |
-| **公开资格-满额即当日可公开（15 §3 第 1 条、D12）** | 一条首见仅 3 天、多形态 `Σclaimed == Σcapacity`、`w_band = HIGH` 的机会 | **允许公开**：`status = 'PUBLISHED'`、`admission.basis = 'CROWDED_LOCKED'`。旧判据（`ageDays >= 45` 加 `w_band` 白名单）在这里**两处都会挡**，故本条同时是对已废除口径的回归 |
-| **公开资格-14 天进窗的边界与粘滞（15 §3 第 1 条）** | ① 连续段起点恰在 14 天前；② 15 天前；③ `verdict` 仍为 `WINDOW_CLOSING` 但该连续段的起点在 25 天前（30 天迟滞之内） | ① 公开（**含端点**）；② 不公开；③ **不公开**——只看 `verdict == 'WINDOW_CLOSING'` 会把它误判成"刚关窗"。另须断言**满额旁路**：靠 `Σclaimed == Σcapacity` 进入 `WINDOW_CLOSING` 的机会一次 W 降档都没有，用"14 天内降过档"作代理会整个漏掉它 |
-| **公开资格-非单调撤回（15 §3「已知后果」）** | 取一条靠 `WINDOW_CLOSING` 入选、已是 `PUBLISHED` 的页，把账本推到第 15 天再跑一次发布 | 该页被翻成 `DRAFT`，`/public/opportunities/{slug}` 变 **404**。这是**当前有意**的行为——§8 的 0 容忍泄露率靠自动重评（含撤回）兜底；但它同时是 §5 内容生成落地前的阻塞项，见 `docs/15 §3`「已知后果」 |
-| **蚕食防护（15 §3 第 3 条）** | 候选与各已收录页的 SERP Top10（归一后）算 Jaccard：① 重叠 8/10；② 重叠 9/10；③ 库里一条已收录页都没有；④ 有已收录页但候选拿不到 SERP 快照；⑤ 已收录页是 `indexable = false` 的打码页 | ① `PASSED`（≈0.667 < 0.7）且放行；② `BLOCKED`（≈0.818 ≥ 0.7）且 `blockedBy` 含 `CANNIBALIZATION`；③ `VACUOUS`（**不得**报成"数据缺失"）；④ `NOT_EVALUATED`、fail-closed 阻断并登记 `notEvaluated`；⑤ 不计入参照集 → 退回 ③。**必须断言候选自己不与自己重叠**（否则一条已发布页在复审时被自己挡成 `DRAFT`，永远翻不回来） |
+| **公开资格-活跃窗口一律不得公开（15 §3 第 1 条、§8，0 容忍）** | 一条当前 `BUILD_NOW` 与一条 `EARLY_BET` 的机会进入 S8 发布循环 | 两条均 `public_pages.status = 'DRAFT'`、`eligibility.admission.basis = null`、`blockedBy` 含 `ACTIVE_WINDOW`；`/public/*` 全响应体扫描不到该机会 |
+| **公开资格-失去抢跑价值即可公开（15 §3 第 1 条）** | ① 首见仅 3 天的 `WINDOW_CLOSING`；② `PASS`；③ `MATURE`；④ 连续 14 天非 `BUILD_NOW` / `EARLY_BET` | 四条均在**当天**允许公开（`status='PUBLISHED'`）；`admission.basis` 分别为 `WINDOW_CLOSING` / `PASS` / `LIFECYCLE_CLOSED` / `INACTIVE_14D`。旧判据（`ageDays >= 45`、槽位满额、买断）在这里不得再出现 |
+| **公开资格-14 天连续段的边界与粘滞（15 §3 第 1 条）** | ① 连续段起点恰在 14 天前；② 15 天前；③ `verdict` 仍为 `WINDOW_CLOSING` 但该连续段起点在 25 天前 | ① 公开（**含端点**）；② 不公开；③ 仍可公开，因为 `WINDOW_CLOSING` 本身已满足"失去抢跑价值"——断言实现读的是判据组合，而不是"是否刚跨过某条线" |
+| **公开资格-非单调撤回（15 §3.1 第 3 条）** | 取一条已 `PUBLISHED` 的公开页，把账本推到该机会重新成为 `BUILD_NOW` 的当天再跑 S8 | 该页在同一次运行内被置为 `DRAFT`，`/public/opportunities/{slug}` 变 **404** 且 CDN 缓存被清除；不得用横幅或"历史归档"继续展示实时信号 |
+| **蚕食防护（15 §3 第 3 条）** | 候选与各已收录页的 SERP Top10（归一后）算 Jaccard：① 重叠 8/10；② 重叠 9/10；③ 库里一条已收录页都没有；④ 有已收录页但候选拿不到 SERP 快照；⑤ 已收录页是 `indexable = false` 的页 | ① `PASSED`（≈0.667 < 0.7）且放行；② `BLOCKED`（≈0.818 ≥ 0.7）且 `blockedBy` 含 `CANNIBALIZATION`；③ `VACUOUS`（**不得**报成"数据缺失"）；④ `NOT_EVALUATED`、fail-closed 阻断并登记 `notEvaluated`；⑤ 不计入参照集 → 退回 ③。**必须断言候选自己不与自己重叠**（否则一条已发布页在复审时被自己挡成 `DRAFT`，永远翻不回来） |
 
 ### 4.2 PRD 验收追溯补齐（R18，见 30 §3）
 
@@ -112,10 +106,9 @@ flowchart TD
 | **Golden：B 层 W 新鲜度** | B 层机会最近一份 SERP 快照距 `obs_date` 4–8 天 | W 不因新鲜度置 `INSUFFICIENT`；第 9 天起置 `INSUFFICIENT`；A 层超过 3 天即置 |
 | **Golden：INFERRED-only 的 EARLY_BET** | D = HIGH、W ≥ MEDIUM、M 仅有 `INFERRED` 商业意图证据 | 可发布 `EARLY_BET`（带"商业未验证"）；不得为 `BUILD_NOW` |
 | **Golden：补偿 BUILD_NOW 需交易证据（Q1）** | D = W = HIGH、M = MEDIUM，三组：①仅 ≥ 2 站静态定价；②含 `COMMERCIAL_TRACTION`；③定价持续 ≥ 90 天 | ① 最多 `EARLY_BET`，不得为 `BUILD_NOW`；②③ 为 `BUILD_NOW` 并标 `RULE_BUILD_NOW_COMPENSATED` |
-| **Golden：认领不触发窗口关闭（Q2）** | 前置已发布 `BUILD_NOW`；14 天内新增 2–3 个认领使含拥挤项的 W 降一档，市场 W（不含 `crowding_index`）不变；槽位未满 | 不得进入 `WINDOW_CLOSING`；W 展示值可下降；市场 W 降档时才触发；全部槽位满额时经 `CROWDED_LOCKED` 进入 |
-| **质押窗口按执行规模（Q5）** | 分别以 S / M / L 形态 GO，在第 8、15、22 天检查 | S 第 8 天、M 第 15 天、L 第 22 天释放槽位；之前任何时刻均保持占用；应用商店审核期的预发布着陆页可作为凭证通过探针 |
-| **首次逾期退配额（Q5）** | 同一用户先后两次质押逾期 | 第一次逾期退还 1 次导出配额（`usage_counters` 回补且留审计）；第二次不退；并发释放任务重复执行时只退一次 |
-| **活跃 GO 上限只计未核验（Q15）** | 用户已有 2 个 GO，其中 1 个质押核验通过 | 可以再发起第 3 个 GO；2 个都未核验时第 3 个返回 `ACTIVE_SLOTS_EXCEEDED`；核验通过的那个仍占用机会上的形态槽位（`Σclaimed` 不减） |
+| **Golden：拥挤度不进入 W（05 §5.2、§5.6）** | 前置已发布 `BUILD_NOW`；14 天内 `verified_product_count` 由 1 升到 3、`new_top10_entrants_30d` 由 0 升到 2 | `W_score` 与 `raw_verdict` **不变**，不进入 `WINDOW_CLOSING`；仅产生 `CROWDING_SIGNAL` 告警并触发 `EARLY_WINDOW → CONTESTED` 生命周期转换（若前置为 `EARLY_WINDOW`） |
+| **凭证核验方法矩阵（09 §8、03 §17）** | 分别以 `META_TOKEN` / `DNS_TXT` / `STORE_OAUTH` / `GITHUB_FILE` / `GITHUB_RELEASE_ASSET` 提交正确与错误凭证 | 正确凭证使项目转 `VERIFIED_OWNER` 并开启排名追踪；错误凭证转 `REJECTED`；同一项目至多一条 `VERIFIED_OWNER`，重复核验被唯一索引拒绝 |
+| **GO 配额不因任何后续事件回补** | ① 凭证核验失败；② 项目归档；③ 机会转为 `PASS` | 三种情况下 `GET /billing/usage` 的 `used` 均不减少；没有 `refund` 路径（GO 事务自身回滚除外） |
 
 ---
 
@@ -181,8 +174,8 @@ PRD §3.3 要求「机会报告与点火包 rubric 通过率」并列达标，�
 
 基于 Playwright 编写 3 条核心用户黄金链路（运行于 Staging 回放环境，不消耗生产预算）：
 1. **Onboarding → Feed 决策流**：新用户完成 4 问偏好问卷 → 浏览 Feed → 筛选 S 级周末工具 → 打开 Detail → 展开证据抽屉查看证据 → 点击 `GO` 并输入理由；
-2. **机会报告导出 → Project 立项流**：针对 GO 状态机会触发生成 → 验证报告 6 大分析板块正常渲染 → 一键导出 Markdown / PDF / JSON → 原子 GO（选择 Build Archetype，同一事务内占槽 + 扣导出配额 + 建 Project + 解锁该形态点火包）；
-3. **公开站 SEO 渲染流**：访问 `/track-record` 验证 Cohort Hit Rate & Accuracy Matrix 渲染与底栏 Merkle 根校验入口正常 → 访问**准实时精选机会页**（`CROWDED_LOCKED` / `WINDOW_CLOSING` 口径，PRD §7.1 已废除 45 天延迟）验证 `noindex` / `indexable` 标签符合预期。
+2. **机会报告导出 → Project 立项流**：针对 GO 状态机会触发生成 → 验证报告 6 大分析板块正常渲染 → 一键导出 Markdown / PDF / JSON → 原子 GO（选择 Build Archetype，同一事务内扣 1 次配额 + 建 Project + 解锁该形态点火包）；
+3. **公开站 SEO 渲染流**：访问 `/track-record` 验证 Cohort Hit Rate & Accuracy Matrix 渲染与底栏 Merkle 根校验入口正常 → 访问**准实时精选机会页**（已失去抢跑价值口径，PRD §7.1 已废除 45 天延迟、槽位满额与买断解锁）验证 `noindex` / `indexable` 标签符合预期，且活跃 `BUILD_NOW` / `EARLY_BET` 机会返回 404。
 
 ---
 
@@ -192,7 +185,7 @@ PRD §3.3 要求「机会报告与点火包 rubric 通过率」并列达标，�
 flowchart LR
   PR[提交 Pull Request] --> G1[Gate A: 代码静态质检<br/>TypeScript / ESLint / Prettier]
   G1 --> G2[Gate B: 确定性纯函数测试<br/>Scoring Golden / Ledger / oasdiff]
-  G2 --> G3[Gate C: DB 不变量集成测试<br/>Testcontainers I1–I14 验证]
+  G2 --> G3[Gate C: DB 不变量集成测试<br/>Testcontainers I1–I13 验证]
   G3 --> MERGE[允许合并至 main]
 
   MERGE --> NIGHTLY[夜间流水线 Nightly]

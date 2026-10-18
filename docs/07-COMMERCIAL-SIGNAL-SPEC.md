@@ -133,7 +133,7 @@ corroboration = 1（≥ 2 种不同证据类型支持同一域名）| 0.5（1 �
 ```
 分档：`HIGH ≥ 70`、`MEDIUM ≥ 40`、否则 `LOW`；展示时与 M 轴并列，不合并。
 
-### 6.4 新晋赢家雷达（`PROVEN_NEW_ENTRANT`，PRD §1.7.3）
+### 6.4 新晋赢家雷达（`PROVEN_NEW_ENTRANT`，PRD §1.8 第 3 条）
 在商业信号管线之上叠加一条**识别规则**（不改变 §6.1 的 M 轴分档，只产出卡片徽章）——当以下三条同时成立时，标记该机会含新晋赢家：
 
 1. **独立域名上线不满 6 个月**：判据只能来自 `domains.established_at` / `domains.established_source`（03 §6）。

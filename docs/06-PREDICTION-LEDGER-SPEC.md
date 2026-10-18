@@ -12,7 +12,7 @@ Status: Draft ｜ 依赖：03、05 ｜ 被依赖：15
 | 战绩页 | 公开命中与失误（15） |
 | 用户侧 Replay | 选择历史日期查看当时状态（Phase 2） |
 
-**前台的定位（PRD §1.7 第 7 条）**：Merkle 树的角色是**后台不可篡改的存证 + 前台底栏的校验入口**，不是对外的主打卖点。对用户与公开页而言，账本的价值体现在 **Cohort Hit Rate & Accuracy Matrix（公开 Cohort 战绩大盘）** 与**失误复盘（Misses & Post-mortems）** 上——即系统前向追踪的 T+30/60/90 天市场形成命中率、已立项项目的自然排名爬升率，以及明确列出的预测失误。密码学部分面向愿意自行复算的人（§5 公开验证工具），不在营销层反复强调。
+**前台的定位（PRD §1.8 第 7 条）**：Merkle 树的角色是**后台不可篡改的存证 + 前台底栏的校验入口**，不是对外的主打卖点。对用户与公开页而言，账本的价值体现在 **Cohort Hit Rate & Accuracy Matrix（公开 Cohort 战绩大盘）** 与**失误复盘（Misses & Post-mortems）** 上——即系统前向追踪的 T+30/60/90 天市场形成命中率、已立项项目的自然排名爬升率，以及明确列出的预测失误。密码学部分面向愿意自行复算的人（§5 公开验证工具），不在营销层反复强调。
 
 ## 2. 数据流
 
@@ -133,12 +133,13 @@ checkpoint_hash = SHA-256( prev_checkpoint_hash ‖ obs_date ‖ row_count ‖ m
 - Gate 1「账本运行 ≥ 60 天」（19 §4）与公开页的「观测起始日」从 v2 纪元首行的 `obs_date` 起算；
 - 这些行保留在表里（账本 append-only，不删除），公开验证工具对它们输出「纪元前，不可复验」，而不是报链断裂。
 
-**公开投影的资格判据（准实时精选，PRD §7.1）**：旧的「45 天延迟公开」方案已**彻底废除**。一条机会进入公开投影的唯一途径，是它**已经失去抢跑价值**：
+**公开投影的资格判据（准实时精选，PRD §7.1）**：旧的「45 天延迟公开」与「固定 14 天延迟」都已**彻底废除**。一条机会进入公开投影的唯一途径，是它**已经失去抢跑价值**（01 术语表）：
 
-1. **刚刚满足 `CROWDED_LOCKED`**——全部形态槽位（`Σ opportunity_slots.claimed == Σ capacity`，ADR-018）被认领满额；或
-2. **刚进入 `WINDOW_CLOSING`**——此前已发布过 `BUILD_NOW` / `EARLY_BET` 且 W 档在 14 天内下降 ≥ 1 档（05 §5.1 的三个必要条件）。
+1. 当前裁决为 `WINDOW_CLOSING` 或 `PASS`；或
+2. 生命周期为 `CONTESTED` / `MATURE` / `DEAD`；或
+3. 已连续 14 天不再是 `BUILD_NOW` / `EARLY_BET`（按 `verdicts` 连续段起始日计算，含端点）。
 
-**硬性排除**：仍有余槽的黄金 `BUILD_NOW`（空槽可认领）**严禁**进入公开投影，防止背刺付费 Pro 用户（PRD §1.7 第 6 条、§7.1）。入选凭据（当时凭 `CROWDED_LOCKED` 还是 `WINDOW_CLOSING`、槽位状态）随页面写 `public_pages.eligibility`（03 §15），使"为什么这条能被免费用户看到"事后可复核。
+**硬性排除**：仍处于 `BUILD_NOW` / `EARLY_BET` 的机会**严禁**进入公开投影，防止背刺付费 Pro 用户（PRD §1.8 第 6 条、§7.1）。入选凭据（命中上述哪一条）随页面写 `public_pages.eligibility`（03 §15），使"为什么这条能被免费用户看到"事后可复核。v3.1 没有槽位满额旁路。
 
 ## 6. 战绩的口径：Episode
 连续多日的同一 Verdict 高度相关，直接按日统计会夸大样本量。统计单位为 **Episode**：
@@ -152,13 +153,13 @@ Episode = (opportunity_id, verdict_class, start_date)
 - 每个 Episode 只在 `start_date` 计一次预测，评估锚定到 `start_date`。
 - 同一机会离开后再次进入，算新 Episode，但两次进入间隔 < 14 天视为同一 Episode。
 
-### 6.1 Sealed Ledger（买断项目的计入与打码，PRD §1.7 第 7 条 / ADR-018）
-被用户通过 `Stealth Lock`（`stealth_locks`，03 §12）独占买断的机会，**照常写入 `verdicts` 账本、照常生成 `prediction_episodes`，并计入 Cohort 胜率统计**——买断改变的是曝光，不是事实。
+### 6.1 买断与打码（v3.1 已移除）
 
-- **保护期内的展示**：在 60 天独占保护期内，公开投影（15）把该 Episode 的关键词与实体**打码为 `[Stealth Locked #ID]`**；保护期满（`stealth_locks.unlock_at`）后**自动解密**，公开具体词根。
-- **账本与展示解耦**：打码是**投影层行为**，不是对账本的改写——原 `verdicts` 行与 `prediction_episodes` 行从未被修改，打码别名单独存于 `stealth_lock_displays`（03 §15），且 `unmasked_at` 与 `stealth_locks.unlock_at` 严格一致（03 I14）。
-- **封印不损害"可证伪"**：因为账本行完整保留、命中与失误的分类不因打码而改变，任何人都能在保护期满后复算这条预测当时对不对。若打码会移除样本、或让胜率统计只挑好的公开，账本的可信度才真正受损——本设计刻意避免这一点。
-- **与公开验证的一致性**：§11 的 `public.track_record_episodes` 在保护期内保留该 Episode（参与汇总分子分母），仅其 `title_original` / 关键词字段替换为打码标签。
+PRD v3.1 删除了 Stealth Lock、`stealth_locks` 与 `stealth_lock_displays`，因此不再存在"买断后 60 天打码、期满解密"的账本/投影分支。
+
+- 所有已发布裁决与 Episode 照常写入账本、照常计入 Cohort 统计，不因任何付费动作而改变；
+- 公开投影不再做打码，也没有"打码期不参与明细"的例外；逐行明细只按 §11 的"失去抢跑价值 / T+90 评估"规则公开；
+- 历史买断数据如仍在库中，只作离线归档，不参与公开投影或统计口径。
 
 ## 7. 评估规格（`eval_spec = ev-1.0`）
 
@@ -277,35 +278,33 @@ compare(candidate outputs vs. ACTIVE ledger outputs) on §7 指标
 
 ## 11. Track Record 数据契约（供 15 使用）
 
-**汇总与明细分开（30 R10）**：旧口径只把满足准实时精选资格或买断打码的机会放进公开投影，结果是没人认领、悄悄失误的 `BUILD_NOW` 永远不会出现在战绩页上，命中率被系统性抬高。这与 PRD §7.2「失误复盘」和 §6.1「不得只挑好的公开」相悖。现规定：
+**汇总与明细分开（30 R10）**：旧口径只把满足公开资格的机会放进公开投影，结果是没人跟进、悄悄失误的 `BUILD_NOW` 永远不会出现在战绩页上，命中率被系统性抬高。这与 PRD §7.2「失误复盘」和 §6.1「不得只挑好的公开」相悖。现规定：
 
 - **`public.track_record_summary` 的分子分母纳入 v2 纪元内全部已发布 Episode**（§5），不按是否公开过滤。
-- **`public.track_record_episodes` 的逐行明细**只在 Episode 已不会泄露抢跑窗口时出现，即下列三者**先到**的那一刻（PRD v2.2 §1.7 第 7 条，Q11 已裁决）：① 失去抢跑价值（满足准实时精选资格，§5）；② 完成 T+90 评估；③ 买断打码期满（`stealth_locks.unlock_at`）。买断保护期内该 Episode 以打码形式（`[Stealth Locked #ID]`）出现，按 §6.1 不算泄露。
+- **`public.track_record_episodes` 的逐行明细**只在 Episode 已不会泄露抢跑窗口时出现，即下列两者**先到**的那一刻（PRD v3.1）：① 失去抢跑价值（满足公开资格，§5）；② 完成 T+90 评估。v3.1 没有买断打码期这一分支。
 - 汇总处同时公开「已计入但尚未逐行公开」的 Episode 数，让读者知道明细是子集。
 
 `public.track_record_episodes` 字段：
 
 | 字段 | 说明 |
 |------|------|
-| `episode_id` `opportunity_slug` `title_original` | 标识（买断保护期内 `title_original` 为打码标签 `[Stealth Locked #ID]`） |
+| `episode_id` `opportunity_slug` `title_original` | 标识 |
 | `market_country` `research_language` | 市场 |
 | `verdict_class` `start_date` `end_date` | Episode |
 | `verdict_at_start` 三轴分档 `confidence` | 当时状态 |
 | `first_observed_at` | 首次观测 |
 | `outcome_30d / 60d / 90d` | `market_formed` `window_closed`（true / false / pending） |
-| `is_stealth_masked` `masked_label` `unmasked_at` | 是否处于买断打码期、打码标签、自动解密时刻（03 §15 `stealth_lock_displays`） |
 | `ledger_checkpoint_hash` | 起始日 checkpoint，供验证 |
 | `is_override` | 是否含人工调整 |
 
 Builder-outcome 列（供公开战绩页）：`launch_verified_7d`（bool / pending）、`serp_top100_30d`（bool / pending），分别对应 §7.1 的 `verified_launch_within_7d` 与 `serp_top100_within_30d`，均不读 GSC。
 
-汇总统计（`public.track_record_summary`）：Episode 总数、已评估数、按 Verdict 的命中率、提升倍数（样本充足时）、窗口存活中位数、**7 天凭证核验通过率与 30 天 Top 100 入榜率**（样本充足时）、更新时间。买断打码的 Episode（§6.1）计入分子与分母，不打折统计口径。
+汇总统计（`public.track_record_summary`）：Episode 总数、已评估数、按 Verdict 的命中率、提升倍数（样本充足时）、窗口存活中位数、**7 天凭证核验通过率与 30 天 Top 100 入榜率**（样本充足时）、更新时间。全部已到期 Episode 计入分子与分母，不打折统计口径。
 
-**这一节是买断最集中的泄露面，两个方向都要做对**：
+**明细公开的两个方向都要做对**：
 
-- Episode 的 `opportunity_title` / `opportunity_slug` 直接来自 `opportunities` 表，**打码必须做在这一层**（读 Episode 的服务里），不是在做响应的路由里——路由只是透传，改它等于没改。
-- `prediction_episodes` 表里没有标题列，所以 `masked_label` 只能从 `stealth_lock_displays` join 出来（03 §15）。这也是该表**必须存在且必须被读**的原因：它是唯一一处能保证"只打一次码"的地方。
-- 方向相反的第二个错误是**剔除**：少一行就是买断者用钱买走了平台的败绩，而战绩页会因此系统性偏乐观——这正是 §6.1 与 15 §3.1 第 2 条要防的事，15 §8 把它列为 100% 的 0 容忍指标。
+- **不泄露活跃窗口**：明细只按 §11 的"失去抢跑价值 / T+90"规则公开；仍处于 `BUILD_NOW` / `EARLY_BET` 的机会不得出现在逐行明细中。
+- **不剔除失误**：汇总必须包含全部已到期 Episode，包括无人跟进、悄悄失误的 `BUILD_NOW`；少一行就会让战绩页系统性偏乐观（15 §8 的 0 容忍指标）。
 
 ## 12. 失败与告警
 | 事件 | 级别 | 处置 |

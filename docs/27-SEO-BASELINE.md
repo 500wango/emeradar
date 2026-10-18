@@ -74,8 +74,8 @@ JSON-LD 是 `<script type="application/ld+json">`，在 `script-src 'nonce-…' 
 4. **没有位图 logo 与 OG 图片**：`public/` 只有 `icon.svg`。Organization 的 `logo` 因此留空（不给错资源），分享卡片也只有文字。补一张位图会同时改善这两处。
 5. **Search Console**：站点地图目前只能靠 GSC 手动提交（`robots.txt` 无 Sitemap 行）；本次没有动 GSC。
    - **注意区分两件事**：PRD v2.1 把**产品内**的 GSC 连接降为可选增强项（`src_gsc`，见 `04` §9.5 与 `06` §7.1），那是因为它从"必选的战绩核销凭据"变成了"用户自愿的自身流量复盘"。这是**产品功能**的降级，与**运维侧**提交站点地图这件事无关 —— 后者仍然是站长自己要和 Google 打交道的事，GSC 依旧是站点地图被发现的唯一途径。
-6. **PRD v2.1 新增的一条路由待纳入**：`/case-studies/[slug]`（买断保护期满后解密生成的完结案例页，`15` §3.1）。它以 `page_type='CASE_STUDY'` 出现在 `public_pages`，因此 `lib/seo/site.ts` 的公开页清单与 `sitemap` 生成逻辑需要把它一并纳入（与 `/public/opportunities/[slug]` 同一路径，不需要新机制）。当前库里没有解密记录，所以线上暂时不会出现该 URL —— 与第 4 条的"没发布过 indexable 记录"是同一类空状态，不是抓取故障。
-   - **明确不该被索引的**：候选池（`/feed` 的候选池 Tab）与 `/screener` 是登录后页面，必须继续输出 `X-Robots-Tag: noindex`。买断保护期内的公开投影也强制 `indexable = false`（`15` §5），因此不会进 sitemap。
+6. **PRD v2.1 新增的一条路由待纳入**：`/case-studies/[slug]`（机会失去抢跑价值并完成结果回流后生成的完结案例页，`15` §3.1）。它以 `page_type='CASE_STUDY'` 出现在 `public_pages`，因此 `lib/seo/site.ts` 的公开页清单与 `sitemap` 生成逻辑需要把它一并纳入（与 `/public/opportunities/[slug]` 同一路径，不需要新机制）。当前库里没有可发布的案例记录，所以线上暂时不会出现该 URL —— 与第 4 条的"没发布过 indexable 记录"是同一类空状态，不是抓取故障。
+   - **明确不该被索引的**：候选池（`/feed` 的候选池 Tab）与 `/screener` 是登录后页面，必须继续输出 `X-Robots-Tag: noindex`。仍处于活跃 `BUILD_NOW` / `EARLY_BET` 的机会不得公开（`15` §3/§5），因此不会进 sitemap。v3.1 没有买断保护期，`indexable=false` 只由质量门槛或活跃窗口阻断决定。
 
 ## 6. 监控与判定规则
 

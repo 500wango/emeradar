@@ -2,7 +2,7 @@
 
 Status: Superseded（2026-10-17，被 28 与 30 取代；原 Active 2026-10-11）｜ 目标：把“机会证据验证器 → 决策 → 项目结果回流”收敛为可交付的首发闭环。
 
-> **与 v2.1 的关系**：本文记录的是 PRD v2.1 之前的**历史轮次**（P0/P1 修复与验收清单），其结论按当时的 45 天延迟与 GSC 必选口径写成。PRD 升到 v2.1 后的差距分析与逐文档设计定论（D1–D14）见 `docs/28-PRD-V2.1-ALIGNMENT.md`；本文的历史条目不再逐一回溯改写，v2.1 的新轮次以 28 为准。
+> **与 v2.1 / v3.1 的关系**：本文记录的是 PRD v2.1 之前的**历史轮次**（P0/P1 修复与验收清单），其结论按当时的 45 天延迟与 GSC 必选口径写成。PRD 升到 v2.1 后的差距分析与逐文档设计定论（D1–D14）见 `docs/28-PRD-V2.1-ALIGNMENT.md`；v3.1 删除的槽位、质押与买断不再适用，本文相关历史条目只保留追溯价值，现行口径以 `01-PRD.md` v3.1 为准。
 
 ## 1. 目标与非目标
 
@@ -25,7 +25,7 @@ Status: Superseded（2026-10-17，被 28 与 30 取代；原 Active 2026-10-11�
 |---|---|---|
 | Verdict gate | Candidate/Watch 可进入报告或项目 | 服务层和页面同时拒绝；只有 `TRACKED + BUILD_NOW/EARLY_BET` 放行 |
 | Report lifecycle | 打开报告误扣导出额度 | 生成使用 `GENERATE_REPORT`；导出只在 Pro 执行导出权限校验 |
-| Feed entitlement | Free 被当成实时用户 | Free 仅见每周 1 条准实时精选案例（`CROWDED_LOCKED` / `WINDOW_CLOSING`）与候选区只读，Pro 见全量实时 Feed；`feed_delay_days` 延迟模型已废除 |
+| Feed entitlement | Free 被当成实时用户 | Free 仅见每周 1 条已失去抢跑价值的案例（裁决 `WINDOW_CLOSING` / `PASS`、生命周期已关闭，或连续 14 天非 `BUILD_NOW` / `EARLY_BET`）与候选区只读，Pro 见全量实时 Feed；`feed_delay_days` 延迟模型已废除 |
 | Watch | 重复规则、无法取消 | 同一用户/机会/规则类型幂等；告警页可删除 |
 | Project / GSC（可选） | 用户无法完成上线 | 项目页有状态切换；GSC 为**可选增强项**，提供 OAuth 入口、property 选择和断开入口，未连接不阻塞核心 SERP 追踪 |
 | Evidence copy | Stripe/hash 被包装成商业实证 | 首页使用 `observed pricing/checkout exists`，明确不证明收入 |
@@ -43,7 +43,7 @@ Status: Superseded（2026-10-17，被 28 与 30 取代；原 Active 2026-10-11�
 
 1. Watch 幂等创建、删除 API 和管理 UI。
 2. Project 状态更新、GSC 连接状态、property 选择和断开 UI。
-3. 用事务 advisory lock 保护机会认领槽位。
+3. GO 配额预占用原子条件更新（`used + 1 <= limit`），并用 `decision_id` 唯一约束防止同一裁决重复立项（v3.1 已无槽位）。
 
 ### Sprint 3：激活与可用性（P1，部分完成）
 
@@ -54,7 +54,7 @@ Status: Superseded（2026-10-17，被 28 与 30 取代；原 Active 2026-10-11�
 ## 4. 验收清单
 
 - Candidate 无论 Free、Pro 都不能生成报告、导出或 GO；历史 Team 账户沿用同一发布资格门槛。
-- Free 用户只看到每周 1 条准实时精选案例（`CROWDED_LOCKED` / `WINDOW_CLOSING`）与只读候选观察区；Pro 看到实时已发布决策和候选观察区。
+- Free 用户只看到每周 1 条已失去抢跑价值的案例与只读候选观察区；Pro 看到实时已发布决策和候选观察区。
 - 报告页面首次打开不会计入导出额度；Free 预览不能导出；Pro 导出权限按套餐生效。
 - Watch 重复点击返回已有规则，删除后可以再次关注。
 - GO 使用准确的 `verdict_id` 创建项目；项目可切换 `IN_DEVELOPMENT/LAUNCHED`，并显示 launch date。

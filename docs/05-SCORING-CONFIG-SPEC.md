@@ -4,6 +4,8 @@ Status: Draft ｜ 依赖：01 §5、03 ｜ 被依赖：06、07、12、16
 
 本文定义三轴、置信度、Verdict、生命周期如何由**确定性纯函数**和**版本化配置**计算。所有数值为 `sc-1.0.0` 的**初始值**，须在 Phase 0 校准。
 
+> **v3.1 基线（2026-10-18）**：裁决顺序改为 `PASS → WINDOW_CLOSING → BUILD_NOW → EARLY_BET → WATCH` 的单值顺序；槽位、认领、质押、Stealth Lock 已从产品中移除，`CROWDED_LOCKED` 不再产生。W 轴只由 SERP 弱度与竞争压力构成；已核验产品数、Top10 specialist 数与近 30 天新进入者仅用于拥挤度透明度、生命周期与告警，不进入 W 分数。下游与代码未同步前，以 01-PRD v3.1 为准。
+
 ## 1. 总则
 1. 评分包 `@app/scoring` 无 IO、无当前时间读取、无随机数、无 LLM 调用。
 2. 输入 = `ScoringInput`（features + 上一日状态 + 配置）；输出 = `ScoringOutput`（三轴、Verdict、生命周期、解释轨迹）。
@@ -42,8 +44,9 @@ Status: Draft ｜ 依赖：01 §5、03 ｜ 被依赖：06、07、12、16
 | `e_specialist_30d` | 当前 Top10 中的 SPECIALIST 域名里，在 `[t−60d, t−30d]` 的所有 Top10 快照中均未出现者的个数 |
 | `e_authoritative_30d` | 同上，域名类别为 `MAJOR_MEDIA` 或 `OFFICIAL` |
 | `volatility_30d` | `t` 与 `t−30d` 两份 Top10 中同时出现的 URL 的平均绝对排名位移，上限 10 |
-| `crowding_index` | `min(100, Σclaimed_slots × crowding_per_slot)`，`crowding_per_slot` 默认 20。`Σclaimed_slots` 是该机会**全部形态槽位**中处于 `CLAIMED` 的总数（ADR-018、§5.1），上限 `Σcapacity`，故全部槽位占满时该项达 100 |
 | `serp_history_days` | 该机会 SERP 快照覆盖的天数 |
+| `verified_product_count` | 映射到该机会、`projects.credential_status = 'VERIFIED_OWNER'` 的独立项目数。只用于拥挤度透明度（01 §5.9）、生命周期与 F9 告警，**不进入 W_score** |
+| `new_top10_entrants_30d` | 近 30 天首次进入 Top10 的独立站数量。只用于拥挤度透明度、生命周期与 F9 告警，**不进入 W_score** |
 
 ### 3.3 SERP 弱度
 对 Top10 第 i 位结果，设排名权重 `r = [0.20, 0.15, 0.12, 0.10, 0.09, 0.08, 0.07, 0.07, 0.06, 0.06]`。单结果弱度 `w_i ∈ [0,1]`：
@@ -93,10 +96,9 @@ coverage_D = Σ w_k(可用) / Σ w_k(全部)
 ### 4.2 W 轴
 ```text
 pressure = min(100, 30·e_specialist_30d + 40·e_authoritative_30d + 3·volatility_30d)
-W_score  = 0.60·serp_weakness + 0.25·(100 − pressure) + 0.15·(100 − crowding_index)
-market_W = (0.60·serp_weakness + 0.25·(100 − pressure)) / 0.85     -- 不含拥挤项，归一化到 0–100
+W_score  = market_W = (0.60·serp_weakness + 0.25·(100 − pressure)) / 0.85
 ```
-`w_band` 由 `W_score` 分档，用于展示与 Verdict 主条件；`market_w_band` 用同一阈值表对 `market_W` 分档，**只**用于 `WINDOW_CLOSING` 的降档判定与 `W_DROPPING`（§5.1、§5.3；PRD v2.2 §1.7 第 2 条）。两者的带日期历史都写入 `prev`。`INSUFFICIENT` 条件两者共用。
+`w_band` 由 `W_score` 分档，用于展示与 Verdict 主条件。v3.1 起 W 轴**不再包含**任何平台侧槽位/认领拥挤项，`w_band` 与旧字段 `market_w_band` 同值；保留 `market_w_band` 名称仅为账本兼容。带日期的档位历史写入 `prev`。`INSUFFICIENT` 条件两者共用。由于去掉了旧 `crowding_index`（权重 0.15），`sc-1.0.0` 的 70/45 阈值必须在 Phase 0 用无槽位口径重新校准后再冻结。
 | 档 | 条件 |
 |----|------|
 | `INSUFFICIENT` | `serp_history_days < min_history_days`（§2，快车道为 7）或 `obs_date` 前 `serp_freshness_days[tier]` 天内无 SERP 快照 |
@@ -145,79 +147,73 @@ observed_share = OBSERVED 证据占本机会有效证据的比例
 即时追踪申请（01 F3）走这条路径：它可以保存第一次联想观测和辅助来源行，但不得调用 §5.1 的升档规则。每日批处理在资格满足后才第一次允许 `BUILD_NOW` / `EARLY_BET`。`WINDOW_CLOSING` 另外要求 `prev.verdict` 已是发布过的 `BUILD_NOW` 或 `EARLY_BET`。
 
 ### 5.1 原始 Verdict（`raw_verdict`）与产出健康区间
-系统引入 **Verdict 产出健康区间（Yield Health Band，目标每周 1–5 条 BUILD_NOW/EARLY_BET）**，废除单纯的静态全硬布尔阻断，引入**特征补偿机制（Feature Compensation）**：
+系统目标每周 1–5 条 `BUILD_NOW` + `EARLY_BET` 合计，但**不得为凑产出降低 `BUILD_NOW` 阈值**。初始规则严格按 01 §1.8 第 2 条 / §5.7 的顺序执行，首个命中即返回：
 
 ```ts
 function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
   const negativeM = a.m.hasStrongNegative;
 
-  // 1. 槽位全满熔断（防止 Alpha Decay 公地悲剧）
-  // 只要有任一形态还有空槽就不算锁死；须 Σclaimed == Σcapacity 才熔断。
-  if (a.w.isCrowdedLocked || a.w.slotsClaimedTotal >= a.w.slotsCapacityTotal) {
-    return WINDOW_CLOSING; // 或转入 CONTESTED，避免被更多订阅者踏平
-  }
-
-  // 2. 标准 BUILD_NOW 门槛
-  if (a.d >= MEDIUM && a.m === HIGH && a.w >= MEDIUM && a.conf >= MEDIUM && !negativeM)
-    return BUILD_NOW;
-
-  // 3. 特征补偿 BUILD_NOW（打破 0 产出：强爆发需求 + 宽阔窗口 补偿 中等商业验证）
-  // v2.2 Q1：纯装饰性定价的 MEDIUM 不得补偿，最多走到 EARLY_BET
-  const mVerified = a.m.band === 'HIGH' ||
-    (a.m.band === 'MEDIUM' && (a.m.hasTransactionTraction || a.m.pricingPersistentDays >= 90));
-  if (a.d === HIGH && a.w === HIGH && mVerified && a.conf >= MEDIUM && !negativeM)
-    return BUILD_NOW;
-
-  // 4. 激活 EARLY_BET（放宽门槛，先上车后补票）
-  // 门槛：D=HIGH 且 W >= MEDIUM；或 Fast-Track 脉冲下 D >= MEDIUM 且 W=HIGH
-  const isEarlyBet = (a.d === HIGH && a.w >= MEDIUM) || (a.fastTrack && a.d >= MEDIUM && a.w === HIGH);
-  if (isEarlyBet && a.m in {LOW, MEDIUM, INSUFFICIENT} && a.conf >= LOW && !negativeM)
-    return EARLY_BET;
-
-  // 5. 窗口关闭（三个必要条件缺一不可，见下方说明）
-  // v2.2 Q2：降档判定只看市场 W（不含 crowding_index），拥挤只经 CROWDED_LOCKED 生效
-  if ((prev.verdict in {BUILD_NOW, EARLY_BET} && wDroppedWithin(prev.datedMarketWBandHistory, 14)) ||
-      (prev.verdict === WINDOW_CLOSING && a.w !== HIGH && a.d >= MEDIUM && daysInState(prev) <= cfg.windowClosingMaxDays))
-    return WINDOW_CLOSING;
-
-  // 6. PASS 条件先于 WATCH 评估
+  // 1. PASS：先硬性出局（D=Low、W=Low 或强负面 M）
   if (a.d === LOW || negativeM || a.w === LOW) return PASS;
 
-  return WATCH;   // 含 D 为 INSUFFICIENT 的情形，此时附加 PARTIAL_DATA flag
+  // 2. WINDOW_CLOSING：单值裁决，不与 BUILD_NOW 叠加
+  //    必要条件：此前已发布 BUILD_NOW/EARLY_BET；W 在 14 天内降 ≥1 档；当前 W≥MEDIUM。
+  const windowClosing =
+    (prev.verdict === BUILD_NOW || prev.verdict === EARLY_BET) &&
+    a.w >= MEDIUM &&
+    wDroppedWithin(prev.datedWBandHistory, 14);
+  if (windowClosing) return WINDOW_CLOSING;
+
+  // 3. BUILD_NOW 标准路径
+  if (a.d >= MEDIUM && a.m.band === 'HIGH' && a.w >= MEDIUM && a.conf >= MEDIUM)
+    return BUILD_NOW;
+
+  // 4. BUILD_NOW 补偿路径：D/W 双 HIGH 补偿 M=MEDIUM
+  //    M=MEDIUM 必须含 COMMERCIAL_TRACTION，或定价持续 ≥90 天；纯装饰性定价最多到 EARLY_BET。
+  const mVerified = a.m.band === 'HIGH' ||
+    (a.m.band === 'MEDIUM' && (a.m.hasTransactionTraction || a.m.pricingPersistentDays >= 90));
+  if (a.d === HIGH && a.w === HIGH && mVerified && a.conf >= MEDIUM)
+    return BUILD_NOW;
+
+  // 5. EARLY_BET：商业未验证也允许，界面必须标注“商业未验证，抢跑窗口”
+  const isEarlyBet = (a.d === HIGH && a.w >= MEDIUM) ||
+    (a.fastTrack && a.d >= MEDIUM && a.w === HIGH);
+  if (isEarlyBet && ['LOW','MEDIUM','INSUFFICIENT'].includes(a.m.band))
+    return EARLY_BET;
+
+  // 6. WATCH 兜底；D=INSUFFICIENT 时附加 PARTIAL_DATA
+  return WATCH;
 }
 ```
 说明：
+- **顺序不可交换**：`PASS` 必须先于 `WINDOW_CLOSING` 和 `BUILD_NOW`；`WINDOW_CLOSING` 必须先于 `BUILD_NOW`。`WINDOW_CLOSING` 是单值裁决，不再与 `BUILD_NOW` 并存；发布后的第二天从当前轴重新判定，不以 `WINDOW_CLOSING` 自身作为前置。
+- **`WINDOW_CLOSING` 的必要条件**（缺一即不成立，PRD §5.7）：
+  1. `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`，且该裁决已经发布过；当天竞争看起来不强不是窗口关闭。
+  2. **W 档**在 `obs_date` 前 14 天内下降 ≥1 档。这要求降档历史是**带日期**的 `(obs_date, w_band)` 序列；仅有档位数组无法判定“14 天内”，会让任意久远的降档在今天触发窗口关闭。
+  3. 当前 W ≥ `MEDIUM`。
+  4. 该判定不得由处于 `STALE_DATA` 的轴触发（ADR-021）。
 - **特征补偿（Compensated Build）**：当搜索需求呈现强烈脉冲拉升、且 SERP 极其虚弱无竞品占据时，即便商业变现证据仍处于中档验证期，系统允许补偿升档为 `BUILD_NOW`，避免好机会因教条的商业硬指标被完全漏掉。
-  - **补偿条件（PRD v2.2 §5.7，30 Q1 已裁决）**：M=MEDIUM 时必须**至少含一条 `COMMERCIAL_TRACTION`**（`hasTransactionTraction`），**或**定价 / checkout 在快照中持续 ≥ 90 天（`pricingPersistentDays ≥ 90`，07 §5）。只凭独立定价站数量（`independentDomainsCount ≥ 2`）不再满足补偿——那正是多站静态 `PRICING_DECORATION`，违背 PRD §1.7 第 3 条「有人收费 ≠ 有人付费」。纯装饰性的 MEDIUM 最多到 `EARLY_BET`。现行代码仍按旧口径（`independentDomainsCount ≥ 2`），属 M1 待实现，随 `sc-1.1.0` 进 SHADOW。
-- **认领保护**：槽位按 Build Archetype 切分（ADR-018）：默认每形态 `capacity = 2`，全机会 `Σcapacity ≤ 6`。`Σclaimed == Σcapacity` 时置 `isCrowdedLocked`，自动转为 `WINDOW_CLOSING` 并降低后续可见性；任一形态仍有空槽则不熔断。
-  - **活跃认领的唯一判定（D2）**：`projects.status != 'ARCHIVED'` **且** 该认领的质押不处于 `EXPIRED_RELEASED`。评分、展示、拦截三条读路径必须复用同一谓词。历史上三处曾分别写成 `!= 'ARCHIVED'` 与 `!= 'ABANDONED'`（后者不在 `projects.status` 的合法取值内，等于把归档项目也计入占用），这是必须消除的分歧。
-- **`WINDOW_CLOSING` 的三个必要条件**（缺一即不成立，见 PRD §1.7.2）：
-  1. `prev.verdict ∈ {BUILD_NOW, EARLY_BET}`——它必须来自一条**已经发布过**的裁决；当天竞争看起来不强不是窗口关闭。
-  2. **市场 W 档**（`market_w_band`，§4.2，不含拥挤项）在 `obs_date` **前 14 天内**下降 ≥ 1 档。这要求降档历史是**带日期**的 `(obs_date, market_w_band)` 序列；仅有档位数组无法判定"14 天内"，会让任意久远的降档在今天触发窗口关闭。
-  3. 该判定不得由处于 `STALE_DATA` 的轴触发（ADR-021）。
-  例外：全部槽位满额触发的 `CROWDED_LOCKED` 熔断可直接置 `WINDOW_CLOSING`。此前的理由是「能认领的机会必然是已发布裁决」，但没有任何代码校验这个假设。实现时熔断分支必须同时检查 `prev.verdict ∈ {BUILD_NOW, EARLY_BET, WINDOW_CLOSING}`；不满足时记录异常并回落到 `WATCH`，不得凭空产生 `WINDOW_CLOSING`。
-  - **拥挤与窗口关闭解耦（PRD v2.2 §1.7 第 2 条、§5.5，30 Q2 已裁决）**：W 展示值（`W_score`、`w_band`）保留 `crowding_index`；但第 2 条的降档判定**只读市场 W**（§4.2 的 `market_w_band`）。否则 2–3 个认领（`crowding_per_slot = 20`、权重 0.15）就能让 W 降一档并触发 `WINDOW_CLOSING`，窗口关闭成了平台自己造成的。拥挤只通过 `CROWDED_LOCKED` 熔断生效。`W_DROPPING`（§5.3）同样按市场 W 判定。
-- **`STALE_DATA` 与降档抑制（ADR-021）**：某轴处于 72 小时宽限期内时，沿用最近成功快照的档位并打 `STALE_DATA`。此时**不得发布降档 Verdict、不得投递降级告警**——偶发采集故障不能被用户读成"竞争格局变了"。连续失败超 72 小时后该轴才置 `INSUFFICIENT`，届时恢复正常的降档与告警路径。
-- `EARLY_BET` 的界面必须带"商业未验证"标记（16）。
-- `windowClosingMaxDays` 默认 30，超时后回落到 `WATCH` 或 `PASS`。
+  - **补偿条件（PRD v3.1 §5.7）**：M=MEDIUM 时必须**至少含一条 `COMMERCIAL_TRACTION`**（`hasTransactionTraction`），**或**定价 / checkout 在快照中持续 ≥ 90 天（`pricingPersistentDays ≥ 90`，07 §5）。只凭独立定价站数量（`independentDomainsCount ≥ 2`）不再满足补偿——那正是多站静态 `PRICING_DECORATION`，违背 PRD §1.8 第 3 条「有人收费 ≠ 有人付费」。纯装饰性的 MEDIUM 最多到 `EARLY_BET`。现行代码仍按旧口径（`independentDomainsCount ≥ 2`），属 M1 待实现，随 `sc-1.1.0` 进 SHADOW。
+- **拥挤度不再进入评分**：`verified_product_count` / `new_top10_entrants_30d` 只用于 01 §5.9 的拥挤度透明度、生命周期（§6）与 F9 告警；不得写回 W，也不得触发 `WINDOW_CLOSING`。`CROWDED_LOCKED` 已从 Verdict flags 中删除。
+- **`STALE_DATA` 与降档抑制（ADR-021）**：某轴处于 72 小时宽限期内时，沿用最近成功快照的档位并打 `STALE_DATA`。此时**不得发布降档 Verdict、不得投递降级告警**——偶发采集故障不能被用户读成“竞争格局变了”。连续失败超 72 小时后该轴才置 `INSUFFICIENT`，届时恢复正常的降档与告警路径。
+- `EARLY_BET` 的界面必须带“商业未验证”标记（16）。
 
 ### 5.2 去抖（发布 Verdict）
 账本发布值 `verdict` 由 `raw_verdict` 与历史决定：
 - 升档（→ `BUILD_NOW` / `EARLY_BET`）：`raw_verdict` 连续 `confirm_days.upgrade`（默认 2）天不变才发布。
 - 降档：连续 `confirm_days.downgrade`（默认 2）天才发布。
-- **绕过去抖**：M 轴出现强负面信号（`hasStrongNegative`）→ 立即 `PASS`；认领槽位耗尽熔断（`isCrowdedLocked`）→ 立即降级；`DEAD` 状态 → 立即 `PASS`。
+- **绕过去抖**：M 轴出现强负面信号（`hasStrongNegative`）→ 立即 `PASS`；`DEAD` 状态 → 立即 `PASS`。
 - `raw_verdict` 与 `verdict` 均写入账本。
 
 ### 5.3 Flags
 | Flag | 条件 |
 |------|------|
-| `W_DROPPING` | 14 天内**市场 W 档**（`market_w_band`，§4.2）下降 ≥ 1，且 Verdict 仍为 `BUILD_NOW` / `EARLY_BET` |
+| `W_DROPPING` | 14 天内 **W 档**（`w_band`，§4.2）下降 ≥ 1，且 Verdict 仍为 `BUILD_NOW` / `EARLY_BET` |
 | `M_NEGATIVE` | 存在强负面商业信号 |
 | `LOW_CONFIDENCE` | `confidence = LOW` |
 | `PARTIAL_DATA` | 任一轴 `INSUFFICIENT`，或宇宙过小 |
 | `BASELINE_PERIOD` | 机会仍在基线期内 |
 | `FAST_TRACK` | 经 7 天脉冲快车道评估晋级 |
-| `CROWDED_LOCKED` | 该机会**全部形态**槽位已满（`Σclaimed == Σcapacity`，默认上限 6），窗口对公域关闭 |
 | `STALE_DATA` | 本次评估的至少一个轴复用了 72 小时宽限期内的历史快照（该源 `source_health = STALE`）。带此 flag 时不得发布降档、不得触发降级告警（ADR-021） |
 
 ## 6. 生命周期
@@ -228,7 +224,7 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
 |------|----------------|
 | （新机会）→ `FORMING` | 初始状态 |
 | `FORMING` → `EARLY_WINDOW` | D ≥ MEDIUM ∧ W ≥ MEDIUM |
-| `EARLY_WINDOW` → `CONTESTED` | W 档较 7 天前下降 ≥ 1，或 `e_specialist_30d + e_authoritative_30d ≥ 2` |
+| `EARLY_WINDOW` → `CONTESTED` | W 档较 14 天前下降 ≥1，或 `e_specialist_30d + e_authoritative_30d ≥ 2`，或 `verified_product_count ≥ 3` |
 | `FORMING` → `CONTESTED` | W = LOW ∧ `e_specialist_30d ≥ 2` |
 | `CONTESTED` → `EARLY_WINDOW` | W = HIGH 持续 7 天且 `e_* = 0` |
 | `CONTESTED` → `MATURE` | 连续 60 天 `volatility_30d ≤ 1.5` ∧ `e_specialist_30d = 0` ∧ `expansion_slope_30d ≤ 0.02` |
@@ -260,19 +256,17 @@ function rawVerdict(a: Axes, prev: PrevState, cfg: Config): Verdict {
     "age_adj": [ { "months_gt": 24, "add": 0.2 }, { "months_gt": 12, "add": 0.1 } ],
     "relevance_adj": { "lt": 0.5, "add": 0.2 },
     "pressure": { "specialist": 30, "authoritative": 40, "volatility": 3 },
-    "score_weights": { "serp": 0.60, "pressure": 0.25, "crowding": 0.15 },
-    "crowding_per_slot": 20,
+    "score_weights": { "serp": 0.60, "pressure": 0.25, "normalize": 0.85 },
     "bands": { "high": 70, "medium": 45 },
     "min_serp_history_days": 14
   },
   "m": { "rules_ref": "07#6", "evidence_max_age_days": 120, "persistence_days": 90 },
   "confidence": { "weights": [0.35,0.25,0.20,0.20], "high": 0.75, "medium": 0.50 },
-  "verdict": { "confirm_days": { "upgrade": 2, "downgrade": 2 }, "window_closing_max_days": 30,
+  "verdict": { "confirm_days": { "upgrade": 2, "downgrade": 2 },
                "build_now_target_share_max": 0.05 },
-  "lifecycle": { "confirm_days": 3, "contested_entrants": 2, "mature_days": 60,
+  "lifecycle": { "confirm_days": 3, "contested_new_entrants_30d": 2,
+                 "contested_verified_products": 3, "mature_days": 60,
                  "dead": { "ratio": 0.6, "days": 60 } },
-  "slots": { "default_capacity_per_archetype": 2, "max_capacity_total": 6,
-             "max_active_go_per_user": 2, "stake_window_days": 7 },
   "staleness": { "grace_hours": 72 }
 }
 ```
@@ -287,8 +281,8 @@ DRAFT ──(提交)──▶ SHADOW ──(≥14 天 + 对比报告 + 回测不
 - 配置内容一旦离开 `DRAFT` 即不可变（03 I3）；变更 = 新版本。
 - BUILD NOW 产出健康监控与稀缺性管理：
   - **产出下限（Recall 守卫）**：若全平台连续 7 天没有**新增**任何一条 `BUILD_NOW` 或 `EARLY_BET`，触发 P1 Yield 告警，**由 Admin 人工复核**。复核结论若是调整阈值，必须走上面的 `DRAFT → SHADOW（≥ 14 天）→ ACTIVE` 流程，**不得自动校准**（30 R13）。理由有两条：自动校准会绕过 SHADOW；为凑产出而调阈值，会让 H1 评估的对象在观测期内被改写；
-  - **产出上限（Precision 守卫）**：若 BUILD_NOW 占已发布机会的**存量**比例连续 7 天 > `build_now_target_share_max`（默认 5%），触发 Admin 告警并要求复核阈值。
-  - **两个守卫的单位不同，分开监控**：下限看的是**每周新增**条数（PRD §1.7 第 4 条「每周 1–5 条」），上限看的是**存量占比**（PRD §5.7「≤ 5%」）。宇宙小时两者可以同时成立，也可以互相冲突；冲突时以存量占比为准，不为凑新增条数降低门槛。
+  - **产出上限（Precision 守卫）**：若 `BUILD_NOW` 占**过去 30 天新增已发布裁决**（`status = TRACKED` 且通过发布资格的全部裁决，含 `WATCH` / `PASS`）的比例连续 7 天 > `build_now_target_share_max`（默认 5%），触发 Admin 告警并要求复核阈值。存量占比只作观察指标，不再作为硬约束。
+  - **两个守卫的口径不同，分开监控**：下限看的是**每周新增**的 `BUILD_NOW` + `EARLY_BET` 合计（PRD §1.8 第 4 条「每周 1–5 条」），上限看的是**过去 30 天新增已发布裁决中 `BUILD_NOW` 的占比**（PRD §5.7「≤ 5%」）。不为凑新增条数降低 `BUILD_NOW` 门槛；`EARLY_BET` 只能按 §1.2 的预定义 Plan B 调整。
 
 ## 8. 重算接口
 ```ts
@@ -314,11 +308,12 @@ recompute(opportunityId, obsDate, configVersion): {
 - 特征缺失 / 覆盖率不足 / 宇宙过小；
 - 同输入重复运行结果一致；
 - 无前视：把 `obs_date` 之后的数据注入输入，输出不得变化。
-- **槽位（ADR-018）**：`Σclaimed == Σcapacity` 熔断；仅某个形态占满而其他形态仍有空槽时**不得**熔断；认领谓词一致性——已归档项目不得计入占用；
-- **`WINDOW_CLOSING` 前置裁决**：降档发生在 14 天窗口内才触发；降档发生在 30 天前时不得触发；无前置已发布裁决时低 W 只能落入 `WATCH` 或 `PASS`；
+- **裁决顺序**：`PASS` 必须先于 `WINDOW_CLOSING` 与 `BUILD_NOW`；`WINDOW_CLOSING` 必须先于 `BUILD_NOW`；每次评估只返回一个 verdict；`WINDOW_CLOSING` 发布后的次日不得以自身为前置重复产出。
+- **`WINDOW_CLOSING` 前置裁决**：降档发生在 14 天窗口内、当前 W≥MEDIUM、且此前已发布 `BUILD_NOW` / `EARLY_BET` 才触发；降档发生在 30 天前、当前 W<MEDIUM、或无前置已发布裁决时不得触发。
+- **稀缺性分母（PRD v3.1 §5.7）**：过去 30 天新增已发布裁决含 `WATCH` / `PASS`；`BUILD_NOW` 占比 >5% 时触发告警；不得用存量占比替代。
 - **`STALE_DATA`（ADR-021）**：源处于 72 小时宽限期内时沿用昨日档位、打 `STALE_DATA`、不发布降档且不产生告警；连续失败 73 小时后该轴才置 `INSUFFICIENT` 并恢复降档路径。
-- **补偿 `BUILD_NOW` 的交易门槛（PRD v2.2 Q1）**：D=W=HIGH、M=MEDIUM、仅 ≥ 2 个装饰性定价站（无 `COMMERCIAL_TRACTION`、定价持续 < 90 天）→ 最多 `EARLY_BET`；同条件加一条交易代理，或定价持续 ≥ 90 天 → `BUILD_NOW`（`RULE_BUILD_NOW_COMPENSATED`）；
-- **拥挤不触发窗口关闭（PRD v2.2 Q2）**：已发布 `BUILD_NOW`，市场 W 不变、仅因 2–3 个认领使 `w_band` 降一档 → 不得为 `WINDOW_CLOSING`，也不得打 `W_DROPPING`；市场 W 在 14 天内降一档 → `WINDOW_CLOSING`；全部槽位满额 → 经 `CROWDED_LOCKED` 置 `WINDOW_CLOSING`。
+- **补偿 `BUILD_NOW` 的交易门槛（PRD v3.1 §5.7）**：D=W=HIGH、M=MEDIUM、仅 ≥ 2 个装饰性定价站（无 `COMMERCIAL_TRACTION`、定价持续 < 90 天）→ 最多 `EARLY_BET`；同条件加一条交易代理，或定价持续 ≥ 90 天 → `BUILD_NOW`（`RULE_BUILD_NOW_COMPENSATED`）。
+- **拥挤度不进入 W（PRD v3.1 §5.9）**：`verified_product_count` / `new_top10_entrants_30d` 变化不得改变 `W_score`，也不得触发 `WINDOW_CLOSING`；它们只影响拥挤度展示、生命周期 `CONTESTED` 与 F9 告警。
 
 ## 11. 推荐层：Build Type 与 Monetization 路线
 

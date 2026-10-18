@@ -1,6 +1,6 @@
 # 12 — Watchlist、Kill Criteria 与告警规格
 
-Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
+Status: Draft ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1：`CROWDING_SIGNAL` 取代槽位触发器）｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 
 > ## ⚠️ 实现与本规格不一致（2026-10-12 核对）
 >
@@ -30,8 +30,9 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 >
 > **已裁决（2026-10-17，30 Q4，PRD v2.2 F9）**：收敛为 MVP，不按目标态重建。
 > - **保留 `rule_type` 单值模型**；§3 的 `params` 组合模型、`alert_thresholds` 表不实现。
-> - **首发 6 条触发器**：`VERDICT_CHANGE`、`WINDOW_CLOSING`、`SLOTS_LAST_ONE`、
+> - **首发 6 条触发器**：`VERDICT_CHANGE`、`WINDOW_CLOSING`、`CROWDING_SIGNAL`、
 >   `KILL_CRITERIA`、`PROJECT_SERP_RANK_JUMP`、`CUSTOM_QUERY_PULSE_CONFIRMED`。
+>   （v3.1 以 `CROWDING_SIGNAL` 取代已删除的 `SLOTS_LAST_ONE`：拥挤度是透明度与生命周期输入，不是槽位容量。）
 > - **首发渠道**：Email + 站内通知。Webhook（含 Slack / Discord / Telegram 模板）在 Gate 1 之后交付。
 > - **其余触发器**（`LIFECYCLE_CHANGED`、`SERP_WEAKNESS_DROP`、`AUTOCOMPLETE_SPIKE`、
 >   `NEW_AUTHORITATIVE_ENTRANT`、`PROVEN_NEW_ENTRANT`、`PROJECT_GSC_TRACTION`）进 Phase 2，
@@ -57,7 +58,7 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 | `PROVEN_NEW_ENTRANT` | S7 / F6 | 新**独立站**（上线不满 6 个月、闯入 SERP Top 5、且具备 `COMMERCIAL_TRACTION`）出现；识别规则见 07 §6.4 | Phase 2；无求值路径 |
 | `KILL_CRITERIA_TRIGGERED` | S7（评估用户 / 系统定义的 Kill criteria，见 §5） | 任一 `ACTIVE` 的 kill criteria 谓词求值为真 | **首发**；待实现（`evaluateKillPredicate` 未落地，见 §5.3） |
 | `CUSTOM_QUERY_PULSE_CONFIRMED` | S7（对进入 7 天脉冲雷达的自定义初筛词） | 自定义初筛词的 7 天时序脉冲确认，且该词由 `CANDIDATE` 晋升为 `BUILD_NOW` 时推送抢跑通知（PRD F3 第 2 阶段、F9） | **首发**；待实现 |
-| `SLOTS_LAST_ONE` | S7 | 该机会某一形态剩余可认领槽位恰为 **1**（`opportunity_slots.capacity − claimed == 1`，ADR-018） | **首发**；待实现 |
+| `CROWDING_SIGNAL` | S7 | 该机会的拥挤度首次跨过阈值：`crowding_daily.verified_product_count` 达到 **3**，或 `new_top10_entrants_30d` 较上一次推送增加（有新独立站进入 Top10）。**只提示竞争加剧，不限制 GO**（PRD F9、01 §5.9；v3.1 没有槽位） | **首发**；待实现 |
 | `PROJECT_SERP_RANK_JUMP` | 每周（F1 Top 100 快照内存匹配后，PRD F10） | 已核验项目凭证的域名 / 商店链接**首次**进入 Top 100 / Top 30 / Top 10，或较上周排名跃升 ≥ `rank_jump_threshold`。**数据来自自身 SERP 管线（F1 一鱼多吃），不依赖 GSC** | **首发**；待实现 |
 | `PROJECT_GSC_TRACTION`（**可选增强**） | GSC 周同步后（**仅对自愿连接 GSC 的用户**） | 关联 Project 的曝光量较上周环比 ≥ `traction_spike_multiplier`（默认 2×）且绝对曝光 ≥ `traction_min_impressions`（默认 100） | Phase 2；无求值路径 |
 
@@ -67,7 +68,7 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
   - **判据落在 `serp_results.result_type`，不是 `domain_authority_class`**。后者（`HIGH_AUTHORITY_GENERIC` / `SPECIALIST` / …）是域名分级，检出的是"维基/亚马逊这类泛权威分流注意力"这另一个信号，两者不可互相顶替。
   - 规范拼写是 `EDITORIAL_MEDIA`；早期草案写的 `MAJOR_MEDIA` 在 `ResultType` 里不存在。
   - "7 天前的快照"实现为**不晚于 `obs_date − 7` 的最近一份**，而不是恰好那一天：采集有缺口时后者查不到对照，会把"没有对照组"误读成"没有新进入者"。取不到对照时不求值（不告警），也不返回 false。
-- PRD 的 **`PROVEN_NEW_ENTRANT`**（§1.7.3）指**新独立站**跑通变现（上线不满 6 个月、闯入 Top 5、具备 `COMMERCIAL_TRACTION`），是正向示范，识别规则在 07 §6.4，不在本告警表内实现。二者语义、数据来源、用途都不同，不得互相代替。
+- PRD 的 **`PROVEN_NEW_ENTRANT`**（§1.8 第 3 条）指**新独立站**跑通变现（上线不满 6 个月、闯入 Top 5、具备 `COMMERCIAL_TRACTION`），是正向示范，识别规则在 07 §6.4，不在本告警表内实现。二者语义、数据来源、用途都不同，不得互相代替。
 
 - 所有阈值来自 `alert_thresholds` 配置（版本化，同 05 的配置管理方式，但独立于 `scoring_config` 版本流转，因为它不影响评分，只影响是否提醒）。**注意**：该表在 `schema.sql` 中尚不存在（见文首差距表）。
 - 触发器求值使用的输入必须是**当日已落账本 / 已入库**的数据，不早于 S6 完成（对 `VERDICT_CHANGED`、`LIFECYCLE_CHANGED`）。
@@ -97,7 +98,7 @@ Status: Draft ｜ 依赖：01 F9、03、05、07 ｜ 被依赖：09、10、16
 | "有变化就告诉我" | 全部触发器，`IMMEDIATE` |
 | "只关心窗口变化" | `VERDICT_CHANGED` `WINDOW_CLOSING_ENTERED` `KILL_CRITERIA_TRIGGERED`，`DAILY` |
 | "只关心我的项目" | `PROJECT_SERP_RANK_JUMP`，`scope = PROJECTS_ONLY`，`IMMEDIATE`（GSC 可选增强：仅当用户自愿连接 GSC 时，可额外订阅 `PROJECT_GSC_TRACTION`） |
-| "抢跑提醒" | `CUSTOM_QUERY_PULSE_CONFIRMED` `SLOTS_LAST_ONE` `KILL_CRITERIA_TRIGGERED`，`IMMEDIATE` |
+| "抢跑提醒" | `CUSTOM_QUERY_PULSE_CONFIRMED` `CROWDING_SIGNAL` `KILL_CRITERIA_TRIGGERED`，`IMMEDIATE` |
 | "每周摘要" | 全部触发器，`WEEKLY` |
 
 每个用户可创建多条 `alert_rules`（不同触发器组合对应不同渠道），无上限但受合理性校验（同一 `(triggers, scope)` 组合 + 同一渠道不可重复创建）。
@@ -219,7 +220,7 @@ type KillPredicate = Comparison | CompoundPredicate;
 - `EntitlementService`（13）决定：Free 套餐是否可配置告警渠道、`alert_rules` 数量上限、`kill_criteria` 数量上限是否与套餐挂钩。
 - 触发器读取的字段来自 05（`axis_features`、`verdicts`）与 07（`commercial_stage`），Kill Criteria DSL 的字段白名单必须与这两份文档的字段命名保持同步——新增评分字段时若需开放给 Kill Criteria，同一 PR 内更新 §5.1 的 `FieldRef`。
 - REST API（10）与 Web 控制台的关注与告警规则共用同一 `AlertService`。
-- **套餐联动（PRD §1.7 第 6 条、§8.1）**：`CUSTOM_QUERY_PULSE_CONFIRMED` 建立在"自定义词即时初筛"配额之上——Free 层**终身仅 1 次**、Pro 层**每月 15 次**（初筛配额**不**跨月累计；PRD §8.1 只给立项导出配额 Rollover，R16）。只有已消耗配额、且被加入 7 天脉冲雷达的初筛词才会产生该触发器；Free 层不支持 7 天雷达，故不会触发它。配额与可用触发器集合的裁决统一由 `EntitlementService`（13）负责，本规格不重复定义。
+- **套餐联动（PRD §1.8 第 6 条、§8.1）**：`CUSTOM_QUERY_PULSE_CONFIRMED` 建立在"自定义词即时初筛"配额之上——Free 层**终身仅 1 次**、Pro 层**每月 15 次**（初筛配额**不**跨月累计；PRD §8.1 只给立项导出配额 Rollover，R16）。只有已消耗配额、且被加入 7 天脉冲雷达的初筛词才会产生该触发器；Free 层不支持 7 天雷达，故不会触发它。配额与可用触发器集合的裁决统一由 `EntitlementService`（13）负责，本规格不重复定义。
 
 ## 8. 测试要求（18 §3）
 | 用例 | 期望 |
@@ -232,6 +233,6 @@ type KillPredicate = Comparison | CompoundPredicate;
 | Webhook 连续失败 5 次 | 状态转 `DEAD`，触发系统 Email 提醒 |
 | 系统建议模板采纳后修改 | 生成独立 `USER` 记录，不影响原模板 |
 | 某轴处于 72 小时 `STALE_DATA` 宽限期（档位沿用昨日成功快照） | **不**产生任何 Verdict 变化类告警（`VERDICT_CHANGED` / `WINDOW_CLOSING_ENTERED` / `LIFECYCLE_CHANGED`）；连续失败 > 72 小时后才恢复降档告警路径（ADR-021） |
-| 机会某形态剩余槽位由 2 变为 1 | `SLOTS_LAST_ONE` 恰触发一次（只在跨过 1 的那一刻，不在"仍为 1"的每一天） |
+| 已核验独立项目数由 2 变为 3，或近 30 天新独立站进入 Top10 | `CROWDING_SIGNAL` 恰触发一次（只在跨过阈值 / 新增进入者的那一刻，不在"仍为 3"的每一天）；**不阻碍任何 GO** |
 | 已核验项目凭证由 Top 100 之外首次进入 Top 100 | 触发 `PROJECT_SERP_RANK_JUMP`，依据来自 F1 每周 Top 100 快照的内存匹配，**不读 GSC** |
 | 订阅尚未实现求值路径的触发器（`PROVEN_NEW_ENTRANT` / `KILL_CRITERIA_TRIGGERED` / `SERP_WEAKNESS_DROP` 等） | 创建时拒绝，不产生"永远不会触发的规则"（见文首差距表） |

@@ -167,14 +167,15 @@ docker exec -i restore-drill psql -U postgres -d emeradar -tAc \
   "SELECT 'opportunities', count(*) FROM opportunities
    UNION ALL SELECT 'verdicts', count(*) FROM verdicts
    UNION ALL SELECT 'users', count(*) FROM users
-   UNION ALL SELECT 'opportunity_slots', count(*) FROM opportunity_slots
-   UNION ALL SELECT 'slot_claims', count(*) FROM slot_claims
-   UNION ALL SELECT 'stealth_locks', count(*) FROM stealth_locks"
+   UNION ALL SELECT 'projects', count(*) FROM projects
+   UNION ALL SELECT 'project_credentials', count(*) FROM project_credentials
+   UNION ALL SELECT 'launch_kits', count(*) FROM launch_kits
+   UNION ALL SELECT 'usage_carryovers', count(*) FROM usage_carryovers"
 ```
 
 对得上就 `docker rm -f restore-drill` 收尾。
 
-> **PRD v2.1 新增的表不需要改备份脚本。** 归档走的是整库 `pg_dump -Fc`，因此 `opportunity_slots`、`slot_claims`、`stealth_locks`、`stealth_lock_displays`、`launch_kits`、`project_credentials`、`project_serp_rankings`、`usage_carryovers`、`email_identities`、`disposable_email_domains`、`device_fingerprints`、`lifetime_scan_grants`（03 §2/§8/§12/§13/§15）都会自动进入 `db.dump`，`MANIFEST.txt` 的表数量也会随之变化。上面抽查里加的三张是**有状态、丢了无法重算**的（槽位占用、认领历史、买断窗口）：账本能从快照重算，这三张不能，所以恢复演练必须核对它们。若某次演练里这三张表存在但为空，先确认是"当时确实没有认领"，而不是恢复到了一份早于业务开始的归档。
+> **新增的表不需要改备份脚本。** 归档走的是整库 `pg_dump -Fc`，因此 `projects`、`project_credentials`、`launch_kits`、`project_serp_rankings`、`usage_carryovers`、`email_identities`、`disposable_email_domains`、`device_fingerprints`、`lifetime_scan_grants`（03 §2/§8/§12/§13/§15）都会自动进入 `db.dump`，`MANIFEST.txt` 的表数量也会随之变化。上面抽查里的 `projects` / `project_credentials` / `launch_kits` / `usage_carryovers` 是**有状态、丢了无法重算**的：账本能从快照重算，这几张不能，所以恢复演练必须核对它们。若某次演练里某张表存在但为空，先确认是"当时确实没有对应业务"，而不是恢复到了一份早于业务开始的归档。PRD v3.1 已删除 `opportunity_slots` / `slot_claims` / `stealth_locks` / `stealth_lock_displays`；若归档来自迁移前版本，这些表仍会随整库 dump 出现，但不参与恢复验收。
 
 ### 4.4 真出事时的生产恢复
 

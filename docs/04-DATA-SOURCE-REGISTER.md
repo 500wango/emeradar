@@ -27,7 +27,7 @@ Status: Draft ｜ 依赖：02、03 ｜ 被依赖：05、06、07、08
 | `src_platform_rev` | 收入透明平台（公开验证的收入 / 销售数据） | COMMERCIAL | 授权 / 公开页 | MEDIUM | 每周 | M 轴营收证据 | 同 `src_crawl` | 逐平台评估条款 |
 | `src_gsc` | Google Search Console | GSC | 用户 OAuth | LOW | 每周 | **可选增强项**（PRD F10；见 §9.5） | 非关键源，缺失不影响任何轴；连接 `ERROR` 仅通知用户 | 只读最小权限 |
 | `src_rdap` | RDAP / WHOIS | OTHER | 公开协议 | LOW | 按需 | 域名年龄（辅助） | 按需源，无降级语义（缺失即不判定域名年龄） | 可选 |
-| `src_domain_established` | 域名上线 / 首次注册时间（RDAP/WHOIS 注册日、应用商店上架日、Wayback 首次快照） | OTHER | 公开协议 / 公开页 | LOW–MEDIUM | 按需 | `PROVEN_NEW_ENTRANT` 的"上线不满 6 个月"判据；写入 `domains.established_at` / `established_source`（03 §domains） | **来源为空时不得推断**（不适用 72h 沿用；缺失即不标 `PROVEN_NEW_ENTRANT`） | 每项必须连同判定依据一起存（PRD §1.7.3） |
+| `src_domain_established` | 域名上线 / 首次注册时间（RDAP/WHOIS 注册日、应用商店上架日、Wayback 首次快照） | OTHER | 公开协议 / 公开页 | LOW–MEDIUM | 按需 | `PROVEN_NEW_ENTRANT` 的"上线不满 6 个月"判据；写入 `domains.established_at` / `established_source`（03 §domains） | **来源为空时不得推断**（不适用 72h 沿用；缺失即不标 `PROVEN_NEW_ENTRANT`） | 每项必须连同判定依据一起存（PRD §1.8 第 3 条） |
 | `src_traffic_est` | 第三方流量估算 | COMMERCIAL | 授权 API | MEDIUM | — | 仅展示（`THIRD_PARTY_ESTIMATE`） | 仅展示，缺失不影响轴 | Phase 2，可选 |
 
 > 具体供应商（如提供 SERP / autocomplete 的商业 API）在 §8 评估矩阵中比选；候选须逐一核对当前条款与价格，不在本文预设结论。

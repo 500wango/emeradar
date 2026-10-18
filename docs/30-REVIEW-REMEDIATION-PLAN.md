@@ -1,6 +1,8 @@
 # 30 — 设计审查整改与开发计划（Review Remediation & Development Plan）
 
-Status: Approved（2026-10-17，Q 项已全部裁决并合入 PRD v2.2）｜ Owner: 产品 ｜ Last reviewed: 2026-10-17 ｜ 依赖：01、19、28 ｜ 被依赖：19
+Status: Approved（2026-10-17，Q 项已全部裁决并合入 PRD v2.2）｜ Owner: 产品 ｜ Last reviewed: 2026-10-18 ｜ 依赖：01、19、28 ｜ 被依赖：19
+
+> **历史文档（v2.2 整改记录）**：PRD 已升至 v3.1，删除槽位、认领、质押、Stealth Lock 与买断；本文中涉及这些机制的 R/Q 项只保留追溯价值。当前口径以 `01-PRD.md` v3.1 为准，逐文档同步结果见各文档头部与 `31` 的 v3.1 拆除任务。
 
 **本文是什么**：2026-10-17 对全套设计文档做了一次 PRD 对照审查。本文记录审查结论、整改项（R 编号）、需要产品负责人裁决的事项（Q 编号），以及据此重排的开发计划。
 
@@ -69,7 +71,7 @@ Status: Approved（2026-10-17，Q 项已全部裁决并合入 PRD v2.2）｜ Own
 
 | # | 问题 | 冲突点 | 推荐 |
 |---|------|--------|------|
-| Q1 | 补偿 `BUILD_NOW` 是否允许纯装饰性定价 | PRD §5.7 允许 D=W=HIGH ∧ M=MEDIUM 补偿；而 §5.6 的 MEDIUM 包含「多站静态 `PRICING_DECORATION`」，与 §1.7 第 3 条「有人收费 ≠ 有人付费」相悖 | 补偿要求 M=MEDIUM **且**至少一条 `COMMERCIAL_TRACTION` 或定价持续 ≥ 90 天。纯装饰性的 MEDIUM 最多到 `EARLY_BET` |
+| Q1 | 补偿 `BUILD_NOW` 是否允许纯装饰性定价 | PRD §5.7 允许 D=W=HIGH ∧ M=MEDIUM 补偿；而 §5.6 的 MEDIUM 包含「多站静态 `PRICING_DECORATION`」，与 §1.8 第 3 条「有人收费 ≠ 有人付费」相悖 | 补偿要求 M=MEDIUM **且**至少一条 `COMMERCIAL_TRACTION` 或定价持续 ≥ 90 天。纯装饰性的 MEDIUM 最多到 `EARLY_BET` |
 | Q2 | 认领拥挤是否参与 W 降档 | PRD §5.5 把拥挤度列为 W 输入；但两三个认领就可能让 W 降一档并触发 `WINDOW_CLOSING`，窗口关闭成了平台自己造成的 | W 展示值保留拥挤项；`WINDOW_CLOSING` 的降档判定只看市场 W（SERP 弱度 + 竞争压力）；拥挤只经 `CROWDED_LOCKED` 生效 |
 | Q3 | Rollover 结转几期 | PRD §8.1「不断订即永不作废」vs 28 D10「只结转一期」 | 维持 D10（结转一期，上限 10 次），PRD 改字。无限累积会让长期订户囤积配额，与槽位供给（Q6）冲突 |
 | Q4 | 告警规格是目标态还是现状 | 12 文首差距表 | 收敛为 MVP：`rule_type` 单值模型保留；首发 5 条（`VERDICT_CHANGE`、`WINDOW_CLOSING`、`SLOTS_LAST_ONE`、`KILL_CRITERIA`、`PROJECT_SERP_RANK_JUMP`）+ Email；Webhook 与其余触发器进 Phase 2 |

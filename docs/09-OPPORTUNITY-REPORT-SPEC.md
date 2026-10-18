@@ -1,6 +1,6 @@
 # 09 — 机会研究与商业分析报告规格（Opportunity Report Spec）
 
-Status: Draft ｜ Owner: 后端/产品 ｜ Last reviewed: 2026-10-14（对齐 PRD v2.1：F8 双交付物、原子 GO、多凭证质押）｜ 依赖：00-INDEX、01 F8、03 §8/§12、05 §11、07、08、13 ｜ 被依赖：10、13、16
+Status: Draft ｜ Owner: 后端/产品 ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1：GO = 配额 + Project 壳 + 点火包；凭证核验可选）｜ 依赖：00-INDEX、01 F8、03 §8/§12、05 §11、07、08、13 ｜ 被依赖：10、13、16
 
 ---
 
@@ -8,10 +8,10 @@ Status: Draft ｜ Owner: 后端/产品 ｜ Last reviewed: 2026-10-14（对齐 PR
 
 机会研究与商业分析报告（Opportunity Research Report）把一个经过验证的高价值搜索机会（`BUILD_NOW` 或 `EARLY_BET`），转化为一份**权威、客观、结构化且数据密集的商业决策卷宗**。
 
-**核心定位**：F8 有**两件交付物**，同一份冻结快照装配，同一次原子 GO 解锁（PRD §1.7 第 5 条 / ADR-018）。
+**核心定位**：F8 有**两件交付物**，同一份冻结快照装配，同一次原子 GO 解锁（PRD §1.8 第 5 条 / ADR-018）。
 - **交付物一 —— 机会研究报告**：出海 Builder 的立项验资机与决策备忘录。它直接回答“为什么值得做、商业变现的真实底线在哪里、SERP 留下的具体切入空隙是什么、做成什么形态阻力最小、什么情况下必须立刻止损”。
-- **交付物二 —— 形态点火包（Launch Kit）**：用户点击 GO 锁槽后导出的**工程规范与词表**，面向 Cursor / Claude Code 等既有工具链。三件套：`CLAUDE.md` / `.cursorrules`、PSEO 路由词表、着陆页骨架。
-- **全链路业务闭环**：打通“机会发现 → 原子 GO 锁槽 → 确定性证据装配 + 决策备忘生成 → 双交付物导出 → 多凭证质押核销 → 战绩回流账本”的完整商业流。
+- **交付物二 —— 形态点火包（Launch Kit）**：用户点击 GO 并扣除 1 次配额后导出的**工程规范与词表**，面向 Cursor / Claude Code 等既有工具链。三件套：`CLAUDE.md` / `.cursorrules`、PSEO 路由词表、着陆页骨架。
+- **全链路业务闭环**：打通“机会发现 → GO 立项 → 确定性证据装配 + 决策备忘生成 → 双交付物导出 → 可选凭证核验 → 战绩回流账本”的完整商业流。
 
 > **关于 ADR-008 的边界（必须读清）**：产品**不内置**代码执行引擎、不写用户仓库、不提供 MCP 服务——这一点从未改变。但“不内置执行引擎”**不等于**“不交付工程规范”。点火包是**确定性模板装配**：结构完全由模板 + 已冻结快照生成，硬数据（价格、天数、计数、SERP 排名）由占位符注入，LLM 只负责 ≤ 500 字的叙述文本（08 U7）。它不生成虚构的代码正文与架构图，因此既不会漂移，也不需要维护一套代码生成管线。原 ADR-008 把这两件事捆在一起否掉了，PRD v2.1 推翻了后半句（见 00-INDEX ADR-008 / 019）。
 
@@ -28,13 +28,13 @@ flowchart TD
     C -->|Pro 配额充足| D[异步生成报告<br/>生成本身不单独扣额]
     C -->|Pro 配额不足| C2[提示升级 PRO]
     D --> E[查看交互式报告]
-    E --> G[点击 GO: 原子锁槽]
-    G --> G1{目标形态槽位仍有余量?}
-    G1 -->|否| G2[409 SLOT_TAKEN<br/>提示改用其他形态或放弃]
-    G1 -->|是| H[单事务: 扣 1 次月度导出配额<br/>+ 占槽 + 建 Project + 解锁该形态点火包]
+    E --> G[点击 GO: 配额 + 建 Project 壳 + 解锁点火包]
+    G --> G1{配额足够?}
+    G1 -->|否| G2[403 QUOTA_EXCEEDED<br/>提示升级或等待结转]
+    G1 -->|是| H[单事务: 扣 1 次月度配额<br/>+ 建 Project 壳 + 解锁点火包]
     H --> H1[导出报告 md/json/pdf]
     H --> H2[导出点火包三件套]
-    H1 --> I[提交质押凭证 三类之一]
+    H1 --> I[可选: 提交凭证]
     H2 --> I
   end
 
@@ -45,20 +45,20 @@ flowchart TD
     S3 -->|失败 ≤2次重试| S2
     S3 -->|终态失败| S5[状态 FAILED]
     S3 -->|终态成功| S4[写入 opportunity_reports 状态 READY]
-    I --> S6[HTTP 探针校验凭证相关性（7 天内）]
-    S6 -->|逾期或校验失败| S7[释放槽位 EXPIRED_RELEASED, 配额不退]
-    S6 -->|通过 VERIFIED| S8[战绩追踪: Top100 快照内存匹配 + 可选 GSC]
+    I --> S6{凭证核验通过?}
+    S6 -->|是| S8[VERIFIED_OWNER<br/>战绩追踪: Top100 快照内存匹配 + 可选 GSC]
+    S6 -->|否 / 未提交| S7[保持 UNVERIFIED / REJECTED<br/>无截止日, 不释放, 不退还配额]
     S8 --> S9[写入 prediction_episodes / Ledger 核销]
   end
 ```
 
 ### 业务闭环六大原则：
-1. **配额单闸门（原子 GO）**：Pro 的报告**生成**不单独扣额（只做 `check`），配额的唯一扣减入口是点击 GO 时的**原子事务**——「占 1 个形态槽位 → 扣 1 次月度导出配额 → 建 Project → 解锁该形态点火包」四件事要么全成要么全不成。若把"锁槽"与"导出"拆成两个闸门，绕过 API 直接调导出就能白拿点火包（13 §4.3、10 §4）。Free 走 `report_preview_monthly` 预览额度，`active_go_slots_max = 0` 使其无法进入 GO 路径。
+1. **配额单闸门（GO）**：Pro 的报告**生成**不单独扣额（只做 `check`），配额的唯一扣减入口是点击 GO 时的**原子事务**——「扣 1 次月度 GO 配额 → 建 Project 壳 → 解锁该裁决的点火包」三件事要么全成要么全不成。若把"GO"与"导出"拆成两个闸门，绕过 API 直接调导出就能白拿点火包（13 §4.3、10 §4）。Free 走 `report_preview_monthly` 预览额度，且不包含 `atomic_go_export_monthly`，无法进入 GO 路径。
 2. **数据确定性闭环**：报告 90% 的内容（D-M-W 拆解、关键词图谱、SERP 弱结果列表、竞品真实价格）直接从每日已封存的 `opportunity_snapshots` 确定性拉取，杜绝 LLM 幻觉。快照中的分类标签在**入库时即已冻结**（ADR-020），因此同一快照永得同一份报告。
 3. **轻量文本生成（LLM U5 / U7）**：仅由 LLM 输出 ≤ 500 字的高管决策备忘（Why Now、目标客群画像、差异化切入点、风险评级）与 ≤ 500 字的点火包叙述；所有硬事实强制绑定证据占位符，由确定性渲染注入（08 §6）。
 4. **幂等与多格式导出闭环**：同一用户在同一数据快照日对同一机会的请求完全幂等，已生成的报告直接复用；报告支持 Markdown、JSON、PDF 三种格式导出，点火包支持 Markdown / YAML / JSON 三件套导出。
-5. **质押核销闭环**：GO 后用户须在 `stake_window_days`（默认 7 天）内提交**三类凭证之一**（独立域名 URL / 应用商店详情页 / GitHub Release 或公开着陆页），由 HTTP 探针校验相关性；逾期或校验失败自动释放槽位且**不退还已扣配额**——占坑必须有成本，否则"先占住再说"会挤掉真正要动手的人。
-6. **交付物确定性（点火包）**：点火包的每一个字段都能追溯到一份已冻结快照与一个模板槽位，可离线重算、可审计。它不含虚构代码正文、不含架构图、不写入用户仓库（ADR-019）。
+5. **凭证核验闭环（可选）**：GO 后用户可提交**四类凭证之一**（独立域名 / 着陆页、DNS TXT、应用商店 OAuth、GitHub 仓库文件 / Release asset）。**没有截止日**：未提交或核验失败只让项目保持 `UNVERIFIED` / `REJECTED`，不释放任何资源、不退还配额、也不影响项目存在；只有 `VERIFIED_OWNER` 才进入公开战绩、North Star 与 Gate 1 统计。
+6. **交付物确定性（点火包）**：点火包的每一个字段都能追溯到一份已冻结快照与一个模板占位，可离线重算、可审计。它不含虚构代码正文、不含架构图、不写入用户仓库（ADR-019）。
 
 ---
 
@@ -345,7 +345,7 @@ flowchart TD
 
 **硬约束**：
 1. **确定性**：同一 `(opportunity_id, snapshot_id, archetype, template_version)` 必须产出 bit-for-bit 相同的点火包；因此点火包头部写入 `scoring_config_version`、`template_version`、`snapshot_id` 三项，供用户自查。
-2. **绑定 GO**：点火包**只能**通过原子 GO 事务解锁，不存在单独的下载端点（ADR-018、10 §4）。未锁槽即无点火包，这是产品定价的前提，不是前端约定。
+2. **绑定 GO**：点火包**只能**通过 GO 事务解锁，不存在单独的下载端点（ADR-018、10 §4）。未 GO 即无点火包，这是产品定价的前提，不是前端约定。
 3. **形态专属**：不同 `archetype`（05 §11.2）装配不同模板；用户 GO 时选择的形态决定解锁哪一套。同一机会的不同形态点火包互不替代。
 4. **不含虚构事实**：词表与骨架里出现的每个数字与 URL 都必须能指回 `evidence_id` 或 `snapshot_id`；无法指回的字段留空并标注"—"，**不得由 LLM 补齐**（与 R2 同源）。
 5. **本地化边界**：点火包以用户 `ui_locale` 生成叙述文本，但**词表、路由 `slug`、查询词本身保持 `research_language` 原文不译**（14 §点火包本地化边界）。
@@ -366,10 +366,10 @@ flowchart TD
 ## 6. 配额、计费与生命周期
 
 1. **配额扣减规则（与 13 §3.2 / §4.3 联动）**：
-   - **Free**：`report_preview_monthly = {MONTH, 1}`，只能**在线预览**历史案例报告，**不可导出**、**无点火包**；`active_go_slots_max = 0` 使其无法进入 GO 路径。免费层的实时体验由 `feed_selected_weekly`（每周 1 条刚满额锁定或刚关窗的准实时案例，15 §3）承担，**不是**延迟 45 天的归档。
-   - **Pro**：`atomic_go_export_monthly = {MONTH, 5, rollover: true}`。报告**生成本身不单独扣额**；配额只在点击 GO 的原子事务中扣减一次，同一次扣减同时解锁该形态点火包并占用一个活跃槽位。跨月结转只保留一期（13 §4.2）。
+   - **Free**：`report_preview_monthly = {MONTH, 1}`，只能**在线预览**历史案例报告，**不可导出**、**无点火包**；Free 不含 `atomic_go_export_monthly`，无法进入 GO 路径。免费层的实时体验由 `feed_selected_weekly`（每周 1 条已失去抢跑价值的案例，15 §3）承担，**不是**延迟 45 天的归档。
+   - **Pro**：`atomic_go_export_monthly = {MONTH, 3, rollover: true, rollover_cap: 6}`。报告**生成本身不单独扣额**；配额只在点击 GO 的原子事务中扣减一次，同一次扣减同时解锁该裁决点火包并创建 Project 壳。跨月结转只保留一期，有效上限封顶 6 次（13 §4.2）。
    - 历史遗留的 Team 100 份/月不再存在；Team 仅作为历史 `plan_code` 兼容值保留（00 §4.3、13 §3.1）。
-2. **原子 GO 的事务边界（不再是 Hold & Release）**：`DecisionService.goAndExport` 在**单个数据库事务**内完成：`reserve` 月度导出配额 → 对 `(opportunity_id, archetype)` 行加锁并校验 `claimed < capacity` → `claimed += 1` → 建 Project → 解锁该形态点火包。任一步失败则整体回滚，配额与槽位一起退回。生成报告是**前置只读步骤**，不占配额，失败只需重试。
+2. **GO 的事务边界（不再是 Hold & Release）**：`DecisionService.goAndExport` 在**单个数据库事务**内完成：`reserve` 月度 GO 配额 → 建 Project 壳（`decision_id` 唯一）→ 解锁该裁决点火包。任一步失败则整体回滚；**没有槽位容量检查**，并发 GO 各扣各的配额，同一 `decision_id` 的重复 GO 由唯一约束拒绝。生成报告是**前置只读步骤**，不占配额，失败只需重试。
 3. **快照级幂等缓存**：
    - 针对 `(user_id, opportunity_id, snapshot_id)` 形成唯一索引；
    - 用户在当日快照周期内重复查看、下载或导出同一份报告，**零额外配额消耗**；
@@ -377,8 +377,8 @@ flowchart TD
 4. **过期与演进标记（`stale`）**：
    - 每天 04:30 批处理后，若机会的 Verdict 发生转移（如 `BUILD_NOW` 降级为 `WATCH`）或触发 Kill criteria，该报告标记为 `stale = true`；
    - 界面友好提示："底层市场数据已于 {最新日期} 发生变化，建议刷新分析"。
-   - **注意**：报告变 `stale` 与已锁槽位/已建项目无关。槽位的释放只由质押逾期或校验失败触发（§8），**不会**因为机会降级而自动放行——否则用户可以在项目失败后靠等待降级来拿回槽位。
-5. **质押逾期与配额**：质押窗口 `stake_window_days`（默认 7 天）内未提交凭证、或探针校验不通过，槽位自动释放（`slot_claims.state = 'EXPIRED'`、`release_reason = 'STAKE_EXPIRED' | 'STAKE_INVALID'`），但**已扣的月度导出配额不退还**（ADR-018、03 §8）。
+   - **注意**：报告变 `stale` 与已建 Project 无关，不会自动撤回项目，也不会退还 GO 配额。
+5. **凭证核验与配额解耦**：提交凭证、核验通过或失败都不改变配额与 Project 生命周期；未核验项目只是不进入公开战绩与排名追踪。v3.1 没有 `stake_window_days`、`stake_status` 或槽位释放逻辑。
 
 ---
 
@@ -400,26 +400,27 @@ flowchart TD
 
 ---
 
-## 8. 下游闭环：原子 GO、质押核验与战绩核销
+## 8. 下游闭环：GO、凭证核验与战绩核销
 
-本报告与点火包不仅仅是供阅读的文档，更是整个产品生态的驱动源。**注意：本节的"立项"就是 §2 原则 1 的原子 GO，不是一次普通的建记录操作。**
+本报告与点火包不仅仅是供阅读的文档，更是整个产品生态的驱动源。**注意：本节的"立项"就是 §2 原则 1 的 GO，不是一次普通的建记录操作。**
 
-1. **原子 GO（Create Project + 解锁点火包）**：
+1. **GO（创建 Project 壳 + 解锁点火包）**：
    - 报告详情页提供"🚀 基于此机会立项"按钮，点击即发起 GO；
-   - 服务端在**单个事务**内：`reserve` 1 次 `atomic_go_export_monthly` → 锁定 `(opportunity_id, archetype)` 并校验余量 → `claimed += 1` → 写入 `projects`（`status = 'IN_DEVELOPMENT'`、`stake_status = 'PENDING'`、`stake_deadline_at = now() + stake_window_days`）→ 解锁该形态点火包；
-   - 并发抢同一槽位时只有一个事务成功，其余返回 `409 SLOT_TAKEN`（10 §4、13 §4.3）。**没有绕过 GO 直接下载点火包的端点。**
-2. **多凭证质押核验（F10）**：GO 后用户须在 `stake_window_days`（默认 7 天）内提交**三类凭证之一**：
+   - 服务端在**单个事务**内：`reserve` 1 次 `atomic_go_export_monthly` → 写入 `projects`（`status = 'IN_DEVELOPMENT'`、`credential_status = 'UNVERIFIED'`、`decision_id` 指回本次裁决）→ 解锁该裁决点火包；
+   - 同一 `decision_id` 重复 GO 由 `launch_kits.decision_id` 唯一约束拒绝（`409 ALREADY_GO`）；配额不足返回 `403 QUOTA_EXCEEDED`。**没有绕过 GO 直接下载点火包的端点，也没有槽位容量限制。**
+2. **凭证核验（F10，可选）**：GO 后可提交以下任一种凭证：
 
-   | `credential_type` | 提交物 | 探针校验 |
+   | `credential_type` | 提交物 | 核验方式 |
    | :--- | :--- | :--- |
-   | `DOMAIN_URL` | 独立域名首页 URL | HTTP 探针取回页面，校验 `<title>` / `<h1>` / `<meta description>` 与机会主词及簇内词的相关性 |
-   | `STORE_LISTING_URL` | 应用商店 / 市场详情页 | 同上，另校验页面可公开访问且非 404 / 非占位页 |
-   | `PUBLIC_PAGE_URL` | GitHub Release 或公开着陆页 | 同上；GitHub Release 走 API 校验 tag 与仓库公开性 |
+   | `DOMAIN_URL` / `PUBLIC_PAGE_URL` | 独立域名首页或公开着陆页 URL | 页面 `<meta>` token 与账户下发的 token 比对 |
+   | `DOMAIN_URL` / `PUBLIC_PAGE_URL`（DNS 方式） | 域名 DNS TXT 记录 | `_emeradar.<domain>` 的 TXT 值与 `token_hash` 比对 |
+   | `STORE_LISTING_URL` | 应用商店 / 市场详情页 | 商店开发者 OAuth 授权，确认账号归属 |
+   | `GITHUB_REPO_URL` / `GITHUB_RELEASE_URL` | GitHub 仓库或 Release | 仓库内 `.emeradar-verify` 文件或 Release asset 与 `token_hash` 比对 |
 
-   - 校验通过 → `projects.stake_status = 'VERIFIED'`，进入战绩追踪；
-   - 逾期未提交或校验失败 → `stake_status = 'EXPIRED_RELEASED'`，槽位释放（`slot_claims.state = 'EXPIRED'`），**已扣配额不退**（03 §8、12 §触发器）。
+   - 核验通过 → `projects.credential_status = 'VERIFIED_OWNER'`，进入战绩追踪、公开记录与 Gate 1 统计；
+   - 未提交或核验失败 → 保持 `UNVERIFIED` / `REJECTED`；**没有截止日、不释放资源、不退还配额**，项目仍可在本人账户内查看（03 §12、13 §4.3）。
 3. **成果核销与预测验证 (Prediction Verification)**：
    - **主追踪不再依赖 GSC**：系统在每日 S2 的 Top 100 SERP 快照中**内存匹配**该项目已提交的域名或页面 URL 是否入榜，写入 `project_serp_rankings`；零新增采集请求（02 §5、04 §9.5）。这条路径记录的是"该机会的搜索市场是否真的形成了"，与用户自身流量是否接入无关。
    - **GSC 是可选增强项**：用户若自愿连接 Search Console，可额外获得自身站点的曝光/点击曲线，用于个人复盘；不连接不损失任何核心战绩。
    - 系统自动对齐该机会在 T+30d / T+60d / T+90d 的搜索表现，写入 `prediction_episodes`；
-   - 无论用户成功与否，结果都进入预测账本并计入 Cohort 统计（不因失败而剔除）；成功案例另可进入公开 Hall of Fame。**买断（Stealth Lock）保护期内的记录照常计入统计，仅在公开投影中打码**（15 §3.1）。
+   - 无论用户成功与否，结果都进入预测账本并计入 Cohort 统计（不因失败而剔除）；成功案例另可进入公开 Hall of Fame。v3.1 没有买断打码分支，全部记录按同一口径公开。

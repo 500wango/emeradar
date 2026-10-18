@@ -2,6 +2,8 @@
 
 Status: Draft ｜ 依赖：00-INDEX（枚举）、02
 
+> **v3.1 基线（2026-10-18）**：`opportunity_slots`、`slot_claims`、质押字段、`stake_*`、`stealth_locks`、`stealth_lock_displays` 与 `CROWDED_LOCKED` 已从产品中移除。本文中的这些实体仅作为**历史迁移说明**保留，不再是当前数据模型的一部分；新迁移不得继续写入。Project 的唯一动作是 GO 扣配额 + 建壳 + 导出点火包；排名追踪以 `credential_status = 'VERIFIED_OWNER'` 为前提。下游与代码未同步前，以 01-PRD v3.1 为准。
+
 ## 1. 约定
 - 数据库：PostgreSQL 15+；扩展 `citext`、`pg_trgm`、`pgcrypto`、`pg_partman`（用于月度分区表自动化维护，见 §5、§6）。
 - **主键存储分两类（ADR-011，见 00 §5）**：
@@ -152,7 +154,7 @@ create table subscriptions (
   -- 而是 PRO 权益在 QUARTER 计费间隔下的售卖方式，避免同一份权益出现两个真源。
   billing_interval text not null default 'MONTH' check (billing_interval in ('MONTH','QUARTER','YEAR')),
   -- 一次性买断的 PRO 权益（Founding Lifetime）不产生续费事件，用此列区分（13 §4.4）。
-  -- Stealth Buyout 不在这张表：它买的不是订阅权益，见 §12 stealth_locks。
+  -- v3.1 起不再有 Stealth Buyout；`purchase_kind` 只保留订阅与 Founding Lifetime。
   purchase_kind text not null default 'SUBSCRIPTION' check (purchase_kind in ('SUBSCRIPTION','FOUNDING_LIFETIME')),
   current_period_start timestamptz,
   current_period_end timestamptz,
@@ -298,7 +300,7 @@ create table domains (
   host text not null unique,                   -- registrable domain (eTLD+1)
   authority_class text not null default 'UNKNOWN'
     check (authority_class in ('OFFICIAL','MAJOR_MEDIA','PLATFORM_UGC','SPECIALIST','SMALL_SITE','UNKNOWN')),
-  -- 新晋赢家（PROVEN_NEW_ENTRANT，PRD §1.7.3）需要"上线不满 6 个月"这个判据。
+  -- 新晋赢家（PROVEN_NEW_ENTRANT，PRD §1.8 第 3 条）需要"上线不满 6 个月"这个判据。
   -- 该判据**不是**本系统的观测结果，必须连同来源一起存，且来源为空时不得推断：
   established_at date,                         -- 可考证的上线/注册时间
   established_source text,                     -- 判定该时间的依据（注册记录 / 首次索引 / 商店上架）
@@ -478,47 +480,18 @@ create table axis_features (
 create table crowding_daily (
   opportunity_id text not null references opportunities(id),
   obs_date date not null,
-  slots_claimed_total integer not null,        -- Σ 全部形态中 slot_state = 'CLAIMED' 的数量
-  slots_capacity_total integer not null,       -- Σ 全部形态的 capacity（≤ max_capacity_total）
-  crowding_index numeric(5,2) not null,
+  verified_product_count integer not null default 0,     -- 映射到该机会且 credential_status = 'VERIFIED_OWNER' 的项目数
+  top10_specialist_count integer not null default 0,     -- 当前 Top10 中 SPECIALIST / 权威竞品数
+  new_top10_entrants_30d integer not null default 0,     -- 近 30 天首次进入 Top10 的独立站数
   primary key (opportunity_id, obs_date)
 );
--- 取代早期的 go_users_14d：拥挤度按**当前占用**而非"14 天内点过 GO 的人数"计算，
--- 因为 7 天质押逾期会释放槽位，而"点过 GO"的计数会把已释放的人永久算作占用。
+-- v3.1：拥挤度只用于公开透明度（01 §5.9）、生命周期 CONTESTED 与 F9 告警，
+-- 不进入 W_score，也不再有槽位/认领汇总。`verified_product_count` 只数
+-- `credential_status = 'VERIFIED_OWNER'` 的项目；UNVERIFIED 不计入。
 
--- 认领槽位（ADR-018、05 §5.1、PRD §1.7 第 5 条）。按 Build Archetype 切分，是一条机会可以有
--- 多个"队"的原因：不同形态的认领者互不挤占，避免所有订阅者做同一个同质竞品。
-create table opportunity_slots (
-  opportunity_id text not null references opportunities(id) on delete cascade,
-  archetype text not null,                     -- 00 §4.3 build_type
-  capacity integer not null check (capacity > 0),
-  claimed integer not null default 0 check (claimed >= 0 and claimed <= capacity),
-  updated_at timestamptz not null default now(),
-  primary key (opportunity_id, archetype)
-);
-
-create table slot_claims (
-  id text primary key,                         -- slc_
-  opportunity_id text not null,
-  archetype text not null,
-  user_id text not null references users(id),
-  project_id text not null references projects(id),
-  state text not null check (state in ('OPEN','CLAIMED','RELEASED','EXPIRED')),
-  claimed_at timestamptz not null default now(),
-  deadline_at timestamptz not null,            -- claimed_at + stake_window_days（按执行规模 S 7 / M 14 / L 21 天，PRD v2.2 Q5）
-  released_at timestamptz,
-  release_reason text check (release_reason in ('STAKE_EXPIRED','STAKE_INVALID','USER_ARCHIVED','OPPORTUNITY_ARCHIVED')),
-  foreign key (opportunity_id, archetype) references opportunity_slots(opportunity_id, archetype)
-);
--- opportunity_slots.claimed 是 slot_claims 的汇总缓存，两者由同一事务写入。
--- 计数据此而非 COUNT(*) 是为了让 GO 的并发抢占只需锁一行（见 10 §原子 GO）。
---
--- **活跃认领的唯一判定（D2）**：slot_claims.state = 'CLAIMED'。任何"某人是否还占着槽"
--- 的读路径都必须走这一列，不得改从 projects.status 推导——早期三处读路径分别用了
--- != 'ARCHIVED' 与 != 'ABANDONED'，后者不是合法取值，等于把归档项目也算作占用。
-create unique index slot_claims_one_active_per_user_opportunity
-  on slot_claims (user_id, opportunity_id) where state = 'CLAIMED';
-create index slot_claims_deadline on slot_claims (deadline_at) where state = 'CLAIMED';
+-- v3.1 已移除：`opportunity_slots`、`slot_claims`、`slot_state`、`release_reason`。
+-- GO 不再占槽，也不再有任何槽位释放/逾期逻辑。存量表若存在，仅保留历史数据，
+-- 不参与评分、发布资格、GO 或公开页；新迁移不得写入。
 
 -- 推荐层（05 §11）：不进账本，但每日落库以便复现
 create table opportunity_recommendations (
@@ -707,40 +680,38 @@ create table projects (
   target_keywords text[] not null default '{}',
   status text not null default 'IN_DEVELOPMENT'
     check (status in ('IN_DEVELOPMENT','LAUNCHED','ARCHIVED')),
-  -- 承诺质押（PRD §1.7 第 5 条、F10）。质押窗口内（按执行规模 S 7 / M 14 / L 21 天，PRD v2.2 Q5）
-  -- 未提交有效凭证即置 EXPIRED_RELEASED 并释放槽位；已扣的月度导出配额**不退还**——这是让"占坑"
-  -- 有成本的那一半设计。例外：每位用户**首次**逾期退还 1 次配额（v2.2 Q5）。判定"是否首次"需要
-  -- 一个持久标记，拟新增 users.first_stake_refund_used_at timestamptz（为空 = 未用过）。
-  -- 该列须走 migrations/ 新迁移，不改 schema.sql（schema.sql 是冻结 baseline）。
-  -- 活跃 GO 上限（active_go_slots_max）只计 stake_status = 'PENDING' 的行（v2.2 Q15）。
-  stake_status text not null default 'PENDING'
-    check (stake_status in ('PENDING','VERIFIED','EXPIRED_RELEASED')),
-  stake_deadline_at timestamptz not null,      -- GO 时刻 + stake_window_days（S 7 / M 14 / L 21 天，v2.2 Q5）
+  -- v3.1：没有质押窗口、没有槽位、没有逾期释放。凭证提交是自愿的；
+  -- 只有 VERIFIED_OWNER 才开启排名追踪，并计入北极星、Gate 1 与公开战绩。
+  credential_status text not null default 'UNVERIFIED'
+    check (credential_status in ('UNVERIFIED','PENDING','VERIFIED_OWNER','REJECTED')),
+  credential_verified_at timestamptz,
   outcome_status text not null default 'UNKNOWN'
     check (outcome_status in ('UNKNOWN','NO_TRACTION','EARLY_TRACTION','TRACTION'))
 );
-create index projects_stake_deadline on projects (stake_deadline_at) where stake_status = 'PENDING';
+create index projects_verified on projects (opportunity_id) where credential_status = 'VERIFIED_OWNER';
 -- 注意：status 的取值已统一为 IN_DEVELOPMENT/LAUNCHED/ARCHIVED（00 §4.3）。早期的
--- PLANNED/BUILDING/ABANDONED 与代码里的同义漂移一并作废——正是这套漂移让三处槽位计数
--- 分别用了 != 'ARCHIVED' 与 != 'ABANDONED'，从而算出不同的占用数。
+-- PLANNED/BUILDING/ABANDONED 与代码里的同义漂移一并作废。
 
--- 上线凭证（PRD F10 支持 3 类）。保留历史提交，便于回答"这个项目当时凭什么算上线"。
+-- 上线凭证（PRD F10）。保留历史提交，便于回答“这个项目当时凭什么算上线”。
 create table project_credentials (
   id text primary key,
   project_id text not null references projects(id) on delete cascade,
   credential_type text not null
-    check (credential_type in ('DOMAIN_URL','STORE_LISTING_URL','PUBLIC_PAGE_URL')),
+    check (credential_type in ('DOMAIN_URL','STORE_LISTING_URL','PUBLIC_PAGE_URL','GITHUB_RELEASE_URL','GITHUB_REPO_URL')),
   url text not null,
   host text,                                   -- 归一化主机名，供 SERP 快照内存匹配用
   verification_state text not null default 'PENDING'
-    check (verification_state in ('PENDING','VERIFIED','REJECTED')),
+    check (verification_state in ('PENDING','VERIFIED_OWNER','REJECTED')),
+  verification_method text
+    check (verification_method in ('META_TOKEN','DNS_TXT','STORE_OAUTH','GITHUB_FILE','GITHUB_RELEASE_ASSET')),
+  token_hash char(64),                         -- 一次性核验 token 的哈希；不存明文
   probe jsonb,                                 -- 探针提取的 <title>/<h1>/<meta> 与相关性判定
   checked_at timestamptz,
   rejection_reason text,
   created_at timestamptz not null default now()
 );
 create unique index project_credentials_one_verified
-  on project_credentials (project_id) where verification_state = 'VERIFIED';
+  on project_credentials (project_id) where verification_state = 'VERIFIED_OWNER';
 
 -- 无感 SERP 排名追踪的输出（PRD F10）。数据来自 F1 每周 Top 100 快照的内存匹配，
 -- **不为追踪项目单独发起任何 SERP 请求**（一鱼多吃原则）。
@@ -753,41 +724,8 @@ create table project_serp_rankings (
   primary key (project_id, query_id, obs_date)
 );
 
--- 处女地独占买断（ADR-018、PRD §1.7 第 5 条）。仅在 Σclaimed == 0 时可下单，
--- 部分唯一索引保证同一机会不会同时存在两个有效买断。
-create table stealth_locks (
-  id text primary key,                         -- slk_
-  opportunity_id text not null references opportunities(id),
-  user_id text not null references users(id),
-  -- ACTIVE：生效中（已付款，或仍在待付窗口内）；EXPIRED：60 天保护期满，自动解密；
-  -- VOID：待付窗口内未付款，占位作废。VOID 与 EXPIRED 必须分开：前者是"钱从没到"，
-  -- 后者是"买了、期限到了"，把两者并成一档会让买断的成单率无法统计（00-INDEX §4.3）。
-  status text not null check (status in ('ACTIVE','EXPIRED','VOID')),
-  locked_at timestamptz not null default now(),
-  -- locked_at + 60 天。**在待付窗口内就已确定**，而不是等付款后重算：投影要能在
-  -- 下单那一刻就说出解密时刻，且付款落账不该让一个已公布的期限悄悄平移。
-  unlock_at timestamptz not null,
-  amount_usd numeric(10,2),
-  -- 付款凭据。**它是"已付款"的唯一标记**——待付占位与已成交买断靠它区分，
-  -- 而不是靠一个新状态值（那是同一事实的第二种表示，必然会漂）。
-  provider_payment_id text,
-  -- 托管结账会话。落库的理由是"同时至多一笔未付款占位"这条闸需要能**续付**：
-  -- 用户丢了结账标签页时，第二次 POST 必须拿回同一个链接，而不是撞上部分唯一索引报错。
-  provider_checkout_session_id text,
-  provider_checkout_url text,
-  checkout_expires_at timestamptz
-);
-create unique index stealth_locks_one_active
-  on stealth_locks (opportunity_id) where status = 'ACTIVE';
--- 待付占位与 60 天期限共用 ACTIVE，二者的区别只在 provider_payment_id 是否为 NULL。
--- 因此"此刻是否被买断隐藏"的判据必须同时看两者与时间，见 §17 I13。
-create index idx_stealth_locks_void_scan
-  on stealth_locks (status, locked_at) where provider_payment_id is null;
-create index idx_stealth_locks_expiry_scan
-  on stealth_locks (status, unlock_at);
--- 买断期内的机会照常写入 verdicts 与 prediction_episodes 并计入 Cohort 胜率统计；
--- 只有**公开投影**打码为 [Stealth Locked #ID]（06 §7、15 §3）。账本与展示在此解耦，
--- 所以"封印"不会伤害战绩的可证伪性。
+-- v3.1 已移除：`stealth_locks`（处女地独占买断 / Stealth Lock）与所有待付占位逻辑。
+-- 存量表若存在，仅保留历史数据，不参与公开投影、评分或发布资格；新迁移不得写入。
 
 create table project_pages (
   project_id text not null references projects(id),
@@ -853,19 +791,19 @@ create table opportunity_reports (
 create index idx_opp_reports_user_opp on opportunity_reports(user_id, opportunity_id);
 
 -- AI 建站点火包（ADR-019、PRD F8 交付物二、09 §5）。
--- 与报告的区别在于它绑定**一次具体的认领**而不是一次生成：同一机会可以放行 5 次
--- 原子立项，每人拿到的形态可能不同，因此点火包按 slot_claim 唯一，而不是按 (user, snapshot)。
+-- 与报告的区别在于它绑定**一次具体的 GO 决定**而不是一次生成：同一机会可以被不同用户
+-- 各自 GO，每人拿到的形态可能不同，因此点火包按 decision 唯一，而不是按 (user, snapshot)。
 create table launch_kits (
   id text primary key,                         -- lkit_
   report_id text not null references opportunity_reports(id),
   project_id text not null references projects(id) on delete cascade,
-  slot_claim_id text not null references slot_claims(id),
+  decision_id text not null references decisions(id),
   archetype text not null,                     -- 决定装配哪一套工程规范与页面骨架
   schema_version text not null default '1.0',
   files jsonb not null,                        -- CLAUDE.md / .cursorrules / pseo-routes.csv|json / landing.md
   content_hash char(64) not null,              -- 与 files 对应，用于复核与幂等
   generated_at timestamptz not null default now(),
-  unique (slot_claim_id)
+  unique (decision_id)
 );
 -- files 的硬数据（搜索动量、竞品价格、长尾词表）由确定性模板注入，LLM 只贡献 ≤ 500 字
 -- 叙述（ADR-019、09 §5.3），所以 content_hash 可重算：同一快照 + 同一形态必得同一份点火包。
@@ -926,15 +864,14 @@ create table public_pages (
   opportunity_id text references opportunities(id),
   status text not null check (status in ('DRAFT','PUBLISHED','UNPUBLISHED')),
   indexable boolean not null default false,
-  -- 资格判据快照。**不再含 45 天延迟**（PRD §7.1 已废除）：改为记录该页凭哪一条
-  -- 准实时口径入选（`CROWDED_LOCKED` 或 `WINDOW_CLOSING`）以及当时的槽位状态，
-  -- 使"为什么这条机会可以被免费用户看到"事后可复核（15 §3、20 §6）。
-  -- 落地形状（15 §3「实现口径四则」）：`{ version, evaluatedAt, eligible,
-  --   admission: { basis, crowdedLocked: {slotRows,capacity,claimed,full},
-  --   windowClosing: {current,enteredOn,ageDays,freshnessDays,fresh} },
-  --   evidence: {mBand,wBand,sufficient}, cannibalization, notEvaluated, blockedBy }`。
-  -- 买断保护期内为 `{ reason: 'STEALTH_LOCKED', lockId, unmaskedAt }`；未通过时
-  -- `blockedBy` 写明 `OPEN_SLOTS` / `M_INSUFFICIENT` / `CANNIBALIZATION` /
+  -- 资格判据快照。**不再含 45 天或 14 天延迟**（PRD §7.1）：改为记录该页凭哪一条
+  -- “失去抢跑价值”口径入选（`WINDOW_CLOSING` / `PASS` / `CONTESTED` / `MATURE` /
+  -- `DEAD` / `STALE_14D`），使“为什么这条机会可以被免费用户看到”事后可复核
+  -- （15 §3、20 §6）。
+  -- 落地形状：`{ version, evaluatedAt, eligible,
+  --   admission: { basis, decidedAt, evidence: {mBand,wBand,sufficient} },
+  --   cannibalization, notEvaluated, blockedBy }`。
+  -- 未通过时 `blockedBy` 写明 `STILL_LIVE` / `M_INSUFFICIENT` / `CANNIBALIZATION` /
   -- `CANNIBALIZATION_DATA_MISSING` 之一。公开接口只承诺 `reason` 与 `decided_at`（10 §4.8）。
   eligibility jsonb not null,
   quality_report jsonb not null,
@@ -943,27 +880,8 @@ create table public_pages (
   unique (slug, locale)
 );
 
--- Sealed Ledger（ADR-018、PRD §1.7 第 7 条）：买断期内公开投影的显示别名。
--- 单独成表而非改 public_pages，是因为**打码是展示层投影**，不是事实：期满必须能
--- 无损还原，而原页面本身从未被改写。
---
--- 它是**所有打码读路径的唯一标签来源**，而不是一张可以现算的冗余副本：公开战报
--- （06 §11）要输出 is_stealth_masked / masked_label / unmasked_at，若每个投影各自
--- 现算标签，第一处漂移就会变成一次 P0 泄露。一次 join 拿到同一份标签，是让"只打
--- 一次码"在结构上成立的最小做法。
-create table stealth_lock_displays (
-  stealth_lock_id text not null references stealth_locks(id),
-  -- 冗余存 opportunity_id 只为读路径少一次 join，不作为主键的一部分。
-  opportunity_id text not null references opportunities(id),
-  masked_label text not null,                  -- 形如 [Stealth Locked #7f3a]
-  locale text not null,
-  unmasked_at timestamptz not null,            -- 与 stealth_locks.unlock_at 逐字一致（I14）
-  -- 主键按**锁**而不是按机会：同一机会的第一笔买断 EXPIRED 之后，第二笔买断是合法
-  -- 的（那时 Σclaimed 又回到 0，见 I13），而按 (opportunity_id, locale) 做主键时
-  -- 第二笔会撞主键，唯一的出路是删掉第一笔的显示行——于是第一笔的锁就永远失去了
-  -- 它"有且仅有一条显示行"的性质。键选错会把一个不变量的破坏伪装成一次主键冲突。
-  primary key (stealth_lock_id, locale)
-);
+-- v3.1 已移除：`stealth_lock_displays` 与所有买断打码投影。
+-- 公开页只按“失去抢跑价值”判据投影，不再有 [Stealth Locked] 显示别名。
 ```
 
 ## 16. 审计
@@ -995,12 +913,10 @@ create table audit_log (
 | I7 | `row_hash = sha256(prev_hash ‖ canonical_json(row))` 可在任意时刻重验 | 06 的验证任务 |
 | I8 | 每个 `status != 'CANDIDATE'` 的机会恰有 1 条 `opportunity_queries(role='PRIMARY')` | 创建 / 升级机会的事务内保证 + `opportunity_queries_one_primary` 部分唯一索引（防多）+ 夜间一致性检查（防零：扫描无 PRIMARY 的 TRACKED/ARCHIVED 机会并告警） |
 | I9 | 高频事实表（§1 规则 2）的 `id` 列为原生 `uuid`；对外 API 一律经 `packages/db` 编解码为带前缀字符串，任何代码不得绕过该助手拼接前缀 | 代码评审 + 类型层禁止裸 `string` 传参给这些表的 id 字段（使用 branded type） |
-| I10 | 同一机会的 `Σ opportunity_slots.capacity ≤ max_capacity_total`（默认 6），且 `claimed ≤ capacity` | check 约束 + 创建槽位时的事务校验 |
-| I11 | `slot_claims.state = 'CLAIMED'` 的行数与 `opportunity_slots.claimed` 一致；同一用户在同一机会至多一条 `CLAIMED` | `slot_claims_one_active_per_user_opportunity` 部分唯一索引 + 夜间一致性检查（防汇总缓存漂移） |
-| I12 | 每个 `projects` 行的 `stake_status = 'PENDING'` 必须在 `stake_deadline_at` 前被终结（`VERIFIED` 或 `EXPIRED_RELEASED`） | 每日逾期待办任务（释放槽位）+ 监控：存在超期仍 `PENDING` 的行即告警 |
-| I13 | 同一机会至多一个 `stealth_locks.status = 'ACTIVE'`，且下单时 `Σclaimed == 0`。**追加**：每条 `status='ACTIVE'` 的行必须满足 `provider_payment_id IS NOT NULL`（已成交）**或** `locked_at` 落在待付窗口内（待付窗口，默认 35 分钟，PRD v2.2 Q8 原定 15 分钟，因 Stripe 会话下限 30 分钟而上调；语义与常量归属见 10 §4.5b）。窗口一过，该行既不再隐藏机会、也不再算 ACTIVE，无论清理作业跑没跑 | `stealth_locks_one_active` 部分唯一索引（防多）+ 下单事务内校验（防非处女地）+ **判据自愈**：隐藏与否由 `status + unlock_at + provider_payment_id + locked_at` 现算，不依赖作业成败（多一道"只有作业跑过才算数"的门，就等于把正确性挂在调度器上） |
-| I14 | 每条 `stealth_locks` 在**每个已发布的 locale** 各有且仅有一条 `stealth_lock_displays`，且 `unmasked_at` 与 `unlock_at` 逐字一致 | 下单事务内一并写入 + 夜间一致性检查 |
-| I15 | `VOID` 行永不与 `provider_payment_id IS NOT NULL` 并存——钱到了就不可能作废 | 作废作业翻状态前先向供应商确认该会话未付款（一次查询，只对超窗口的行做）；webhook 落到 `VOID` 行即记 P0 告警（这是"钱已收、交付物不在"的唯一剩余入口，必须有人看到而不是静默 200） |
+| I10 | `crowding_daily.verified_product_count` 等于映射到该机会且 `projects.credential_status = 'VERIFIED_OWNER'` 的项目数 | 夜间一致性检查（按 `projects` 聚合回填 / 告警） |
+| I11 | 每个 Project 至多一条 `project_credentials.verification_state = 'VERIFIED_OWNER'` 的凭证；只有该状态可写 `projects.credential_verified_at` | `project_credentials_one_verified` 部分唯一索引 + 事务内校验 |
+| I12 | 公开页不得在机会仍为 `BUILD_NOW` / `EARLY_BET` 时标记 `eligible = true`；`eligibility.admission.basis` 必须是 `WINDOW_CLOSING` / `PASS` / `CONTESTED` / `MATURE` / `DEAD` / `STALE_14D` 之一 | 发布任务校验 + 每日一致性检查 |
+| I13 | 每个 `launch_kits` 行必须绑定一条唯一的 `decision_id`，且该决定已成功创建 Project | `unique (decision_id)` + GO 事务内写入 |
 
 ## 18. 保留与删除
 - 用户删除账户：软删除 `users`；级联删除 `user_preferences`、`api_keys`、`notification_channels`、`opportunity_reports`、`gsc_connections`、令牌；`decisions` 与 `projects` 匿名化保留（去除 `user_id` 关联），因其构成校准数据；`audit_log` 中的 `actor_id` 替换为哈希。

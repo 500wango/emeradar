@@ -1,6 +1,6 @@
 # 02 — 系统架构
 
-Status: Draft ｜ 依赖：01-PRD、00-INDEX
+Status: Draft ｜ Last reviewed: 2026-10-18（对齐 PRD v3.1：无槽位、无质押、无买断作业）｜ 依赖：01-PRD v3.1、00-INDEX
 
 ## 1. 目标与约束
 
@@ -102,7 +102,7 @@ packages/
 - **S6 单写入者约束（ADR-014）**：`verdicts` 表的哈希链要求"同一 `obs_date` 内按 `opportunity_id` 升序前后依赖"，因此 S6 **只能由一个 Worker 实例执行**，禁止多实例并发写入该表。实现：S5 输出全部落入 `verdicts_pending` 暂存表（无哈希链约束，可并发写）；S6 由单一进程读取当日全部暂存行，按 `opportunity_id` 排序后在内存中串行计算 `row_hash` 与 Merkle 根，最后单次批量 `COPY` 写入 `verdicts` 并清空暂存表。追踪池规模（≤ 2,000 机会）下，此串行内存计算 + 批量提交预期在数百毫秒至数秒内完成，不构成管线瓶颈；若追踪池规模显著增长（见 04 §4.4），需重新评估是否引入分桶两级 Merkle 结构。
   调度层通过 pg-boss 的单例作业（同一 `obs_date` 的 S6 任务加咨询锁 `pg_advisory_lock`）保证同一时刻至多一个 S6 实例在跑，重复调度直接跳过。
 - **项目 SERP 排名匹配（零新增请求，PRD F1.1）**：S2 对映射到已核验 Project 的 query 每周采一次 Top 100 快照（`depth = 100`，ADR-022、04 §4），在内存中顺带匹配 `project_credentials.host`（已核验项目的域名 / 商店链接），产出 `project_serp_rankings`（rank 1–100；`best_rank IS NULL` 表示当日未入榜）。其余 query 只采 Top 10。**严禁为追踪项目对同一 query 另发一次 SERP 请求**——这份 Top 100 快照同时供 W 轴使用。`num=100` 失效后 Top 100 按 10 页计费，这部分成本已计入 04 §6.1。
-- **Merkle 定位（后台存证，PRD §1.7 第 7 条）**：S6 计算并封存 Merkle 根，作为**后台不可篡改的技术存证**；前台主打 **Cohort Hit Rate & Accuracy Matrix（公开战绩大盘与失误复盘）**，仅在公开站底栏留一个 Merkle 根校验入口。两者不互相替代：校验入口证明"账本未被篡改"，战绩大盘回答"判断准不准"。公开投影由 S8 另行生成（15）。
+- **Merkle 定位（后台存证，PRD §1.8 第 7 条）**：S6 计算并封存 Merkle 根，作为**后台不可篡改的技术存证**；前台主打 **Cohort Hit Rate & Accuracy Matrix（公开战绩大盘与失误复盘）**，仅在公开站底栏留一个 Merkle 根校验入口。两者不互相替代：校验入口证明"账本未被篡改"，战绩大盘回答"判断准不准"。公开投影由 S8 另行生成（15）。
 
 ### 5.1 队列与调度（ADR-003 的落地形态）
 
@@ -118,8 +118,6 @@ packages/
 | `sync-gsc` | `0 5 * * *` | 2 次，退避 600s | 30m | 连续 2 次 |
 | `evaluate-episodes` | `0 6 * * *` | 2 次，退避 300s | 30m | 连续 2 次 |
 | `sweep-subscriptions` | `15 6 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
-| `release-expired-stakes` | `30 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
-| `expire-stealth-locks` | `45 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `ingest-external-demand` | `30 5 * * *` | 2 次，退避 600s | 30m | 连续 2 次 |
 | `check-yield` | `50 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
 | `apply-output-guarantee` | `55 7 * * *` | 2 次，退避 300s | 15m | 连续 2 次 |
@@ -132,10 +130,7 @@ packages/
 - **`verify-ledger` 默认验最新检查点，不是"今天"**：账本只在有裁决的日子推进，"今天没有检查点"是常态而非故障。把它当失败会让 P0 通道每天说一次假话，真话也就没人看了。
 - **队列参数不会因重新部署而更新**：pg-boss 的 `createQueue` 是 `ON CONFLICT DO NOTHING`。改重试次数需要显式 `UPDATE pgboss.queue`，这条与 `schema.sql` 里"无条件谓词每次部署重放"的教训同源。
 - **发布节奏不依赖时钟对齐**：`run-daily` 在 03:30 UTC、最迟 07:00 出验证结果，与 §5 的 SLA 一致；cron 表达式显式带 `tz: 'UTC'`，不依赖宿主机时区。
-- **质押逾期释放（`release-expired-stakes`，PRD §1.7 第 5 条、03 I12）**：扫 `projects` 中 `stake_status = 'PENDING'` 且 `stake_deadline_at < now()` 的行，将质押置 `EXPIRED_RELEASED`、释放对应 `opportunity_slots` 槽位（`slot_state → RELEASED`）并写审计；**已扣减的月度导出配额不退还**（ADR-018）。释放后该槽位重新对公域开放。
-- **买断到期解密（`expire-stealth-locks`，PRD §1.7 第 7 条）**：扫 `stealth_locks` 中 `status = 'ACTIVE'` 且 `unlock_at ≤ now()` 的行，置 `status = 'EXPIRED'`，并刷新公开投影——解除 `[Stealth Locked #ID]` 打码、公开具体词根（03 §stealth_locks、06 §7、15 §3）。账本行本身不改写，只改展示投影。同一作业顺带作废待付占位：`status = 'ACTIVE'` 且 `provider_payment_id IS NULL` 且 `locked_at < now() - 35 分钟` 的行置 `status = 'VOID'` 并刷新投影（10 §4.5b；PRD v2.2 Q8）。
-  - **这两步都只是记账，不是正确性的前提。** "此刻是否被买断隐藏"由 `status + unlock_at + provider_payment_id + locked_at` 现算（03 §17 I13），因此作业停摆一天，到期解密与占位失效**照常发生**，只是 `status` 列的翻牌与投影刷新会迟到。让一个每日作业成为"机会能不能被看到"的开关，就等于让一次调度故障变成一次无限期的全网遮蔽。
-  - **作废前必须向供应商确认该会话确实未付款**（一次查询，只对超过待付窗口的行做）。钱到了却把占位判为作废，就是"钱已收、交付物不在"，而这正是"先占位"这个方案本来要避免的结局（03 §17 I15）。
+- **没有质押/买断类作业（v3.1）**：`release-expired-stakes` 与 `expire-stealth-locks` 已随 PRD v3.1 删除。GO 只扣月度配额、建 Project 壳并解锁点火包；凭证核验没有截止时间，失败不释放资源、不退还配额。机会可见性只由套餐与公开资格决定，不存在"到期解密"或"占位作废"的调度依赖。
 - **项目 SERP 排名匹配**：不是独立定时任务，随 S2 的 Top 100 快照采集在内存阶段完成（见 §5 说明），因此不占单独队列。
 
 ### 5.2 双通道管线（Fast Lane / Slow Lane，ADR-017）
