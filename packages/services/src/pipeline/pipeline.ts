@@ -24,6 +24,7 @@ import { buildCannibalizationIndex } from '../publication-policy';
 import { sendTransactionalEmail } from '../email.service';
 import { evaluateAlertTrigger, isEvaluatedRuleType, type CrowdingFacts } from '../alert-triggers';
 import { loadCrowding } from '../crowding.service';
+import { CustomQueryRadarService } from '../custom-query-radar.service';
 import { attachAutocompleteClusters } from './discover-candidates';
 
 const PIPELINE_LOCK_ID = 481516;
@@ -504,6 +505,9 @@ export async function runDailyPipeline(
       pendingEmails.push({ to: rule.email, subject: title, body, idempotencyKey: `alert/${rule.id}/${obsDate}` });
     }
   });
+
+  // 雷达确认必须在告警事务提交之后：它自己开事务，嵌在上面的连接里会卡死。
+  await CustomQueryRadarService.confirmDue(obsDate);
 
   for (const email of pendingEmails) {
     await deliverAlertEmail(email.to, email.subject, email.body, email.idempotencyKey);

@@ -22,6 +22,8 @@ export interface UserEntitlementsInfo {
    * 付费层为 false（实时 Feed）。
    */
   feedSelectedWeekly: boolean;
+  /** `pulse_radar`：可以把自定义词加入 7 天雷达（Pro 起）。 */
+  pulseRadar: boolean;
   opportunityDetailFull: boolean;
   deepReportExport: boolean;
   liveScanDailyLimit: number;
@@ -219,6 +221,7 @@ export class EntitlementService {
     const maxAlerts = isAdmin ? 9999 : (ent.max_alerts ?? 0);
     const apiAccess = isAdmin || !!ent.api_access;
     const opportunityDetailFull = isAdmin || planCode !== 'FREE';
+    const pulseRadar = isAdmin || Boolean(ent.pulse_radar);
     const deepReportExport = isAdmin || planCode !== 'FREE';
     // 目录里的 `feed_selected_weekly` 是 v3.1 的口径；`feed_realtime` 是它的反面
     // （Free false / 付费 true）。两个键都读，缺键时按套餐回退，与
@@ -306,6 +309,7 @@ export class EntitlementService {
       currentAlertsCount: alertCount,
       apiAccess,
       feedSelectedWeekly,
+      pulseRadar,
       opportunityDetailFull,
       deepReportExport,
       liveScanDailyLimit: scanLimit,

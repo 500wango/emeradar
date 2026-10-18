@@ -68,13 +68,16 @@ UPDATE plans
 
 UPDATE plans
    SET entitlements = entitlements
-     || '{"feed_realtime": false, "feed_selected_weekly": 1, "launch_kit_export": false}'::jsonb
+     || '{"feed_realtime": false, "feed_selected_weekly": 1}'::jsonb
  WHERE code = 'FREE';
 
 UPDATE plans
    SET entitlements = entitlements
-     || '{"feed_realtime": true, "feed_selected_weekly": 0, "launch_kit_export": true}'::jsonb
+     || '{"feed_realtime": true, "feed_selected_weekly": 0}'::jsonb
  WHERE code IN ('PRO','STARTER','TEAM');
+
+-- `launch_kit_export` 不再作为权益键：原子 GO 扣过配额后，点火包就是已购交付物，
+-- 降级后拦截它等于撤销已成交的交付；Free 又没有 GO 路径，这个键没有可执行的拒绝点。
 
 -- 20 §6：PRO 的项目上限 10 → 50
 UPDATE plans
