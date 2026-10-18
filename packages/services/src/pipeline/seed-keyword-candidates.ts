@@ -77,14 +77,57 @@ function slugFor(text: string): string {
   return `${base || 'keyword'}-${createHash('sha256').update(text).digest('hex').slice(0, 8)}`;
 }
 
-/** 入口筛选：只看意图与词面，不看排名，也不把任何数值带进评分。 */
+/**
+ * 入口筛选：只看意图与词面，不看排名，也不把任何数值带进评分。
+ *
+ * 2026-10 收紧：DataForSEO 的 `keyword_suggestions` 会返回“语义相关但并不是
+ * 工具需求”的词（例如 2026 hell、ai valuation 这类新闻/金融短语）。旧过滤只
+ * 看词数与字符集，这些词会占满 150 的候选池，并且每天烧 autocomplete/SERP/抓取
+ * 成本。现在要求：
+ *   - 具体种子（generator/calculator/...）必须真的包含种子词；
+ *   - 宽种子（software for / app for / for agencies）必须带工具/软件名词；
+ *   - 新闻、金融、教程类短语在没有工具名词时直接拒绝。
+ */
+const TOOL_SIGNAL = /\b(generator|calculator|converter|template|checker|maker|estimator|planner|tracker|alternative|extension|api|plugin|integration|dashboard|monitor|scheduler|scraper|extractor|summarizer|workflow|compliance|checklist|directory|tool|tools|software|app|apps|platform|automation|builder|editor|manager|assistant|crm|erp|saas|website|landing page|portfolio)\b/i;
+const NEWS_SIGNAL = /\b(hell|news|report|trend|forecast|valuation|funding|salary|jobs?|course|tutorial|stock|price prediction|market size)\b/i;
+const INFORMATIONAL_PREFIX = /^(how to|what is|why |is there|best |top \d+)/i;
+
+/** 这些种子的词面太宽，不能靠“包含种子”判断，必须出现工具/软件名词。 */
+const BROAD_SEEDS = new Set([
+  'online tool',
+  'free online',
+  'software for',
+  'app for',
+  'how to automate',
+  'for freelancers',
+  'for agencies',
+]);
+
 export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean {
   const kw = s.keyword.toLowerCase();
-  if (kw === seed.toLowerCase()) return false;
+  const seedLower = seed.toLowerCase();
+  if (kw === seedLower) return false;
   if (EXCLUDED.test(kw)) return false;
   if (s.mainIntent === 'navigational') return false;
+  if (INFORMATIONAL_PREFIX.test(kw)) return false;
+
   const words = kw.split(/\s+/).length;
-  return words >= 2 && words <= 6 && /^[a-z0-9 .,'&+-]+$/.test(kw);
+  if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
+
+  const toolSignal = TOOL_SIGNAL.test(kw);
+  const includesSeed = kw.includes(seedLower);
+  if (BROAD_SEEDS.has(seedLower)) {
+    if (!toolSignal) return false;
+  } else if (!includesSeed) {
+    return false;
+  }
+
+  // 有工具名词时，"valuation calculator" 可以是合法工具；没有工具名词时，
+  // "ai valuation"、"2026 hell" 只是新闻/事件。
+  if (NEWS_SIGNAL.test(kw) && !toolSignal) return false;
+  if (/\b20\d{2}\b/.test(kw) && !toolSignal) return false;
+
+  return true;
 }
 
 /**
