@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
-import { AuthService, CredentialService, ProjectService, RankingService } from '@emeradar/services';
+import { AuthService, CredentialService, ProjectOutcomeService, ProjectService, RankingService } from '@emeradar/services';
 import SiteCheckButton from '@/components/SiteCheckButton';
 import { ProjectLifecyclePanel } from '@/components/ProjectLifecyclePanel';
 import { CredentialPanel } from '@/components/CredentialPanel';
 import { LaunchKitPanel } from '@/components/LaunchKitPanel';
 import { RankingsPanel } from '@/components/RankingsPanel';
+import { ProjectOutcomePanel } from '@/components/ProjectOutcomePanel';
 import { getServerI18n } from '@/lib/i18n/server';
 import { PageFrame } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
@@ -18,8 +19,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   let data: any;
   try { data = await ProjectService.getProjectDetail(id, session.user.id); } catch { notFound(); }
-  const { t } = await getServerI18n();
+  const { t, isZh } = await getServerI18n();
   const gscStatus = await ProjectService.getGscConnectionStatus(id, session.user.id);
+  const outcomeState = await ProjectOutcomeService.getState(id, session.user.id);
 
   /**
    * 凭证状态单独取，而不是从 `getProjectDetail` 的大对象里挑字段。
@@ -83,6 +85,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           }}
         />
       )}
+
+      <ProjectOutcomePanel projectId={id} initialState={outcomeState} isZh={isZh} />
 
       <h2 className="mt-10 font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
         {t('projects.colOutcomes')}

@@ -4,6 +4,7 @@ export * from './opportunity.service';
 export * from './inbox.service';
 export * from './report.service';
 export * from './project.service';
+export * from './project-outcome.service';
 export * from './credential.service';
 export * from './publication-policy';
 export * from './weekly-selection.service';
