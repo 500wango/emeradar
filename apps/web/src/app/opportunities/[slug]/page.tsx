@@ -271,6 +271,18 @@ export default async function OpportunityWorkspacePage({
           </div>
         </div>
 
+        {latestVerdict && basisFlags.includes('STALE_DATA') && (
+          <div className="mt-6 rounded-sm border-l-4 border-warn bg-warn/10 p-4">
+            <p className="flex items-center gap-1.5 text-xs font-bold text-warn">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{t('report.staleDataTitle')}</span>
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              {t('report.staleDataDesc')}
+            </p>
+          </div>
+        )}
+
         {/* 判定依据：把"为什么是它"和结论摆在一起，而不是只给一个标签 */}
         {latestVerdict && (
           <div className="mt-6 pt-5 border-t border-line">

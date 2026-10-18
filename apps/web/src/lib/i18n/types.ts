@@ -971,6 +971,8 @@ export interface TranslationDictionary {
     readyDesc: string;
     createProject: string;
     decisionBasisTitle: string;
+    staleDataTitle: string;
+    staleDataDesc: string;
     decisionBasisNotRetained: string;
     decisionBasisCompensatedTitle: string;
     decisionBasisCompensatedDesc: string;

@@ -61,16 +61,19 @@ async function seedOpportunity(opts: SeedOptions): Promise<void> {
 }
 
 /** 账本：`[[daysAgo, verdict], ...]`，0 表示今天。 */
-async function seedVerdicts(opportunityId: string, rows: Array<[number, string]>): Promise<void> {
+async function seedVerdicts(
+  opportunityId: string,
+  rows: Array<[number, string] | [number, string, string[]]>
+): Promise<void> {
   const { query } = harness.db;
-  for (const [daysAgo, verdict] of rows) {
+  for (const [daysAgo, verdict, flags] of rows) {
     const id = `vdt_${opportunityId}_${daysAgo}`;
     await query(
       `INSERT INTO verdicts (id, opportunity_id, obs_date, scoring_config_version, verdict,
-         lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence, prev_hash, row_hash)
+         lifecycle, d_basis_points, m_basis_points, w_basis_points, confidence, prev_hash, row_hash, flags)
        VALUES ($1, $2, CURRENT_DATE - $3::int, 'sc-1.3.0', $4, 'EARLY_WINDOW',
-         7000, 6000, 5000, 'HIGH', $5, $6)`,
-      [id, opportunityId, daysAgo, verdict, '0'.repeat(64), id.padEnd(64, '0').slice(0, 64)]
+         7000, 6000, 5000, 'HIGH', $5, $6, $7)`,
+      [id, opportunityId, daysAgo, verdict, '0'.repeat(64), id.padEnd(64, '0').slice(0, 64), flags ?? []]
     );
   }
 }
@@ -184,6 +187,16 @@ after(async () => {
 });
 
 describe('条件① 已失去抢跑价值（15 §3 第 1 条、18 §4.1）', () => {
+  it('公开页 content 记录 STALE_DATA，供归档页展示宽限期提示', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    await resetPublicPages();
+    await seedOpportunity({ id: 'opp_stale_pub', verdict: 'PASS' });
+    await seedVerdicts('opp_stale_pub', [[0, 'PASS', ['STALE_DATA']], [2, 'WATCH'], [5, 'BUILD_NOW']]);
+
+    const { row } = await publish('opp_stale_pub');
+    assert.equal(row.content.stale, true);
+  });
+
   it('**活跃阻断**：最新裁决仍是 BUILD_NOW / EARLY_BET 时永不公开，哪怕生命周期已写成竞争态', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await resetPublicPages();

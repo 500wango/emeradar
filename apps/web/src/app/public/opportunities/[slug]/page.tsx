@@ -111,6 +111,19 @@ export default async function PublicOpportunityPage({ params }: { params: Promis
           )}
         </header>
 
+        {content.stale === true && (
+          <div className="mt-6 rounded-sm border-l-4 border-warn bg-warn/10 p-4">
+            <p className="text-xs font-bold text-warn">
+              {isZh ? '本页判定沿用了宽限期内的旧快照' : 'This record reuses a snapshot from the grace window'}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              {isZh
+                ? '发布时的最近一次判定带有 STALE_DATA 标志：部分采集源在 72 小时内失败，系统沿用了最近一次成功快照。这不是当天的新观测。'
+                : 'The latest verdict at publication carried STALE_DATA: one or more collectors failed within 72 hours and the most recent successful snapshot was reused. It is not a fresh observation.'}
+            </p>
+          </div>
+        )}
+
         <div className="mt-10 space-y-10">
           <section>
             <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-fg-subtle">

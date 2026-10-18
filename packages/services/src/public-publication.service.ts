@@ -261,6 +261,18 @@ export class PublicPublicationService {
     }
 
     const decision = await this.evaluateOpportunity(opportunityId, new Date(), locale, opts);
+    // 公开页也标注本次判定是否来自 72h 宽限期内的旧快照；老页面没有这个字段，
+    // 读取时按 false 处理。
+    const latestVerdictFlags = await query<{ flags: string[] | null }>(
+      `SELECT flags FROM verdicts
+        WHERE opportunity_id = $1
+        ORDER BY obs_date DESC, created_at DESC
+        LIMIT 1`,
+      [opportunityId]
+    );
+    const stale = Array.isArray(latestVerdictFlags.rows[0]?.flags)
+      ? latestVerdictFlags.rows[0]!.flags!.includes('STALE_DATA')
+      : false;
     // 每轮都重算资格并写回状态，所以「重新活跃」会在**同一轮 S8** 把页翻回 DRAFT：
     // 公开页查询带 `status = 'PUBLISHED'`，DRAFT 即 404。撤回与发布走同一条 upsert，
     // 没有单独的撤回路径可以忘记调用（15 §8 的 0 容忍要求）。
@@ -282,7 +294,13 @@ export class PublicPublicationService {
         opportunityId,
         status,
         decision.indexable,
-        JSON.stringify({ title: card.title, primaryQuery: card.primary_query, whyNow: card.why_now_summary, topIdea: card.top_idea }),
+        JSON.stringify({
+          title: card.title,
+          primaryQuery: card.primary_query,
+          whyNow: card.why_now_summary,
+          topIdea: card.top_idea,
+          stale,
+        }),
         JSON.stringify(decision.eligibility),
         JSON.stringify(decision.qualityReport),
       ]

@@ -1021,6 +1021,8 @@ export const en: TranslationDictionary = {
     readyDesc: 'Turn this report into a tracked project with weekly GSC traction analytics.',
     createProject: 'Create Tracking Project',
     decisionBasisTitle: 'Decision Basis (Ledger Record)',
+    staleDataTitle: 'This verdict reuses a snapshot from the grace window',
+    staleDataDesc: 'One or more collectors failed within the last 72 hours. The verdict reuses the most recent successful snapshot and is marked STALE_DATA in the ledger; it is not a fresh observation.',
     decisionBasisNotRetained:
       'This record predates decision-basis retention: the ledger sealed the verdict but not the rule trace or scoring flags behind it. The conclusion still stands, but "why this verdict" cannot be reconstructed. Every verdict from ledger v2 onward is fully auditable.',
     decisionBasisCompensatedTitle: 'This is a compensated verdict',
