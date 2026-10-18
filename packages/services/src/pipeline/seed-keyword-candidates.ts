@@ -40,6 +40,20 @@ export const TOOL_INTENT_SEEDS: Array<{ seed: string; archetype: 'TOOL' | 'MICRO
   { seed: 'resume', archetype: 'TOOL' },
   { seed: 'checklist', archetype: 'CONTENT_SITE' },
   { seed: 'directory', archetype: 'DIRECTORY' },
+  // 2026-10 扩展：从“单页工具”扩到插件/集成/工作流/垂直角色，避免候选池只覆盖
+  // generator/calculator 一类词。仍然只做入口，词量不进评分。
+  { seed: 'plugin', archetype: 'TOOL' },
+  { seed: 'integration', archetype: 'MICRO_SAAS' },
+  { seed: 'dashboard', archetype: 'MICRO_SAAS' },
+  { seed: 'monitor', archetype: 'MICRO_SAAS' },
+  { seed: 'scheduler', archetype: 'MICRO_SAAS' },
+  { seed: 'scraper', archetype: 'TOOL' },
+  { seed: 'extractor', archetype: 'TOOL' },
+  { seed: 'summarizer', archetype: 'TOOL' },
+  { seed: 'workflow', archetype: 'MICRO_SAAS' },
+  { seed: 'compliance', archetype: 'MICRO_SAAS' },
+  { seed: 'for freelancers', archetype: 'MICRO_SAAS' },
+  { seed: 'for agencies', archetype: 'MICRO_SAAS' },
 ];
 
 /** 每天展开的种子数。2 × $0.018 = $0.036/天。 */
