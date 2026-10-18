@@ -89,17 +89,58 @@ export async function loadStaleSerp(queryId: string, obsDate: string): Promise<S
   };
 }
 
-/** 某域名在 72h 内是否有可复用的商业证据（crawl 失败时用）。 */
-export async function hasStaleCommercialEvidence(opportunityId: string, domain: string): Promise<boolean> {
-  const res = await query<{ one: number }>(
-    `SELECT 1 AS one FROM evidence
+export interface StaleCommercialEvidence {
+  evidenceId: string;
+  observedAt: string;
+}
+
+/** 某域名在 72h 内最近一条可复用的商业证据；crawl 失败时用它登记降级来源。 */
+export async function loadStaleCommercialEvidence(
+  opportunityId: string,
+  domain: string
+): Promise<StaleCommercialEvidence | null> {
+  const res = await query<{ id: string; observed_at: string }>(
+    `SELECT id::text AS id, observed_at::text AS observed_at FROM evidence
       WHERE opportunity_id = $1
         AND lower(coalesce(domain, '')) = lower($2)
         AND evidence_class = 'OBSERVED'
         AND observed_at >= NOW() - ($3 || ' hours')::interval
         AND source_type IN ('PAID_TIER_OBSERVED','PAYMENT_INFRA_DETECTED')
+      ORDER BY observed_at DESC
       LIMIT 1`,
     [opportunityId, domain, String(STALE_WINDOW_HOURS)]
   );
-  return res.rows.length > 0;
+  const row = res.rows[0];
+  return row ? { evidenceId: row.id, observedAt: row.observed_at } : null;
+}
+
+export async function hasStaleCommercialEvidence(opportunityId: string, domain: string): Promise<boolean> {
+  return (await loadStaleCommercialEvidence(opportunityId, domain)) !== null;
+}
+
+export interface StaleDataEventInput {
+  obsDate: string;
+  opportunityId: string;
+  source: 'AUTOCOMPLETE' | 'SERP' | 'COMMERCIAL';
+  domain?: string;
+  referenceId?: string | null;
+  observedAt?: Date | null;
+}
+
+/** 记录一次降级实际引用的旧快照/证据；同一 obs_date+source+domain 只记一次。 */
+export async function recordStaleDataEvent(input: StaleDataEventInput): Promise<void> {
+  await query(
+    `INSERT INTO stale_data_events
+       (obs_date, opportunity_id, source, domain, reference_id, observed_at)
+     VALUES ($1::date, $2, $3, $4, $5, $6)
+     ON CONFLICT (obs_date, opportunity_id, source, domain) DO NOTHING`,
+    [
+      input.obsDate,
+      input.opportunityId,
+      input.source,
+      input.domain ?? '',
+      input.referenceId ?? null,
+      input.observedAt ?? null,
+    ]
+  );
 }

@@ -30,9 +30,10 @@ import { computeCrowding, storeCrowding } from '../crowding.service';
 import { runCollector } from '../collector-run.service';
 import { storeRawPayload } from '../raw-payload.service';
 import {
-  hasStaleCommercialEvidence,
+  loadStaleCommercialEvidence,
   loadStaleAutocomplete,
   loadStaleSerp,
+  recordStaleDataEvent,
 } from '../stale-data.service';
 
 const SKIP_COMMERCIAL_DOMAINS = [
@@ -108,7 +109,16 @@ export async function observeOpportunity(
 
   const acStale = acOutcome.status === 'OK' ? null : await loadStaleAutocomplete(primary.id, obsDate);
   const staleSources: string[] = [];
-  if (acStale) staleSources.push('AUTOCOMPLETE');
+  if (acStale) {
+    staleSources.push('AUTOCOMPLETE');
+    await recordStaleDataEvent({
+      obsDate,
+      opportunityId: opp.id,
+      source: 'AUTOCOMPLETE',
+      referenceId: acStale.observedDate,
+      observedAt: new Date(`${acStale.observedDate}T00:00:00Z`),
+    });
+  }
   const acAvailable = acOutcome.status === 'OK' || Boolean(acStale);
 
   let acRawPayloadId: string | null = null;
@@ -250,7 +260,16 @@ export async function observeOpportunity(
   );
 
   const serpStale = serpOutcome.status === 'OK' ? null : await loadStaleSerp(primary.id, obsDate);
-  if (serpStale) staleSources.push('SERP');
+  if (serpStale) {
+    staleSources.push('SERP');
+    await recordStaleDataEvent({
+      obsDate,
+      opportunityId: opp.id,
+      source: 'SERP',
+      referenceId: serpStale.snapshotId,
+      observedAt: new Date(`${serpStale.observedDate}T00:00:00Z`),
+    });
+  }
   const serpAvailable = serpOutcome.status === 'OK' || Boolean(serpStale);
 
   // 原始响应归档（R2）。失败不阻断观测：账本仍可用归一化行计算，只是失去回放能力。
@@ -798,11 +817,12 @@ async function crawlCommercialDomains(
   obsDate: string,
   ctx: RunContext,
   crawl: CrawlCollector
-): Promise<{ attempted: number; failed: number; stale: boolean }> {
+): Promise<{ attempted: number; failed: number; stale: boolean; staleDomains: string[] }> {
   const considered = new Set<string>();
   let attempted = 0;
   let failed = 0;
   let stale = false;
+  const staleDomains: string[] = [];
   for (const item of items) {
     const domain = item.domain.replace(/^www\./, '');
     if (!domain || considered.has(domain) || SKIP_COMMERCIAL_DOMAINS.some((skip) => domain === skip || domain.endsWith(`.${skip}`))) {
@@ -827,7 +847,19 @@ async function crawlCommercialDomains(
 
     if (outcome.status !== 'OK') {
       failed += 1;
-      if (await hasStaleCommercialEvidence(opportunityId, domain)) stale = true;
+      const prior = await loadStaleCommercialEvidence(opportunityId, domain);
+      if (prior) {
+        stale = true;
+        staleDomains.push(domain);
+        await recordStaleDataEvent({
+          obsDate,
+          opportunityId,
+          source: 'COMMERCIAL',
+          domain,
+          referenceId: prior.evidenceId,
+          observedAt: new Date(prior.observedAt),
+        });
+      }
       // Empty and failed reads must be recorded: without them, removal of a paid tier
       // has nothing to diff against and robots-blocked targets stay in the coverage
       // denominator (07 §6.1, §11 step 5).
@@ -881,7 +913,7 @@ async function crawlCommercialDomains(
       );
     }
   }
-  return { attempted, failed, stale };
+  return { attempted, failed, stale, staleDomains };
 }
 
 function commercialFetchStatus(

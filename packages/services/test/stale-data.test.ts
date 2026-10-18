@@ -83,4 +83,38 @@ describe('72h STALE_DATA 取数', () => {
     assert.strictEqual(await hasStaleCommercialEvidence(OPP, 'a.example'), true);
     assert.strictEqual(await hasStaleCommercialEvidence(OPP, 'missing.example'), false);
   });
+
+  it('记录逐域降级引用，同一 obs_date+source+domain 只记一次', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { loadStaleCommercialEvidence, recordStaleDataEvent } = harness.services;
+    const prior = await loadStaleCommercialEvidence(OPP, 'a.example');
+    assert.ok(prior);
+
+    await recordStaleDataEvent({
+      obsDate: '2026-10-18',
+      opportunityId: OPP,
+      source: 'COMMERCIAL',
+      domain: 'a.example',
+      referenceId: prior.evidenceId,
+      observedAt: new Date(prior.observedAt),
+    });
+    await recordStaleDataEvent({
+      obsDate: '2026-10-18',
+      opportunityId: OPP,
+      source: 'COMMERCIAL',
+      domain: 'a.example',
+      referenceId: prior.evidenceId,
+      observedAt: new Date(prior.observedAt),
+    });
+
+    const rows = await harness.db.query<any>(
+      `SELECT source, domain, reference_id, observed_at FROM stale_data_events
+        WHERE opportunity_id = $1 AND obs_date = '2026-10-18'`,
+      [OPP]
+    );
+    assert.strictEqual(rows.rows.length, 1);
+    assert.strictEqual(rows.rows[0].source, 'COMMERCIAL');
+    assert.strictEqual(rows.rows[0].domain, 'a.example');
+    assert.strictEqual(rows.rows[0].reference_id, prior.evidenceId);
+  });
 });
