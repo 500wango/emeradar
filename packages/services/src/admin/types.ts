@@ -119,6 +119,20 @@ export interface AdminCandidateItem {
   executionClass: string;
 }
 
+export interface AdminSourceHealth {
+  lastRunAt: string | null;
+  lastStatus: 'SUCCESS' | 'PARTIAL' | 'FAILED' | null;
+  lastError: string | null;
+  lastItems: number | null;
+  runs24h: number;
+  failures24h: number;
+  /** 0–1；24h 没有运行时为 0。 */
+  failureRate24h: number;
+  lastSuccessAt: string | null;
+  circuitOpen: boolean;
+  circuitOpenUntil: string | null;
+}
+
 export interface AdminSourceItem {
   id: string;
   type: string;
@@ -127,4 +141,5 @@ export interface AdminSourceItem {
   isActive: boolean;
   tosRiskLevel: string;
   createdAt: string;
+  health: AdminSourceHealth;
 }

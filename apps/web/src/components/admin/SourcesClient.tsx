@@ -24,6 +24,25 @@ function riskTone(level: string): BadgeTone {
   return 'warn';
 }
 
+function healthTone(health: AdminSourceItem['health']): BadgeTone {
+  if (health.circuitOpen) return 'danger';
+  if (health.runs24h === 0) return 'neutral';
+  if (health.lastStatus === 'FAILED' || health.failureRate24h >= 0.2) return 'warn';
+  return 'signal';
+}
+
+function healthLabel(health: AdminSourceItem['health']): string {
+  if (health.circuitOpen) return '熔断中';
+  if (health.runs24h === 0) return '暂无运行';
+  if (health.lastStatus === 'FAILED' || health.failureRate24h >= 0.2) return '需关注';
+  return '健康';
+}
+
+/** 用固定格式而不是“x 分钟前”，避免服务端/客户端相对时间在 hydration 时打架。 */
+function fmtTime(iso: string | null): string {
+  return iso ? iso.slice(5, 16).replace('T', ' ') : '—';
+}
+
 export function SourcesClient({ initialSources }: SourcesClientProps) {
   const [sources, setSources] = useState<AdminSourceItem[]>(initialSources);
   const [name, setName] = useState('');
@@ -31,6 +50,13 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+
+  const circuitCount = sources.filter((s) => s.health.circuitOpen).length;
+  const degradedCount = sources.filter(
+    (s) => !s.health.circuitOpen && s.health.runs24h > 0 &&
+      (s.health.lastStatus === 'FAILED' || s.health.failureRate24h >= 0.2)
+  ).length;
+  const totalRuns24h = sources.reduce((sum, s) => sum + s.health.runs24h, 0);
 
   const handleToggle = async (sourceId: string, currentActive: boolean) => {
     // Row-level guard: block repeat/concurrent toggles while one is in flight.
@@ -118,6 +144,15 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
         <p className="mt-1 font-mono text-xs text-fg-subtle">
           Configure Autonomous Discovery Channels &amp; Target RSS Feeds
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Badge tone={circuitCount > 0 ? 'danger' : 'neutral'}>
+            熔断 {circuitCount}
+          </Badge>
+          <Badge tone={degradedCount > 0 ? 'warn' : 'neutral'}>
+            需关注 {degradedCount}
+          </Badge>
+          <Badge tone="neutral">24h 运行 {totalRuns24h}</Badge>
+        </div>
       </div>
 
       {message && (
@@ -211,6 +246,24 @@ export function SourcesClient({ initialSources }: SourcesClientProps) {
                     ID: {s.id}
                     {s.config?.url && ` · ${s.config.url}`}
                   </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-subtle">
+                    <Badge tone={healthTone(s.health)}>{healthLabel(s.health)}</Badge>
+                    <span>{s.health.runs24h} 次 / 24h</span>
+                    <span>{s.health.failures24h} 失败</span>
+                    <span>
+                      最近 {s.health.lastStatus ?? '—'} {fmtTime(s.health.lastRunAt)}
+                    </span>
+                    {s.health.circuitOpen && (
+                      <span className="text-danger">
+                        打开至 {fmtTime(s.health.circuitOpenUntil)}
+                      </span>
+                    )}
+                  </div>
+                  {s.health.lastError && (
+                    <p className="mt-1 line-clamp-2 break-all font-mono text-[11px] text-danger/80">
+                      {s.health.lastError}
+                    </p>
+                  )}
                 </div>
               </div>
 
