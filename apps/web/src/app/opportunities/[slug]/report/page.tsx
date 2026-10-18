@@ -74,7 +74,11 @@ export default async function OpportunityReportPage({ params }: ReportPageProps)
     report = await ReportService.getOrGenerateReport(
       detail.opportunity.id,
       userId,
-      locale
+      locale,
+      // Free 只能到周案例；周案例按定义不是 BUILD_NOW/EARLY_BET，但 13 §3.2
+      // 承诺每月 1 份历史案例预览 —— 生成仍扣 generate_reports_monthly，导出
+      // 仍被 deepReportExport 挡住。
+      { allowHistorical: !ent.opportunityDetailFull }
     );
   } catch (err: any) {
     if (err.code === 'QUOTA_EXCEEDED' || err.status === 429) {

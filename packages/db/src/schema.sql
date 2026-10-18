@@ -965,6 +965,16 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_stripe_payment_intent
   ON subscriptions(stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
 
+-- 计费间隔与购买类型（03 §3、13 §3.1；0020 先加列，写侧在
+-- StripeService.activateSubscription）。
+--
+-- 季度 Builder Pass 不是独立的 plan_code，而是 PRO 权益在 `QUARTER` 下的售卖方式；
+-- Founding Lifetime 是一次性付款，用 `purchase_kind` 与订阅区分。
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS billing_interval TEXT NOT NULL DEFAULT 'MONTH'
+  CHECK (billing_interval IN ('MONTH','QUARTER','YEAR'));
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS purchase_kind TEXT NOT NULL DEFAULT 'SUBSCRIPTION'
+  CHECK (purchase_kind IN ('SUBSCRIPTION','FOUNDING_LIFETIME'));
+
 -- Webhook idempotency: each Stripe event id is applied at most once.
 CREATE TABLE IF NOT EXISTS stripe_event_retries (
   event_id TEXT PRIMARY KEY,

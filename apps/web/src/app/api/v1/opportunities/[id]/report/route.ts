@@ -40,7 +40,11 @@ export async function GET(
       }
     }
 
-    const result = await ReportService.getOrGenerateReport(id, userId, locale);
+    const result = await ReportService.getOrGenerateReport(id, userId, locale, {
+      // Free 的周案例永远是历史案例（PASS / WINDOW_CLOSING / WATCH）；上面已确认
+      // 它只可能是本周精选那一条。
+      allowHistorical: !ent.opportunityDetailFull,
+    });
     return NextResponse.json(result);
   } catch (error: any) {
     if (error instanceof AppError) {

@@ -28,7 +28,7 @@ export class ReportService {
      * 闸门"。所以这条路不能再扣一次 `generate_reports_monthly`：那会让同一次交付被
      * 计两次费。默认值保持 `true`，报告页与 API 的既有行为一字不改。
      */
-    options: { consumeQuota?: boolean } = {}
+    options: { consumeQuota?: boolean; allowHistorical?: boolean } = {}
   ): Promise<{
     reportId: string;
     data: OpportunityReportData;
@@ -58,7 +58,17 @@ export class ReportService {
 
     // Reports are decision records, not exploratory scans. Every tier follows the
     // same publication gate; paid plans change quota/export rights, not evidence quality.
-    if (opp.status !== 'TRACKED' || !['BUILD_NOW', 'EARLY_BET'].includes(opp.verdict) || opp.confidence === 'LOW') {
+    //
+    // `allowHistorical` 只给 Free 的「本周精选」用：那条机会按定义已经不是
+    // BUILD_NOW / EARLY_BET（它是失去抢跑价值的历史案例），而 13 §3.2 承诺 Free
+    // 每月 1 份历史案例预览。它仍要求机会在 TRACKED 且至少有封存快照与裁决
+    // （下面会检查），不会凭空生成一份没有证据的报告。
+    const actionable = ['BUILD_NOW', 'EARLY_BET'].includes(opp.verdict);
+    if (
+      opp.status !== 'TRACKED' ||
+      (!actionable && !options.allowHistorical) ||
+      (opp.confidence === 'LOW' && !options.allowHistorical)
+    ) {
       throw new EmeradarError(
         ErrorCode.PRECONDITION_FAILED,
         'A report is available only for a published BUILD NOW or EARLY BET decision. This opportunity is still under observation.',

@@ -66,6 +66,8 @@ export default async function OpportunityWorkspacePage({
   // 周案例（PASS / WINDOW_CLOSING / WATCH）必然不满足，渲染入口只会把用户带到
   // "EVIDENCE GATE NOT MET"。
   const reportable = opportunity.verdict === 'BUILD_NOW' || opportunity.verdict === 'EARLY_BET';
+  // Free 只能打开周案例；周案例是历史案例，但 13 §3.2 给它 1 份预览额度。
+  const canOpenReport = reportable || (!ent.opportunityDetailFull && Boolean(weeklyId));
 
   // 枚举值绝不裸输出：用户看到的应当是"立即构建"，而不是 BUILD_NOW。
   const label = (group: string, value: string | null | undefined) => {
@@ -635,7 +637,7 @@ export default async function OpportunityWorkspacePage({
                 </ul>
               </div>
 
-              {reportable && (
+              {canOpenReport && (
                 <div className="pt-4 border-t border-line">
                   <Link
                     href={`/opportunities/${opportunity.slug}/report`}

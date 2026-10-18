@@ -305,6 +305,31 @@ describe('原子 GO：并发、配额与幂等', () => {
     assert.strictEqual(decisions.rows[0].count, 1, '重复 GO 造出了第二条决策');
   });
 
+  it('并发的同一 decision GO 只会落一个项目（游标锁串行化）', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+
+    const concurrentOpp = 'opp_go_dup_concurrent';
+    await seedOpportunity(concurrentOpp);
+    const before = await quotaUsed(DUP_USER);
+
+    const results = await Promise.allSettled([
+      go(DUP_USER, concurrentOpp),
+      go(DUP_USER, concurrentOpp),
+    ]);
+
+    assert.strictEqual(results.filter((r) => r.status === 'fulfilled').length, 1, '并发重复 GO 落了两个成功');
+    const rejection = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    assert.strictEqual(rejection.reason?.code, 'ALREADY_GO');
+
+    const projects = await query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM projects WHERE user_id = $1 AND opportunity_id = $2`,
+      [DUP_USER, concurrentOpp]
+    );
+    assert.strictEqual(projects.rows[0].count, 1, '并发重复 GO 建了第二个项目');
+    assert.strictEqual(await quotaUsed(DUP_USER), before + 1, '并发重复 GO 扣了两次配额');
+  });
+
   it('结转封顶 6：上月 3 次没用过，本期可用 6，第 7 次 403', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { EntitlementService } = harness.services;

@@ -167,6 +167,13 @@ export class DecisionService {
     // 任何一步失败都会把 GO 一起回滚。这里只保证"存在该用户对该 decision_id 的 GO
     // Project"这条授权成立，内容由首次导出时懒装配（见 LaunchKitService）。
     return transaction(async (client) => {
+      // 0) 同一 (用户, 机会, 裁决) 的 GO 串行化。普通用户本来就会被 usage_counters
+      //    的行锁串行化，但 ADMIN 走的是不限额度分支、不碰那一行；没有这把锁时两个
+      //    并发相同请求会各建一条决策与项目。锁随事务结束自动释放。
+      await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        `atomic-go:${userId}:${input.opportunityId}:${verdict.id}`,
+      ]);
+
       // 1) 重复 GO 先于配额预占：同一 (用户, 机会, 裁决) 已经有项目时，重试不该再扣
       //    一次额度，也不该被并发写进第二条项目。这一步在事务里，与下面的插入共享
       //    同一快照，所以"先查后插"在两个并发请求之间也是安全的。

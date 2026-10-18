@@ -220,9 +220,19 @@ export class EntitlementService {
     const apiAccess = isAdmin || !!ent.api_access;
     const opportunityDetailFull = isAdmin || planCode !== 'FREE';
     const deepReportExport = isAdmin || planCode !== 'FREE';
-    // 目录里的 `feed_selected_weekly` 是 v3.1 的口径；键还没写进 plans 之前（0020 之前）
-    // 按套餐判定，与 `opportunityDetailFull` 同源——Free 走周案例，付费层走实时。
-    const feedSelectedWeekly = isAdmin ? false : Boolean(ent.feed_selected_weekly ?? planCode === 'FREE');
+    // 目录里的 `feed_selected_weekly` 是 v3.1 的口径；`feed_realtime` 是它的反面
+    // （Free false / 付费 true）。两个键都读，缺键时按套餐回退，与
+    // `opportunityDetailFull` 同源——Free 走周案例，付费层走实时。
+    const feedRealtime = isAdmin
+      ? true
+      : typeof ent.feed_realtime === 'boolean'
+      ? ent.feed_realtime
+      : planCode !== 'FREE';
+    const feedSelectedWeekly = isAdmin
+      ? false
+      : typeof ent.feed_selected_weekly === 'boolean'
+      ? ent.feed_selected_weekly
+      : !feedRealtime;
 
     // Quota window = the billing period (docs/13 §4.2), not the calendar month.
     // A subscription anchors it on its own period start; everyone else (the free

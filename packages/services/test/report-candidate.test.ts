@@ -92,4 +92,24 @@ describe('Report Generation for Opportunities Across User Tiers', () => {
       (err: any) => err instanceof EmeradarError && err.status === 409 && err.message.includes('published BUILD NOW')
     );
   });
+
+  it('历史案例预览绕过 BUILD_NOW 门槛，但仍要求封存快照', async () => {
+    // Free 的周案例按定义不是 BUILD_NOW/EARLY_BET；allowHistorical 只放行这一道
+    // 判据，不会凭空生成没有观测的报告。夹具先提升到 TRACKED（CANDIDATE 连
+    // 公开投影都没有），再断言拦在"没有封存快照"这一层。
+    await query(`UPDATE opportunities SET status = 'TRACKED' WHERE id = $1`, [oppId]);
+    // 这个夹具跑在共享库上；历史遗留的快照会让"没有封存快照"的断言失效。
+    await query(`DELETE FROM opportunity_snapshots WHERE opportunity_id = $1`, [oppId]);
+    try {
+      await assert.rejects(
+        () => ReportService.getOrGenerateReport(oppId, freeUserId, 'zh-CN', { allowHistorical: true }),
+        (err: any) =>
+          err instanceof EmeradarError &&
+          err.status === 409 &&
+          /sealed snapshot/.test(err.message)
+      );
+    } finally {
+      await query(`UPDATE opportunities SET status = 'CANDIDATE' WHERE id = $1`, [oppId]);
+    }
+  });
 });
