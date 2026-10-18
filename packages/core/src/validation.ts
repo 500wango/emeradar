@@ -68,12 +68,13 @@ export const decisionSchema = z.object({
 export const alertRuleSchema = z.object({
   opportunityId: z.string().trim().min(1).max(200),
   /**
-   * Only the launch triggers the daily pipeline evaluates (docs/12 §2).
-   * `NEW_ENTRANT` is evaluated but not offered until Phase 2, so it stays out of
-   * the public contract; a subscription that could only ever be silent is worse
-   * than no option.
+   * 首发 6 条里用户可订阅的类型（docs/12 §2、01 F9）。
+   *
+   * `NEW_ENTRANT` 是 Phase 2 的 NEW_AUTHORITATIVE_ENTRANT，不在这里；旧的槽位触发器
+   * 已随 v3.1 的槽位一起删除，由 `CROWDING_SIGNAL` 取代。`CROWDING_SIGNAL` 目前
+   * 只有枚举与求值骨架、没有数据生产者，创建时会被服务层 400 拒绝（E3）。
    */
-  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA', 'SLOTS_LAST_ONE']),
+  ruleType: z.enum(['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA', 'CROWDING_SIGNAL']),
   frequency: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']).optional(),
 });
 

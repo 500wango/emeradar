@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import {
+  CROWDING_VERIFIED_PRODUCT_THRESHOLD,
   detectNewAuthoritativeEntrant,
   evaluateAlertTrigger,
+  evaluateCrowdingSignal,
   isEvaluatedRuleType,
   EVALUATED_RULE_TYPES,
   UNIMPLEMENTED_RULE_TYPES,
@@ -19,11 +21,10 @@ import {
  */
 describe('告警触发器求值', () => {
   const baseFacts = { verdict: 'WATCH', previousVerdict: 'WATCH' };
-  /** 一个能让 NEW_ENTRANT 真正求值的事实集：有新进入的权威域名。 */
+  /** 一个能让 NEW_ENTRANT 真正求值的事实集：有新进入的权威域名（Phase 2 路径）。 */
   const entrantFacts = {
     ...baseFacts,
     killTriggered: false,
-    slotsLastOne: false,
     serpEntrants: {
       today: [{ rank: 1, domain: 'acme.com', resultType: 'OFFICIAL' }],
       prior: [{ rank: 4, domain: 'blog.example', resultType: 'SPECIALIST' }],
@@ -146,17 +147,71 @@ describe('告警触发器求值', () => {
     });
   });
 
-  it('未实现的类型返回 null，而不是 false', () => {
+  it('未知类型返回 null，而不是 false', () => {
     // 返回 false 会被调用方当成"今天不触发"悄悄吞掉，掩盖"根本没有求值路径"
     // 这个事实。null 逼调用方显式处理。
     assert.strictEqual(evaluateAlertTrigger('SOMETHING_NEW', baseFacts), null);
-    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', baseFacts), null);
-    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', { ...baseFacts, slotsLastOne: true }), true);
-    assert.strictEqual(evaluateAlertTrigger('SLOTS_LAST_ONE', { ...baseFacts, slotsLastOne: false }), false);
     // KILL_CRITERIA 无可求值的谓词时同样是 null，而不是 false。
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', baseFacts), null);
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: true }), true);
     assert.strictEqual(evaluateAlertTrigger('KILL_CRITERIA', { ...baseFacts, killTriggered: false }), false);
+  });
+
+  describe('CROWDING_SIGNAL：拥挤度首次跨过阈值（首发；数据源未实现）', () => {
+    const crowding = (overrides: Record<string, number | null> = {}) => ({
+      verifiedProductCount: 0,
+      previousVerifiedProductCount: null,
+      newTop10Entrants30d: 0,
+      previousNewTop10Entrants30d: null,
+      ...overrides,
+    });
+
+    it('verified_product_count 首次达到 3 → 触发', () => {
+      assert.strictEqual(CROWDING_VERIFIED_PRODUCT_THRESHOLD, 3);
+      assert.strictEqual(evaluateCrowdingSignal(crowding({ verifiedProductCount: 3 })), true);
+      // 首次观测就 ≥3 也算"首次跨过"，否则这条机会永远不会提醒。
+      assert.strictEqual(evaluateCrowdingSignal(crowding({ verifiedProductCount: 5 })), true);
+      assert.strictEqual(
+        evaluateCrowdingSignal(crowding({ verifiedProductCount: 4, previousVerifiedProductCount: 2 })),
+        true
+      );
+    });
+
+    it('停在 3 或更高不再重复响——它只提示"首次跨过"', () => {
+      assert.strictEqual(
+        evaluateCrowdingSignal(crowding({ verifiedProductCount: 4, previousVerifiedProductCount: 3 })),
+        false
+      );
+      assert.strictEqual(evaluateCrowdingSignal(crowding({ verifiedProductCount: 2 })), false);
+    });
+
+    it('new_top10_entrants_30d 较上次推送增加 → 触发；没有上次读数不算增加', () => {
+      assert.strictEqual(
+        evaluateCrowdingSignal(crowding({ newTop10Entrants30d: 2, previousNewTop10Entrants30d: 1 })),
+        true
+      );
+      assert.strictEqual(
+        evaluateCrowdingSignal(crowding({ newTop10Entrants30d: 1, previousNewTop10Entrants30d: 1 })),
+        false
+      );
+      // 首次观测（没有"上次"）不是变化——与 VERDICT_CHANGE 的"第一次看见不算变化"同源。
+      assert.strictEqual(evaluateCrowdingSignal(crowding({ newTop10Entrants30d: 5 })), false);
+    });
+
+    it('没有当日数据时返回 null：那是"没法判断"，不是"竞争没加剧"', () => {
+      assert.strictEqual(evaluateCrowdingSignal(undefined), null);
+      assert.strictEqual(
+        evaluateCrowdingSignal(crowding({ verifiedProductCount: null, newTop10Entrants30d: null })),
+        null
+      );
+      assert.strictEqual(evaluateAlertTrigger('CROWDING_SIGNAL', baseFacts), null);
+    });
+
+    it('只登记、不开放订阅：枚举有它，EVALUATED 没有它', () => {
+      assert.strictEqual(isEvaluatedRuleType('CROWDING_SIGNAL'), false);
+      assert.ok(UNIMPLEMENTED_RULE_TYPES.CROWDING_SIGNAL.length > 10);
+      assert.ok(!(EVALUATED_RULE_TYPES as readonly string[]).includes('CROWDING_SIGNAL'));
+    });
   });
 
   it('可订阅的类型集合与求值能力一致', () => {

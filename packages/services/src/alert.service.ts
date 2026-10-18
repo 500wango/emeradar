@@ -43,9 +43,11 @@ export class AlertService {
     /**
      * 只能订阅真的会被求值的类型。
      *
-     * 从前这里放行全部四种，而每日流水线只求值 VERDICT_CHANGE —— 用户能建出
-     * NEW_ENTRANT / KILL_CRITERIA 规则，规则安静地躺在库和列表页里，永远不响。
-     * 静默失效比明确的"暂不支持"更糟：用户以为自己被盯着。
+     * 判据是 `isEvaluatedRuleType`（`alert-triggers.ts` 的 EVALUATED_RULE_TYPES），
+     * 与每日流水线用的是**同一个**集合。首发里 `CROWDING_SIGNAL` 的判据已写好、但
+     * 数据源还没生产者，因此登记在 UNIMPLEMENTED_RULE_TYPES；Phase 2 的
+     * NEW_AUTHORITATIVE_ENTRANT 同样在这里被拒。静默失效比明确的"暂不支持"更糟：
+     * 用户会以为自己被盯着。
      */
     if (!isEvaluatedRuleType(input.ruleType)) {
       throw new EmeradarError(

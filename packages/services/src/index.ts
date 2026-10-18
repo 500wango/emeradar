@@ -21,13 +21,16 @@ export * from './alert.service';
  */
 export {
   AUTHORITATIVE_RESULT_TYPES,
+  CROWDING_VERIFIED_PRODUCT_THRESHOLD,
   EVALUATED_RULE_TYPES,
   UNIMPLEMENTED_RULE_TYPES,
   detectNewAuthoritativeEntrant,
+  evaluateCrowdingSignal,
   isEvaluatedRuleType,
   evaluateAlertTrigger,
   type AlertFacts,
   type AuthoritativeEntrant,
+  type CrowdingFacts,
   type SerpEntrantRow,
   type SerpEntrantSnapshot,
 } from './alert-triggers';

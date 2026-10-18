@@ -9,9 +9,11 @@
  *
  * docs/12 §2 定义的是内置触发器，用户在规则里**订阅触发器的组合**；而这里实现的
  * 是旧的按 `alert_rules.rule_type` 单值订阅的模型，两者不是同一套东西。本模块只
- * 实现**能确定性求值**的类型：判据要么完全来自账本里的 verdict，要么来自当日与
- * 7 天前的 SERP 快照。其余类型在 `AlertService.createAlertRule` 被显式拒绝 ——
- * 让用户订阅一个永远不会触发的规则，比不提供这个选项更糟。
+ * 让**能确定性求值**的类型可订阅：首发 6 条里，`VERDICT_CHANGE` / `WINDOW_CLOSING` /
+ * `KILL_CRITERIA` 有完整求值路径；`CROWDING_SIGNAL` 的判据已写好，但
+ * `crowding_daily` 的两个计数列**还没有生产者**（0019 只建了列），所以它登记在
+ * `UNIMPLEMENTED_RULE_TYPES` 里、创建时被显式拒绝 —— 让用户订阅一个永远不会触发的
+ * 规则，比不提供这个选项更糟（E3）。
  */
 
 /** 当日与对照日的 SERP Top10，供 `NEW_ENTRANT` 使用。 */
@@ -43,24 +45,57 @@ export interface AlertFacts {
    */
   killTriggered?: boolean | null;
   /**
-   * 仅 `SLOTS_LAST_ONE` 需要：某一形态剩余可认领槽位恰为 1 且近期尚未提醒过。
-   * `null`/缺失表示没有槽位数据，不是"没有最后一席"。
+   * 仅 `CROWDING_SIGNAL` 需要：`crowding_daily` 的拥挤透明度计数与上一次推送时的值。
+   * 缺失表示没有当日数据（无法求值），不是"竞争没加剧"。
    */
-  slotsLastOne?: boolean | null;
+  crowding?: CrowdingFacts;
 }
 
+/**
+ * `CROWDING_SIGNAL` 的输入（12 §2、01 §5.9）。
+ *
+ * 两个计数都来自 `crowding_daily`，由迁移 0019 建立；**目前还没有生产者**，所以
+ * 这个类型先作为求值契约存在，流水线不会构造它（见 E3）。
+ */
+export interface CrowdingFacts {
+  /** 当日 `crowding_daily.verified_product_count`；当日没有行时为 null。 */
+  verifiedProductCount: number | null;
+  /** 上一次推送时的同值；从未推送过为 null。 */
+  previousVerifiedProductCount: number | null;
+  /** 当日 `crowding_daily.new_top10_entrants_30d`。 */
+  newTop10Entrants30d: number | null;
+  /** 上一次推送时的同值；从未推送过为 null。 */
+  previousNewTop10Entrants30d: number | null;
+}
+
+/** 12 §2：已验证产品数首次达到这个值即提示竞争加剧。 */
+export const CROWDING_VERIFIED_PRODUCT_THRESHOLD = 3;
+
+/**
+ * v3.1 首发 6 条里可订阅的类型。`NEW_ENTRANT` 是 Phase 2 的
+ * `NEW_AUTHORITATIVE_ENTRANT`（求值路径保留在下方，但首发不开放）；旧的槽位触发器
+ * 随 v3.1 的槽位一起删除，由 `CROWDING_SIGNAL` 取代。
+ */
 export type AlertRuleType =
   | 'VERDICT_CHANGE'
   | 'WINDOW_CLOSING'
-  | 'NEW_ENTRANT'
-  | 'KILL_CRITERIA'
-  | 'SLOTS_LAST_ONE';
+  | 'CROWDING_SIGNAL'
+  | 'KILL_CRITERIA';
 
-/** 目前真正会被求值的规则类型。其余在创建规则时就被拒绝。 */
-export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'NEW_ENTRANT', 'KILL_CRITERIA', 'SLOTS_LAST_ONE'] as const;
+/**
+ * 目前**真正会被求值**的规则类型。其余在创建规则时就被拒绝。
+ *
+ * 不要把没写的规则塞进这里：可订阅却永远不响，比不提供这个选项更糟。
+ */
+export const EVALUATED_RULE_TYPES = ['VERDICT_CHANGE', 'WINDOW_CLOSING', 'KILL_CRITERIA'] as const;
 
 /** 已被拒绝创建的类型 → 拒绝理由（给人看的中文说明，用于 400 detail）。 */
-export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {};
+export const UNIMPLEMENTED_RULE_TYPES: Record<string, string> = {
+  CROWDING_SIGNAL:
+    'CROWDING_SIGNAL 已登记，但 crowding_daily 的 verified_product_count / new_top10_entrants_30d 还没有生产者，暂不开放订阅。',
+  NEW_ENTRANT:
+    'NEW_ENTRANT 是 Phase 2 的 NEW_AUTHORITATIVE_ENTRANT；求值路径已存在，但首发不开放订阅。',
+};
 
 /**
  * 判为"权威"的结果类型（docs/12 §2 的 NEW_AUTHORITATIVE_ENTRANT）。
@@ -111,6 +146,48 @@ export function detectNewAuthoritativeEntrant(
 }
 
 /**
+ * `CROWDING_SIGNAL` 的判据（12 §2、01 §5.9）。
+ *
+ * 触发条件二选一：
+ *   1. `verified_product_count` **首次达到 3** —— 首次推送就 ≥3 也算一次（否则那条
+ *      机会永远不会提醒）；之后停在 3 或更高不再重复响。
+ *   2. `new_top10_entrants_30d` **较上次推送增加** —— 有新独立站进入 Top10。
+ *
+ * 它只提示"竞争加剧"：不改裁决、不限制 GO、不触发窗口关闭（v3.1 没有槽位可锁）。
+ * 没有当日数据时返回 `null`：那是"没法判断"，不是"竞争没加剧"。
+ */
+export function evaluateCrowdingSignal(facts: CrowdingFacts | undefined): boolean | null {
+  if (!facts) return null;
+  const {
+    verifiedProductCount,
+    previousVerifiedProductCount,
+    newTop10Entrants30d,
+    previousNewTop10Entrants30d,
+  } = facts;
+  if (verifiedProductCount === null && newTop10Entrants30d === null) return null;
+
+  if (
+    verifiedProductCount !== null &&
+    verifiedProductCount >= CROWDING_VERIFIED_PRODUCT_THRESHOLD &&
+    (previousVerifiedProductCount === null ||
+      previousVerifiedProductCount < CROWDING_VERIFIED_PRODUCT_THRESHOLD)
+  ) {
+    return true;
+  }
+
+  // 没有上一次的读数就没有"增加"可言——首次观测不推送（与 VERDICT_CHANGE 的
+  // "第一次看见不是变化"同一条原则）。
+  if (
+    newTop10Entrants30d !== null &&
+    previousNewTop10Entrants30d !== null &&
+    newTop10Entrants30d > previousNewTop10Entrants30d
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * 这条规则今天该不该触发。无法求值的调用返回 `null`（调用方必须显式处理，
  * 不能把它当成 false 悄悄吞掉）。
  */
@@ -136,8 +213,10 @@ export function evaluateAlertTrigger(ruleType: string, facts: AlertFacts): boole
       // 谓词由 `@emeradar/scoring` 的 `evaluateKillPredicate` 求值；这里只接收结论。
       return facts.killTriggered ?? null;
 
-    case 'SLOTS_LAST_ONE':
-      return facts.slotsLastOne ?? null;
+    case 'CROWDING_SIGNAL':
+      // 判据已写好、数据源未实现（E3）：流水线暂时不会构造 crowding 事实，创建入口
+      // 也拒绝订阅。等生产者落地后，只需把它移进 EVALUATED_RULE_TYPES。
+      return evaluateCrowdingSignal(facts.crowding);
 
     default:
       return null;

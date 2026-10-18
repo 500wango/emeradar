@@ -22,69 +22,10 @@ import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-ep
 import { PublicPublicationService } from '../public-publication.service';
 import { buildCannibalizationIndex } from '../publication-policy';
 import { sendTransactionalEmail } from '../email.service';
-import {
-  detectNewAuthoritativeEntrant,
-  evaluateAlertTrigger,
-  SerpEntrantRow,
-  SerpEntrantSnapshot,
-} from '../alert-triggers';
+import { evaluateAlertTrigger, isEvaluatedRuleType } from '../alert-triggers';
 import { attachAutocompleteClusters } from './discover-candidates';
 
 const PIPELINE_LOCK_ID = 481516;
-
-/** 纯日期算术，不读挂钟：同一 obsDate 必得同一对照日。 */
-function daysBefore(date: string, days: number): string {
-  return new Date(Date.parse(`${date}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
-}
-
-/**
- * 取出某机会主查询的"当日 Top10"与"7 天前 Top10"，供 `NEW_ENTRANT` 判定新进入者。
- *
- * 对照日取"**不晚于** `obsDate - 7` 的最近一份快照"，而不是严格要求恰好 7 天前那
- * 一天：采集有缺口时，后者会查不到任何东西，于是"没有对照组"会被静默读成"没有新
- * 进入者"——那正好是这条规则本该报警的情形。缺对照时宁可返回 null，让规则显式
- * 不求值（`evaluateAlertTrigger` 返回 null），也不要给出一个基于缺失数据的 false。
- */
-async function loadSerpEntrants(
-  client: { query: (text: string, values?: any[]) => Promise<{ rows: any[] }> },
-  opportunityId: string,
-  obsDate: string
-): Promise<SerpEntrantSnapshot | null> {
-  const primaryRes = await client.query(
-    `SELECT oq.query_id FROM opportunity_queries oq
-      WHERE oq.opportunity_id = $1 AND oq.role = 'PRIMARY'`,
-    [opportunityId]
-  );
-  const queryId = primaryRes.rows[0]?.query_id as string | undefined;
-  if (!queryId) return null;
-
-  const top10AtOrBefore = async (cutoff: string): Promise<SerpEntrantRow[] | null> => {
-    const snapRes = await client.query(
-      `SELECT id FROM serp_snapshots
-        WHERE query_id = $1 AND obs_date <= $2::date
-        ORDER BY obs_date DESC LIMIT 1`,
-      [queryId, cutoff]
-    );
-    const snapshotId = snapRes.rows[0]?.id as string | undefined;
-    if (!snapshotId) return null;
-    const rowsRes = await client.query(
-      `SELECT rank, domain, result_type FROM serp_results
-        WHERE serp_snapshot_id = $1 AND rank <= 10
-        ORDER BY rank`,
-      [snapshotId]
-    );
-    return rowsRes.rows.map((row) => ({
-      rank: Number(row.rank),
-      domain: String(row.domain),
-      resultType: String(row.result_type),
-    }));
-  };
-
-  const today = await top10AtOrBefore(obsDate);
-  const prior = await top10AtOrBefore(daysBefore(obsDate, 7));
-  if (!today || !prior) return null;
-  return { today, prior };
-}
 
 export async function runDailyPipeline(
   obsDate = new Date().toISOString().slice(0, 10),
@@ -417,32 +358,18 @@ export async function runDailyPipeline(
        WHERE r.is_active = true`
     );
 
-    // NEW_ENTRANT 要读 SERP 快照。同一机会可能挂着多条规则，按机会缓存 ——
-    // 这几次查询在同一事务里重复跑没有意义。
-    const entrantCache = new Map<string, SerpEntrantSnapshot | null>();
     const killCache = new Map<string, boolean | null>();
-    const lastSlotCache = new Map<string, boolean>();
 
     for (const rule of rulesRes.rows) {
+      // 只求值**已实现且可订阅**的类型（`alert.service.createAlertRule` 用同一个判据
+      // 拒绝其余类型）。库里的历史行（例如已删除的槽位触发器）会在阶段 F 的 0020
+      // 之前继续存在，这里必须显式跳过，而不是让它们走进下面的 switch。
+      if (!isEvaluatedRuleType(rule.rule_type)) continue;
+
       // 求值只看已发布（publishable）的观测：未发布意味着证据链不完整或采集失败，
-      // 拿它去判定"裁决变了"会发出基于残缺数据的告警。无法求值的类型返回 null，
-      // 这里显式跳过 —— 创建入口已经拒绝了尚未实现的类型，走到这里说明库里有历史行。
+      // 拿它去判定"裁决变了"会发出基于残缺数据的告警。
       const match = publishable.find((item) => item.opportunityId === rule.opportunity_id);
       if (!match) continue;
-
-      let serpEntrants: SerpEntrantSnapshot | undefined;
-      let entrant: ReturnType<typeof detectNewAuthoritativeEntrant> = null;
-      if (rule.rule_type === 'NEW_ENTRANT') {
-        if (!entrantCache.has(rule.opportunity_id)) {
-          entrantCache.set(rule.opportunity_id, await loadSerpEntrants(client, rule.opportunity_id, obsDate));
-        }
-        const snapshot = entrantCache.get(rule.opportunity_id);
-        // 没有可用的 SERP 对照就不求值：宁可今天不响，也不要基于缺失数据断言
-        // "没有新的权威进场"。
-        if (!snapshot) continue;
-        serpEntrants = snapshot;
-        entrant = detectNewAuthoritativeEntrant(snapshot);
-      }
 
       // KILL_CRITERIA：任一 ACTIVE 谓词今天求值为真即触发；全部无法求值（指标缺失或
       // 谓词畸形）则为 null，不当作"没触发"。触发的谓词落 TRIGGERED，避免次日重复响。
@@ -482,33 +409,9 @@ export async function runDailyPipeline(
         killTriggered = killCache.get(rule.opportunity_id);
       }
 
-      // SLOTS_LAST_ONE：某一形态剩余槽位恰为 1（ADR-018）。只在"进入"那一天提醒一次：
-      // 该规则已有过通知就不再重复，否则槽位停在 1 的每一天都会响。
-      let slotsLastOne: boolean | null | undefined;
-      if (rule.rule_type === 'SLOTS_LAST_ONE') {
-        if (!lastSlotCache.has(rule.opportunity_id)) {
-          const slotRes = await client.query<{ n: number }>(
-            `SELECT COUNT(*)::int AS n FROM opportunity_slots
-              WHERE opportunity_id = $1 AND capacity - claimed = 1`,
-            [rule.opportunity_id]
-          );
-          lastSlotCache.set(rule.opportunity_id, (slotRes.rows[0]?.n ?? 0) > 0);
-        }
-        slotsLastOne = lastSlotCache.get(rule.opportunity_id);
-        if (slotsLastOne) {
-          const prior = await client.query(
-            `SELECT 1 FROM notifications WHERE id LIKE $1 LIMIT 1`,
-            [`ntf\\_%\\_${rule.id}`]
-          );
-          if (prior.rows.length > 0) slotsLastOne = false;
-        }
-      }
-
       const fires = evaluateAlertTrigger(rule.rule_type, {
-        slotsLastOne,
         verdict: match.output.verdict,
         previousVerdict: match.previousVerdict,
-        serpEntrants,
         killTriggered,
       });
       if (fires !== true) continue;
@@ -516,22 +419,14 @@ export async function runDailyPipeline(
       const title =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `Entry window closing: ${match.title}`
-          : rule.rule_type === 'SLOTS_LAST_ONE'
-          ? `Last slot left: ${match.title}`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `Kill criterion triggered: ${match.title}`
-          : rule.rule_type === 'NEW_ENTRANT'
-          ? `Authoritative entrant in the Top 10: ${match.title}`
           : `Verdict changed: ${match.title}`;
       const body =
         rule.rule_type === 'WINDOW_CLOSING'
           ? `${match.primaryQuery} entered WINDOW_CLOSING. ${match.whyNowSummary}`
-          : rule.rule_type === 'SLOTS_LAST_ONE'
-          ? `${match.primaryQuery}: exactly one build slot is left on at least one track. ${match.whyNowSummary}`
           : rule.rule_type === 'KILL_CRITERIA'
           ? `${match.primaryQuery}: a stated stop condition was met today. Re-check the kill criteria on the report before building further.`
-          : rule.rule_type === 'NEW_ENTRANT'
-          ? `${match.primaryQuery}: ${entrant?.domain} entered the Top 10 at #${entrant?.rank} as ${entrant?.resultType}, and was absent from the top 10 seven days ago. ${match.whyNowSummary}`
           : `${match.primaryQuery} moved from ${match.previousVerdict} to ${match.output.verdict}. ${match.whyNowSummary}`;
       await client.query(
         `INSERT INTO notifications (id, user_id, title, body, opportunity_id)
