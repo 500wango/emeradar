@@ -105,6 +105,21 @@ export default async function FeedPage({
         );
       })()}
 
+      <Panel className="mt-8 flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent">
+            {t('feed.scanTitle')}
+          </p>
+          <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-fg-muted">{t('feed.scanDesc')}</p>
+        </div>
+        <Link
+          href="/scan"
+          className="shrink-0 self-start border border-accent/40 bg-accent/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-accent transition-colors hover:bg-accent/15 sm:self-auto"
+        >
+          {t('feed.scanCta')} →
+        </Link>
+      </Panel>
+
       <div className="mt-8">
         <FeedClient
           initialItems={feed.items}

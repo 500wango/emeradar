@@ -60,6 +60,7 @@ export const PRIVATE_PATH_PREFIXES = [
   '/billing',
   '/compare',
   '/feed',
+  '/scan',
   '/forgot-password',
   '/login',
   '/onboarding',

@@ -12,15 +12,24 @@ import { cn } from '@/lib/cn';
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
   showQuickChips?: boolean;
+  /** Pro 起可把扫描结果加入 7 天雷达。 */
+  canTrackRadar?: boolean;
 }
 
-export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanModalProps = {}) {
+type RadarState =
+  | { status: 'idle' }
+  | { status: 'saving' }
+  | { status: 'saved'; until: string }
+  | { status: 'error'; message?: string };
+
+export function LiveScanner({ onScanSuccess, showQuickChips = false, canTrackRadar = false }: LiveScanModalProps = {}) {
   const router = useRouter();
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<any | null>(null);
+  const [radar, setRadar] = useState<RadarState>({ status: 'idle' });
 
   const handleScan = async (targetQuery?: string) => {
     const q = (targetQuery || query).trim();
@@ -33,6 +42,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
       setIsScanning(true);
       setError(null);
       setScanResult(null);
+      setRadar({ status: 'idle' });
 
       const res = await fetch('/api/v1/opportunities/scan', {
         method: 'POST',
@@ -54,6 +64,28 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
       setIsScanning(false);
     }
   };
+
+  const trackRadar = async () => {
+    if (!scanResult) return;
+    setRadar({ status: 'saving' });
+    try {
+      const res = await fetch('/api/v1/custom-queries/radar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opportunityId: scanResult.opportunityId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRadar({ status: 'error', message: data.detail || data.title });
+        return;
+      }
+      setRadar({ status: 'saved', until: data.expiresAt });
+    } catch {
+      setRadar({ status: 'error' });
+    }
+  };
+
+  const actionable = scanResult?.verdict === 'BUILD_NOW' || scanResult?.verdict === 'EARLY_BET';
 
   return (
     <div className="w-full">
@@ -157,20 +189,68 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
                 {scanResult.primaryQuery}
               </p>
             </div>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
-              className="self-start sm:self-auto"
-            >
-              <span>{t('liveScanner.openRecord')}</span>
-              <ArrowRight className="w-4 h-4" />
-            </Button>
+            {scanResult.status === 'TRACKED' ? (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => router.push(`/opportunities/${scanResult.slug}`)}
+                className="self-start sm:self-auto"
+              >
+                <span>{t('liveScanner.openRecord')}</span>
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            ) : null}
           </div>
           <p className="mt-4 font-mono text-xs text-fg-muted">
             D {scanResult.dBand} · M {scanResult.mBand} · W {scanResult.wBand} · {scanResult.confidence}
           </p>
           <p className="mt-2 text-xs text-fg-muted">{scanResult.whyNowSummary}</p>
+
+          <div className="mt-4 border-t border-line pt-4 text-xs">
+            {actionable ? (
+              <p className="text-fg-subtle">{t('liveScanner.radarNotNeeded')}</p>
+            ) : !canTrackRadar ? (
+              <p className="text-fg-subtle">
+                {t('liveScanner.radarUpgrade')}{' '}
+                <button
+                  type="button"
+                  onClick={() => router.push('/pricing')}
+                  className="font-semibold text-accent hover:underline"
+                >
+                  {t('liveScanner.radarUpgradeCta')} →
+                </button>
+              </p>
+            ) : radar.status === 'saved' ? (
+              <p className="text-signal" role="status">
+                {t('liveScanner.radarSaved', {
+                  date: new Date(radar.until).toLocaleDateString(),
+                })}
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={trackRadar}
+                  disabled={radar.status === 'saving'}
+                >
+                  {radar.status === 'saving' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : null}
+                  <span>{radar.status === 'saving' ? t('liveScanner.radarSaving') : t('liveScanner.trackRadar')}</span>
+                </Button>
+                {radar.status === 'error' && (
+                  <span className="text-danger" role="alert">
+                    {radar.message || t('liveScanner.radarFailed')}
+                  </span>
+                )}
+              </div>
+            )}
+            {scanResult.status === 'CANDIDATE' && (
+              <p className="mt-2 text-fg-subtle">{t('liveScanner.candidateNote')}</p>
+            )}
+          </div>
         </Panel>
       )}
     </div>

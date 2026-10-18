@@ -28,6 +28,8 @@ export interface LiveScanResult {
   primaryQuery: string;
   suggestions: string[];
   isNew: boolean;
+  /** CANDIDATE 只有入雷达/等晋升；详情页只对 TRACKED 开放。 */
+  status: string;
 }
 
 /** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
@@ -63,7 +65,7 @@ export class LiveScanService {
 
     // 1. Check if opportunity already exists
     const existing = await query<any>(
-      `SELECT c.opportunity_id, c.slug, o.title, c.verdict,
+      `SELECT c.opportunity_id, c.slug, o.title, o.status, c.verdict,
               c.d_basis_points, c.m_basis_points, c.w_basis_points,
               c.d_band, c.m_band, c.w_band, c.confidence,
               c.recommended_archetype, c.execution_class,
@@ -108,6 +110,7 @@ export class LiveScanService {
         primaryQuery: r.primary_query,
         suggestions: clusterWords,
         isNew: false,
+        status: r.status,
       };
     }
 
@@ -304,6 +307,7 @@ export class LiveScanService {
       primaryQuery: rawQuery,
       suggestions: storedSuggestions,
       isNew: true,
+      status: 'CANDIDATE',
     };
   }
 

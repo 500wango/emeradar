@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Layers,
   Radio,
+  Search,
   Users,
 } from 'lucide-react';
 import { Logo } from './Logo';
@@ -152,6 +153,13 @@ export function Navbar() {
                   >
                     <Radar className={navIcon} />
                     {t('nav.opportunities')}
+                  </Link>
+                  <Link
+                    href="/scan"
+                    className={cn(navItem, pathname === '/scan' ? navActive : navIdle)}
+                  >
+                    <Search className={navIcon} />
+                    {t('nav.scan')}
                   </Link>
                   <Link
                     href="/track-record"
@@ -311,6 +319,13 @@ export function Navbar() {
                           >
                             <Settings className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.accountSettings')}</span>
+                          </Link>
+                          <Link
+                            href="/scan"
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                          >
+                            <Search className="h-4 w-4 text-fg-subtle" />
+                            <span>{t('nav.scan')}</span>
                           </Link>
                           <Link
                             href="/projects"

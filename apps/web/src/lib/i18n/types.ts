@@ -97,6 +97,7 @@ export interface TranslationDictionary {
   };
   nav: {
     opportunities: string;
+    scan: string;
     trackRecord: string;
     projects: string;
     alerts: string;
@@ -378,6 +379,9 @@ export interface TranslationDictionary {
       INACTIVE_14D: string;
     };
     weeklyUpgrade: string;
+    scanTitle: string;
+    scanDesc: string;
+    scanCta: string;
     noEmerging: string;
     confidenceLabel: string;
     observationCoverage: string;
@@ -1090,6 +1094,20 @@ export interface TranslationDictionary {
     alreadyOnFile: string;
     primaryQuery: string;
     openRecord: string;
+    trackRadar: string;
+    radarSaving: string;
+    radarSaved: string;
+    radarFailed: string;
+    radarUpgrade: string;
+    radarUpgradeCta: string;
+    radarNotNeeded: string;
+    candidateNote: string;
+  };
+  scan: {
+    badge: string;
+    title: string;
+    desc: string;
+    quotaNote: string;
   };
   onboarding: {
     eyebrow: string;
