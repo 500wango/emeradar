@@ -119,7 +119,8 @@ export async function writeCommercialSnapshot(
   opportunityId: string,
   domain: string,
   targetUrl: string,
-  facts: CommercialFacts
+  facts: CommercialFacts,
+  rawPayloadId: string | null = null
 ): Promise<string> {
   const targetId = await upsertTarget(domain, targetUrl);
 
@@ -133,8 +134,8 @@ export async function writeCommercialSnapshot(
   await query(
     `INSERT INTO commercial_snapshots
        (commercial_target_id, obs_date, pricing_plans, payment_gateways, commercial_stage,
-        fetch_tier, fetch_status, dynamic_shell)
-     VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8)
+        fetch_tier, fetch_status, dynamic_shell, raw_payload_id)
+     VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (commercial_target_id, obs_date) DO UPDATE SET
        pricing_plans = EXCLUDED.pricing_plans,
        payment_gateways = EXCLUDED.payment_gateways,
@@ -142,6 +143,7 @@ export async function writeCommercialSnapshot(
        fetch_tier = EXCLUDED.fetch_tier,
        fetch_status = EXCLUDED.fetch_status,
        dynamic_shell = EXCLUDED.dynamic_shell,
+       raw_payload_id = COALESCE(EXCLUDED.raw_payload_id, commercial_snapshots.raw_payload_id),
        created_at = NOW()`,
     [
       targetId,
@@ -152,6 +154,7 @@ export async function writeCommercialSnapshot(
       facts.fetchTier,
       facts.fetchStatus,
       facts.dynamicShell,
+      rawPayloadId,
     ]
   );
 

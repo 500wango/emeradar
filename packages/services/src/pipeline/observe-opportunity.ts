@@ -111,17 +111,44 @@ export async function observeOpportunity(
   if (acStale) staleSources.push('AUTOCOMPLETE');
   const acAvailable = acOutcome.status === 'OK' || Boolean(acStale);
 
+  let acRawPayloadId: string | null = null;
+  const acRunId = (acOutcome as { collectorRunId?: string }).collectorRunId;
+  if (acOutcome.status === 'OK' && acOutcome.raw && acRunId) {
+    try {
+      const stored = await storeRawPayload({
+        collectorRunId: acRunId,
+        obsDate,
+        content: acOutcome.raw.content,
+        mimeType: acOutcome.raw.mimeType,
+      });
+      acRawPayloadId = stored?.id ?? null;
+    } catch (error) {
+      console.warn(
+        `[pipeline:collector] raw payload archive failed for autocomplete "${primary.query_text}":`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
   if (acOutcome.status === 'OK') {
     const snap = acOutcome.snapshots[0];
     if (snap) {
       await query(
-        `INSERT INTO autocomplete_observations (query_id, observed_date, suggestions, depth, provider)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO autocomplete_observations (query_id, observed_date, suggestions, depth, provider, raw_payload_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (query_id, observed_date) DO UPDATE SET
            suggestions = EXCLUDED.suggestions,
            depth = EXCLUDED.depth,
-           provider = EXCLUDED.provider`,
-        [primary.id, obsDate, snap.data.suggestions, snap.data.depth, snap.data.provider ?? 'UNKNOWN']
+           provider = EXCLUDED.provider,
+           raw_payload_id = COALESCE(EXCLUDED.raw_payload_id, autocomplete_observations.raw_payload_id)`,
+        [
+          primary.id,
+          obsDate,
+          snap.data.suggestions,
+          snap.data.depth,
+          snap.data.provider ?? 'UNKNOWN',
+          acRawPayloadId,
+        ]
       );
     }
   }
@@ -813,8 +840,27 @@ async function crawlCommercialDomains(
     const snap = outcome.snapshots[0];
     if (!snap) continue;
 
+    let crawlRawPayloadId: string | null = null;
+    const crawlRunId = (outcome as { collectorRunId?: string }).collectorRunId;
+    if (outcome.raw && crawlRunId) {
+      try {
+        const stored = await storeRawPayload({
+          collectorRunId: crawlRunId,
+          obsDate,
+          content: outcome.raw.content,
+          mimeType: outcome.raw.mimeType,
+        });
+        crawlRawPayloadId = stored?.id ?? null;
+      } catch (error) {
+        console.warn(
+          `[pipeline:collector] raw payload archive failed for ${domain}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+
     const facts = factsFromCrawl(snap.data);
-    const targetId = await writeCommercialSnapshot(opportunityId, domain, targetUrl, facts);
+    const targetId = await writeCommercialSnapshot(opportunityId, domain, targetUrl, facts, crawlRawPayloadId);
     await emitNegativesFromDiff(opportunityId, domain, targetId, obsDate, facts, crawl.sourceId);
 
     for (const ev of outcome.evidence) {
