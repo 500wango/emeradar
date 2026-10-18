@@ -35,7 +35,7 @@ export async function ingestExternalDemand(
   })()
 ): Promise<ExternalDemandIngestResult> {
   if (!collector) {
-    return { skipped: true, reason: 'DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD not set', queries: 0, volumePoints: 0, trendsPoints: 0, failures: 0 };
+    return { skipped: true, reason: 'neither DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD nor AISA_API_KEY is set', queries: 0, volumePoints: 0, trendsPoints: 0, failures: 0 };
   }
 
   const targets = await query<{ query_id: string; query_text: string; first_predicted: string }>(

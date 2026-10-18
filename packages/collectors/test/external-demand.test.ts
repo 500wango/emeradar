@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { ExternalDemandCollector, parseTrendsResponse, parseVolumeResponse } from '../src';
+import { ExternalDemandCollector, credentialsFromEnv, parseTrendsResponse, parseVolumeResponse } from '../src';
 
 const ok = (result: unknown) => ({ tasks: [{ status_code: 20000, result }] });
 
@@ -46,5 +46,30 @@ describe('ExternalDemandCollector', () => {
     const collector = new ExternalDemandCollector({ login: 'a', password: 'b' }, failing);
     assert.strictEqual(await collector.fetchVolume(['x']), null);
     assert.strictEqual(seenAuth, `Basic ${Buffer.from('a:b').toString('base64')}`);
+  });
+
+  it('routes through AIsa with a bearer key, same DataForSEO path and envelope', async () => {
+    let seenUrl = '';
+    let seenAuth = '';
+    const viaAisa = (async (url: any, init: any) => {
+      seenUrl = String(url);
+      seenAuth = init.headers.Authorization;
+      return new Response(JSON.stringify(ok([{ keyword: 'x', monthly_searches: [{ year: 2026, month: 9, search_volume: 70 }] }])), { status: 200 });
+    }) as typeof fetch;
+    const collector = new ExternalDemandCollector({ aisaApiKey: 'k' }, viaAisa);
+    assert.deepStrictEqual((await collector.fetchVolume(['x']))?.get('x'), [{ date: '2026-09-01', value: 70 }]);
+    assert.strictEqual(seenUrl, 'https://api.aisa.one/apis/v1/dataforseo/keywords_data/google_ads/search_volume/live');
+    assert.strictEqual(seenAuth, 'Bearer k');
+  });
+});
+
+describe('credentialsFromEnv', () => {
+  it('prefers direct DataForSEO credentials, falls back to AIsa, else null', () => {
+    assert.deepStrictEqual(
+      credentialsFromEnv({ DATAFORSEO_LOGIN: 'a', DATAFORSEO_PASSWORD: 'b', AISA_API_KEY: 'k' } as any),
+      { login: 'a', password: 'b' }
+    );
+    assert.deepStrictEqual(credentialsFromEnv({ AISA_API_KEY: 'k' } as any), { aisaApiKey: 'k' });
+    assert.strictEqual(credentialsFromEnv({} as any), null);
   });
 });

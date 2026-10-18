@@ -229,6 +229,20 @@ C_month_fast = U_active · s_per_user · (1 − r_dedup) · c_scan
 
 **准入八项当前状态**：1 登记 ✓（本节）；5 成本 ✓ 已知（按请求计价，纳入 04 §6.3 前需用真实账单校准）；4 降级 ✓ 缺数据记 `UNEVALUABLE`，不写占位值；6 契约测试 ✓ 解析器与失败路径已测。**2 条款审阅、3 合规评估、7 抽样 100 条人工核对、8 展示权限未完成**，且请求/响应字段按供应商文档摘要编写、**未用真实账号验证**——所以这不是「已准入」，是「已选定并接好管线，待凭证与人工核对」。拿到 `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` 之前，任务会整体跳过并如实记录，不会写入任何值。
 
+### 7.2 经 AIsa 代理接入 DataForSEO（2026-10-18）
+
+生产此前只配了 `AISA_API_KEY`，`src_serp` 实际走的是 AIsa 的 Tavily 搜索——那是 AI 搜索引擎的自有索引，不是 Google 排名（当日 95 个快照里出现最多的域名是 facebook / youtube / instagram），W 轴因此在量另一个搜索引擎。AIsa 同时按原样转发 DataForSEO（`https://api.aisa.one/apis/v1/dataforseo/...`，Bearer 认证，路径与直连 `/v3` 一致，响应仍是 DataForSEO 信封）。
+
+**裁决**：同一把 AIsa key 承担三路数据，直连 DataForSEO 凭证（若日后配置）优先。
+
+| 用途 | 端点 | 实测单价（2026-10-18） |
+|------|------|------|
+| `src_serp` Google 自然结果 Top 10 | `serp/google/organic/live/regular` | $0.002 / 次 |
+| `src_volume` 月度搜索量 | `keywords_data/google_ads/search_volume/live` | $0.09 / 次（与词数无关，≤1000 词） |
+| `src_trends` | `keywords_data/google_trends/explore/live` | $0.011 / 次 |
+
+取不到 Google 结果时本次 SERP 采集记失败、不评分，不回退到 Tavily。仍未完成的准入项：§7 第 7 项（100 条人工抽样核对）。同日删除了两个只会报错的发现源：AIsa Search 发现源（向搜索端点 POST 空对象，必然 422）与 Lobste.rs RSS（源站 500）。
+
 ## 8. 供应商评估矩阵（SERP / Autocomplete）
 
 | 维度 | 权重 | 说明 |

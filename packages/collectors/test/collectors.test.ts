@@ -10,6 +10,7 @@ import {
   SERP_DEPTH,
   SERP_DEFAULT_DEPTH,
   SERP_SCORING_DEPTH,
+  parseDataForSeoOrganic,
 } from '../src';
 
 function createMockContext(dailyBudget = 10.0, currentSpent = 0.0): RunContext {
@@ -26,6 +27,29 @@ function createMockContext(dailyBudget = 10.0, currentSpent = 0.0): RunContext {
     obsDate: '2026-09-25',
     clock: () => new Date('2026-09-25T12:00:00Z'),
     budget,
+  };
+}
+
+/** DataForSEO 的 SERP 信封（经 AIsa 原样转发）：结论在 `tasks[0].status_code`。 */
+function dataForSeoSerp(results: Array<{ title: string; url: string; content: string }>, statusCode = 20000) {
+  return {
+    tasks: [
+      {
+        status_code: statusCode,
+        result: [
+          {
+            items: results.map((r, i) => ({
+              type: 'organic',
+              rank_group: i + 1,
+              rank_absolute: i + 2,
+              url: r.url,
+              title: r.title,
+              description: r.content,
+            })),
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -134,17 +158,22 @@ describe('SerpCollector', () => {
     }
   });
 
-  it('should support AIsa search provider when AISA_API_KEY is configured', async () => {
+  it('should fetch Google organic results via AIsa → DataForSEO when AISA_API_KEY is configured', async () => {
     const originalFetch = globalThis.fetch;
     process.env.AISA_API_KEY = 'test_aisa_key';
     const oldSerpKey = process.env.SERP_API_KEY;
     delete process.env.SERP_API_KEY;
+    let seenUrl = '';
+    let seenBody: any = null;
+    let seenAuth = '';
 
     globalThis.fetch = async (url: any, opts: any) => {
       if (String(url).includes('aisa.one')) {
+        seenUrl = String(url);
+        seenBody = JSON.parse(opts.body);
+        seenAuth = opts.headers.Authorization;
         return new Response(
-          JSON.stringify({
-            results: [
+          JSON.stringify(dataForSeoSerp([
               {
                 title: 'Best Cron Generator on Reddit',
                 url: 'https://reddit.com/r/webdev/cron',
@@ -155,8 +184,7 @@ describe('SerpCollector', () => {
                 url: 'https://cronhub.io',
                 content: 'Official site tool',
               },
-            ],
-          }),
+          ])),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
@@ -178,7 +206,12 @@ describe('SerpCollector', () => {
         assert.equal(serpData.items[0].domain, 'reddit.com');
         assert.equal(serpData.items[0].isWeak, true);
         assert.equal(serpData.items[1].domain, 'cronhub.io');
+        // 名次取 rank_group（自然结果内部序号），不是把 SERP 特性也算进去的 rank_absolute。
+        assert.equal(serpData.items[0].rank, 1);
       }
+      assert.equal(seenUrl, 'https://api.aisa.one/apis/v1/dataforseo/serp/google/organic/live/regular');
+      assert.equal(seenAuth, 'Bearer test_aisa_key');
+      assert.deepEqual(seenBody, [{ keyword: 'cron online', location_code: 2840, language_code: 'en', depth: 10 }]);
     } finally {
       globalThis.fetch = originalFetch;
       delete process.env.AISA_API_KEY;
@@ -202,9 +235,7 @@ describe('SerpCollector', () => {
     const originalFetch = globalThis.fetch;
     process.env.AISA_API_KEY = 'test_aisa_depth_key';
     const oldSerpKey = process.env.SERP_API_KEY;
-    const oldAisaUrl = process.env.AISA_SEARCH_URL;
     delete process.env.SERP_API_KEY;
-    delete process.env.AISA_SEARCH_URL;
 
     // 10 个论坛帖（弱点）+ 15 个独立站（非弱点），共 25 条。
     const stubResults = [
@@ -221,7 +252,7 @@ describe('SerpCollector', () => {
     ];
 
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ results: stubResults }), {
+      new Response(JSON.stringify(dataForSeoSerp(stubResults)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -265,7 +296,6 @@ describe('SerpCollector', () => {
       globalThis.fetch = originalFetch;
       delete process.env.AISA_API_KEY;
       if (oldSerpKey) process.env.SERP_API_KEY = oldSerpKey;
-      if (oldAisaUrl) process.env.AISA_SEARCH_URL = oldAisaUrl;
     }
   });
 
@@ -273,9 +303,7 @@ describe('SerpCollector', () => {
     const originalFetch = globalThis.fetch;
     process.env.AISA_API_KEY = 'test_aisa_default_depth_key';
     const oldSerpKey = process.env.SERP_API_KEY;
-    const oldAisaUrl = process.env.AISA_SEARCH_URL;
     delete process.env.SERP_API_KEY;
-    delete process.env.AISA_SEARCH_URL;
 
     const stubResults = Array.from({ length: 25 }, (_, i) => ({
       title: `Clean tool ${i + 1}`,
@@ -283,7 +311,7 @@ describe('SerpCollector', () => {
       content: 'A focused independent tool',
     }));
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ results: stubResults }), {
+      new Response(JSON.stringify(dataForSeoSerp(stubResults)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -305,8 +333,31 @@ describe('SerpCollector', () => {
       globalThis.fetch = originalFetch;
       delete process.env.AISA_API_KEY;
       if (oldSerpKey) process.env.SERP_API_KEY = oldSerpKey;
-      if (oldAisaUrl) process.env.AISA_SEARCH_URL = oldAisaUrl;
     }
+  });
+});
+
+describe('parseDataForSeoOrganic', () => {
+  const infer = () => 'SPECIALIST' as const;
+
+  it('treats a rejected task as failure even though the HTTP status was 200', () => {
+    assert.equal(parseDataForSeoOrganic(dataForSeoSerp([], 40501), 10, infer), null);
+    assert.equal(parseDataForSeoOrganic({}, 10, infer), null);
+  });
+
+  it('keeps only organic items within depth, ranked by rank_group', () => {
+    const body = {
+      tasks: [{ status_code: 20000, result: [{ items: [
+        { type: 'featured_snippet', rank_group: 1, url: 'https://snippet.example/', title: 's' },
+        { type: 'organic', rank_group: 1, url: 'https://www.one.example/a', title: 'one', description: 'd' },
+        { type: 'video', rank_group: 1, url: 'https://video.example/', title: 'v' },
+        { type: 'organic', rank_group: 2, url: 'https://two.example/', title: 'two' },
+        { type: 'organic', rank_group: 11, url: 'https://eleven.example/', title: 'eleven' },
+        { type: 'organic', rank_group: 3, url: 'not-a-url', title: 'bad' },
+      ] }] }],
+    };
+    const rows = parseDataForSeoOrganic(body, 10, infer)!;
+    assert.deepEqual(rows.map((r) => [r.rank, r.domain]), [[1, 'one.example'], [2, 'two.example']]);
   });
 });
 

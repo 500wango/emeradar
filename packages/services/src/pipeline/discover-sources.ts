@@ -1,6 +1,5 @@
 import { query, transaction, getClient } from '@emeradar/db';
 import {
-  AIsaSearchProvider,
   DiscoverySource,
   HackerNewsDiscoverySource,
   RssDiscoverySource,
@@ -9,19 +8,17 @@ import {
 async function getDiscoverySources(): Promise<DiscoverySource[]> {
   const sources: DiscoverySource[] = [];
 
-  // 1. AIsa / Tavily provider if keys available
-  if (process.env.AISA_SEARCH_URL && process.env.AISA_API_KEY) {
-    sources.push(new AIsaSearchProvider());
-  }
+  // AIsa 的 Tavily 搜索曾经排在这里，但它向搜索端点 POST 一个空对象（没有 query），
+  // 只可能拿到 422；Lobste.rs 的 RSS 从生产机直连也是 500（2026-10-18）。两者都删掉，
+  // 不留一个每天报错、却被计作「数据源」的条目。
 
-  // 2. HackerNews Discovery Source
+  // 1. HackerNews Discovery Source
   sources.push(new HackerNewsDiscoverySource());
 
-  // 3. Default High-Conviction RSS Sources
-  sources.push(new RssDiscoverySource('https://lobste.rs/rss', 'Lobste.rs'));
+  // 2. Default RSS Sources
   sources.push(new RssDiscoverySource('https://techcrunch.com/category/startups/feed/', 'TechCrunch Startups'));
 
-  // 4. Env RSS feeds
+  // 3. Env RSS feeds
   const envFeeds = (process.env.DISCOVERY_RSS_FEEDS || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -32,7 +29,7 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
     });
   sources.push(...envFeeds);
 
-  // 5. Active sources from database (e.g. added via Admin Console)
+  // 4. Active sources from database (e.g. added via Admin Console)
   try {
     const dbSources = await query<{
       id: string;

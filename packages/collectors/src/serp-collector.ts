@@ -58,6 +58,61 @@ export interface SerpRankIndexEntry {
   domain: string;
 }
 
+export const AISA_GOOGLE_ORGANIC_URL =
+  'https://api.aisa.one/apis/v1/dataforseo/serp/google/organic/live/regular';
+
+/** DataForSEO 的 `location_code`。研究市场目前只有 US（2840）；其它市场不猜代码，交给 API 报错。 */
+function locationCode(marketCountry: string): number | undefined {
+  return (marketCountry || 'US').toUpperCase() === 'US' ? 2840 : undefined;
+}
+
+interface ParsedOrganicItem {
+  rank: number;
+  url: string;
+  domain: string;
+  title: string;
+  snippet: string;
+  resultType: ResultType;
+}
+
+/**
+ * 解析 DataForSEO 的 SERP 信封。注意它把「请求被拒」也包在 HTTP 200 里，结论在
+ * `tasks[0].status_code`（20000 才是成功），所以只看 `res.ok` 会把拒绝当成「零结果」。
+ *
+ * 名次取 `rank_group`（自然结果内部的序号），不取 `rank_absolute`（把精选摘要、视频等
+ * SERP 特性也算进去）：W 轴评的是自然结果前 10 名。
+ */
+export function parseDataForSeoOrganic(
+  body: unknown,
+  depth: number,
+  inferResultType: (url: string, title: string, snippet: string) => ResultType
+): ParsedOrganicItem[] | null {
+  const task = (body as any)?.tasks?.[0];
+  if (!task || task.status_code !== 20000) return null;
+  const items = task.result?.[0]?.items;
+  if (!Array.isArray(items)) return null;
+  return items
+    .filter((i: any) => i?.type === 'organic' && typeof i.url === 'string' && i.url.startsWith('http'))
+    .map((i: any) => {
+      const url = String(i.url);
+      const title = String(i.title || '');
+      const snippet = String(i.description || '');
+      let domain = 'unknown.com';
+      try {
+        domain = new URL(url).hostname.replace(/^www\./, '');
+      } catch {}
+      return {
+        rank: Number.isInteger(i.rank_group) ? i.rank_group : 0,
+        url,
+        domain,
+        title,
+        snippet,
+        resultType: inferResultType(url, title, snippet),
+      };
+    })
+    .filter((row: ParsedOrganicItem) => row.rank >= 1 && row.rank <= depth);
+}
+
 export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   readonly sourceId = 'src_serp';
   readonly version = '1.0.0';
@@ -103,7 +158,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           retryable: true,
           errorCode: 'SERP_UNAVAILABLE',
           message:
-            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI), AISA_API_KEY (AIsa.one), or BRAVE_API_KEY. A failed fetch is not scored.',
+            'No organic SERP provider returned results. Set SERP_API_KEY (SerpAPI), AISA_API_KEY (AIsa.one → DataForSEO Google), or BRAVE_API_KEY. A failed fetch is not scored.',
         };
       }
 
@@ -169,8 +224,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             weaknessScore: weaknessResult.score,
             /** 请求的深度（`serp_snapshots.depth`）。 */
             depth,
-            /** 实际取回条数（`serp_snapshots.result_count`）。各有各的上限：Brave 与
-             *  Tavily 只给到 20，SerpApi 给到 100。低于 depth 是常态，不是故障。 */
+            /** 实际取回条数（`serp_snapshots.result_count`）。各有各的上限：Brave 只给到
+             *  20，SerpApi 与 DataForSEO 给到 100。低于 depth 是常态，不是故障。 */
             resultCount: ranked.length,
             items,
             rankIndex,
@@ -304,7 +359,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
 
     const aisaKey = process.env.AISA_API_KEY;
     if (aisaKey) {
-      const fromAIsa = await this.fetchAIsa(query, marketCountry, language, aisaKey, depth);
+      const fromAIsa = await this.fetchAIsaGoogle(query, marketCountry, language, aisaKey, depth);
       if (fromAIsa && fromAIsa.length > 0) return fromAIsa;
     }
 
@@ -317,7 +372,19 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     return null;
   }
 
-  private async fetchAIsa(
+  /**
+   * Google 自然结果，经 AIsa 代理的 DataForSEO（`serp/google/organic/live/regular`）。
+   *
+   * 这里曾经调 AIsa 的 Tavily 搜索。Tavily 是 AI 搜索引擎的自有索引，不是 Google 排名：
+   * 2026-10-18 的 95 个快照里出现最多的域名是 facebook / youtube / instagram，拿它算
+   * W 轴的「SERP 弱点」等于在量另一个搜索引擎。所以这条路径只认 DataForSEO 的 Google
+   * 结果；取不到就让本次采集失败（不评分），不回退到别的索引冒充。
+   *
+   * 选 `regular` 而不是 `advanced`：同价（每 10 条一页计费），响应 ~5 KB 对 ~57 KB，
+   * 评分只用 rank / url / title / description。实测 `regular` 8 s、`advanced` 12 s，
+   * 所以超时放宽到 30 s。
+   */
+  private async fetchAIsaGoogle(
     query: string,
     marketCountry: string,
     language: string,
@@ -325,105 +392,24 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     depth: number
   ) {
     try {
-      const endpoint = process.env.AISA_SEARCH_URL || 'https://api.aisa.one/apis/v1/tavily/search';
-      const isDataForSeo = endpoint.includes('dataforseo');
-
-      const body = isDataForSeo
-        ? JSON.stringify([
-            {
-              keyword: query,
-              location_code: marketCountry === 'US' ? 2840 : undefined,
-              language_code: language || 'en',
-              // 深度分层（ADR-022）：默认 10；项目排名追踪的周采集才取 100。
-              depth,
-            },
-          ])
-        : JSON.stringify({
-            query,
-            search_depth: 'basic',
-            // Tavily 的上限是 20，这就是它的最大深度；再往上要换 provider，而不是
-            // 编一个对方不接受的数字。
-            max_results: 20,
-            include_answer: false,
-          });
-
-      const res = await fetch(endpoint, {
+      const res = await fetch(AISA_GOOGLE_ORGANIC_URL, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body,
-        signal: AbortSignal.timeout(8000),
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify([
+          {
+            keyword: query,
+            location_code: locationCode(marketCountry),
+            language_code: (language || 'en').slice(0, 2).toLowerCase(),
+            // 深度分层（ADR-022）：默认 10；项目排名追踪的周采集才取 100。
+            depth,
+          },
+        ]),
+        signal: AbortSignal.timeout(30_000),
       });
-
       if (!res.ok) return null;
-      const data = await res.json();
-
-      // Format 1: Tavily / Web Search format ({ results: [{ title, url, content }] })
-      if (Array.isArray(data?.results)) {
-        return data.results
-          .slice(0, depth)
-          .map((r: any, idx: number) => {
-            const urlStr = String(r.url || '');
-            const title = String(r.title || '');
-            const snippet = String(r.content || r.snippet || '');
-            return {
-              rank: idx + 1,
-              url: urlStr,
-              domain: this.extractDomain(urlStr),
-              title,
-              snippet,
-              resultType: this.inferResultType(urlStr, title, snippet),
-              publishedAt: r.published_date ? new Date(r.published_date) : undefined,
-            };
-          })
-          .filter((row: { url: string }) => row.url.startsWith('http'));
-      }
-
-      // Format 2: DataForSEO SERP format ({ tasks: [{ result: [{ items: [...] }] }] })
-      const dfsItems = data?.tasks?.[0]?.result?.[0]?.items;
-      if (Array.isArray(dfsItems)) {
-        return dfsItems
-          .filter((i: any) => (i.type === 'organic' || !i.type) && i.url)
-          .slice(0, depth)
-          .map((r: any, idx: number) => {
-            const urlStr = String(r.url || '');
-            const title = String(r.title || '');
-            const snippet = String(r.description || r.snippet || '');
-            return {
-              rank: r.rank_group || idx + 1,
-              url: urlStr,
-              domain: this.extractDomain(urlStr),
-              title,
-              snippet,
-              resultType: this.inferResultType(urlStr, title, snippet),
-            };
-          })
-          .filter((row: { url: string }) => row.url.startsWith('http'));
-      }
-
-      // Format 3: Generic items array format ({ items: [...] })
-      if (Array.isArray(data?.items)) {
-        return data.items
-          .slice(0, depth)
-          .map((r: any, idx: number) => {
-            const urlStr = String(r.url || r.link || '');
-            const title = String(r.title || '');
-            const snippet = String(r.snippet || r.excerpt || r.description || '');
-            return {
-              rank: idx + 1,
-              url: urlStr,
-              domain: this.extractDomain(urlStr),
-              title,
-              snippet,
-              resultType: this.inferResultType(urlStr, title, snippet),
-            };
-          })
-          .filter((row: { url: string }) => row.url.startsWith('http'));
-      }
-
-      return null;
+      return parseDataForSeoOrganic(await res.json(), depth, (url, title, snippet) =>
+        this.inferResultType(url, title, snippet)
+      );
     } catch {
       return null;
     }
