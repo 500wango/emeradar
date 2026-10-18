@@ -33,9 +33,9 @@ export async function POST(request: NextRequest) {
     const body = parseInput(projectCreateSchema, await request.json().catch(() => ({})));
 
     // An opportunity project cannot be created here any more. It is a side effect
-    // of claiming a slot, and that has to happen in the same transaction as
-    // spending the quota — otherwise "create the project now, file the GO later"
-    // is a reachable state, and so is "download the launch kit, decide later"
+    // of the atomic GO, and that has to happen in the same transaction as spending
+    // the quota — otherwise "create the project now, file the GO later" is a
+    // reachable state, and so is "download the launch kit, decide later"
     // (ADR-018, 13 §4.3). The sentence below is the whole point of keeping
     // `opportunityId` in the schema: the caller is told where to go.
     if (body.opportunityId) {
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
           title: 'Validation Error',
           status: 400,
           detail:
-            'Opportunity projects are created by POST /api/v1/opportunities/{id}/go, which claims the build slot and spends the quota in one transaction. This endpoint only creates experiment projects.',
+            'Opportunity projects are created by POST /api/v1/opportunities/{id}/go, which creates the project and spends the quota in one transaction. This endpoint only creates experiment projects.',
         },
         { status: 400 }
       );

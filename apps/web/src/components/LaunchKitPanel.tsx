@@ -52,7 +52,7 @@ export function LaunchKitPanel({
   const [verify, setVerify] = useState<VerifyResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 404 与别的失败要分开：前者是"这个项目本来就没有点火包"（实验项目、或槽位已释放），
+  // 404 与别的失败要分开：前者是"这个项目本来就没有点火包"（实验项目，或不是由原子 GO 建立），
   // 是可解释的状态；后者才是需要用户重试的问题。
   const [unavailable, setUnavailable] = useState(false);
 

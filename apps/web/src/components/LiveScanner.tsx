@@ -46,8 +46,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false }: LiveScanM
       }
 
       setScanResult(data.opportunity);
-      // 打码结果不回调：回调的用途是"跳到这条机会"，而它的 slug 是打码 slug，
-      // 跳过去是 404。让调用方拿到一个必然打不开的链接比不回调更糟。
+      // 结果里带的是真实 slug（v3.1 没有任何打码投影），可以安全回调给"跳到这条机会"。
       if (onScanSuccess) onScanSuccess(data.opportunity.slug);
     } catch (err: any) {
       setError(err.message || t('liveScanner.scanError'));

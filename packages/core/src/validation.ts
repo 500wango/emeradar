@@ -84,7 +84,7 @@ export const alertRuleSchema = z.object({
  *
  * An opportunity project no longer has a creation endpoint of its own: it is a
  * side effect of `POST /opportunities/{id}/go`, inside the same transaction that
- * claims the slot and spends the quota (ADR-018, 10 §4.3). `opportunityId` stays
+ * creates the project and spends the quota (ADR-018, 10 §4.3). `opportunityId` stays
  * in the schema purely so the route can answer a caller who still sends it with
  * a sentence pointing at the right endpoint, instead of a generic validation
  * error. `decisionId` is gone: nothing accepts a caller-chosen decision any

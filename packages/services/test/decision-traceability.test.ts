@@ -27,7 +27,7 @@ const USER_SHARED = 'usr_decision_test_shared';
 const VERDICT_V1 = 'vdt_decision_test_v1';
 const VERDICT_V2 = 'vdt_decision_test_v2';
 const VERDICT_OTHER = 'vdt_decision_test_other';
-/** 一条**没有槽位行**的机会：用来验证占槽失败时整个 GO 事务（含配额）回滚。 */
+/** 并发重复 GO 专用：验证事务回滚时配额与决策一起收走的边界。 */
 const OPP_SHARED = 'opp_decision_test_noslots';
 const VERDICT_SHARED = 'vdt_decision_test_shared';
 

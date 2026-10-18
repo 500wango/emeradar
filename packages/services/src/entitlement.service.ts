@@ -315,7 +315,7 @@ export class EntitlementService {
   /**
    * 预占一次原子立项导出（`atomic_go_export_monthly`，13 §3.2、13 §4.3）。
    *
-   * **必须在调用方的事务里执行**，与占槽、建 Project 同一事务：配额与槽位若各自
+   * **必须在调用方的事务里执行**，与建 Project 同一事务：配额与项目若各自
    * 提交，"扣了额度但没占到槽"和"占到槽但没扣额度"就都成了可观测状态，而第二种
    * 就是白拿点火包的入口（13 §4.3）。
    *
@@ -354,7 +354,7 @@ export class EntitlementService {
     if (base <= 0) {
       throw new EmeradarError(
         ErrorCode.PLAN_REQUIRED,
-        'Atomic GO (claiming a build slot and unlocking its launch kit) requires Builder Pro.',
+        'Atomic GO (building a project and unlocking its launch kit) requires Builder Pro.',
         403,
         { upgradeUrl: '/pricing', currentPlan: 'FREE' }
       );

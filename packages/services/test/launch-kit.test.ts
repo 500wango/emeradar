@@ -74,7 +74,7 @@ async function seedFixture() {
   await query(
     `INSERT INTO plans (code, name, price_usd_monthly, entitlements)
      VALUES ($1, 'Launch Kit', 0.00,
-       '{"atomic_go_export_monthly":10,"active_go_slots_max":5,
+       '{"atomic_go_export_monthly":10,
          "generate_reports_monthly":30,"max_projects":50}'::jsonb)
      ON CONFLICT (code) DO NOTHING`,
     [PLAN]
