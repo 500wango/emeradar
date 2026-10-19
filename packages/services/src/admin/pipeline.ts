@@ -2,6 +2,8 @@ import { query } from '@emeradar/db';
 import { AppError } from '@emeradar/core';
 import { AuditService } from '../audit.service';
 import { TrackRecordService } from '../track-record.service';
+import { rejectionSummary } from '../rejection.service';
+import { shadowPoolStats } from '../shadow-pool.service';
 import {
   discoverSources,
   generateDiscoveryIntents,
@@ -196,6 +198,27 @@ export class AdminPipelineService {
         LIMIT 20`
     ).catch(() => ({ rows: [] as any[] }));
 
+    // 4b0. Phase 0/2 observability: rejection reasons + shadow-pool FNR
+    const rejectionsRes = await rejectionSummary(new Date().toISOString().slice(0, 10)).catch(() => []);
+    const shadowStats = await shadowPoolStats().catch(() => []);
+    const shadowTotals = shadowStats.reduce(
+      (acc, row) => ({
+        samples: acc.samples + row.samples,
+        captured: acc.captured + row.captured,
+        becameOpportunity: acc.becameOpportunity + row.becameOpportunity,
+      }),
+      { samples: 0, captured: 0, becameOpportunity: 0 }
+    );
+    const shadowPool = {
+      ...shadowTotals,
+      // 总体漏判率只在有回访样本时给出；否则 null，界面显示“未知”，不是 0%。
+      weightedFnr:
+        shadowTotals.captured > 0
+          ? Math.round((shadowTotals.becameOpportunity / shadowTotals.captured) * 10000) / 10000
+          : null,
+      strata: shadowStats,
+    };
+
     // 4b2. Commercial pricing capture health (7d)
     const commercialRes = await query<{
       total_7d: number;
@@ -334,6 +357,12 @@ export class AdminPipelineService {
         startedAt: r.started_at,
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
+      })),
+      shadowPool,
+      rejections: rejectionsRes.map((row) => ({
+        reasonCode: row.reasonCode,
+        axis: row.axis,
+        count: row.count,
       })),
       commercial: {
         total7d: commercialRes.rows[0]?.total_7d ?? 0,

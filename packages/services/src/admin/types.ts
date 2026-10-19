@@ -97,6 +97,21 @@ export interface AdminPipelineOverview {
     finishedAt: string | null;
     errorMessage: string | null;
   }>;
+  shadowPool: {
+    samples: number;
+    captured: number;
+    becameOpportunity: number;
+    /** 总体加权漏判率；未回访时为 null。 */
+    weightedFnr: number | null;
+    strata: Array<{
+      stratum: string;
+      samples: number;
+      captured: number;
+      becameOpportunity: number;
+      weightedFnr: number | null;
+    }>;
+  };
+  rejections: Array<{ reasonCode: string; axis: string; count: number }>;
   commercial: {
     total7d: number;
     ok7d: number;

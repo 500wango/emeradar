@@ -273,6 +273,76 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
         </p>
       </Panel>
 
+      {/* Rejections + shadow pool */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <ShieldCheck className="h-4 w-4 text-info" />
+              <span>拒绝原因与漏判监控</span>
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              任一被拒机会都能回答“死在哪一轴”；暗池按拒绝原因分层回访，用来估计漏判率。
+            </p>
+          </div>
+          <Badge tone={overview.shadowPool.weightedFnr === null ? 'neutral' : 'warn'}>
+            加权漏判率{' '}
+            {overview.shadowPool.weightedFnr === null
+              ? '未知'
+              : `${(overview.shadowPool.weightedFnr * 100).toFixed(1)}%`}
+          </Badge>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <Stat value={overview.shadowPool.samples} unit="条" label="暗池样本" tone="accent" />
+          <Stat value={overview.shadowPool.captured} unit="条" label="已回访" />
+          <Stat value={overview.shadowPool.becameOpportunity} unit="条" label="后来成了机会" tone="warn" />
+          <Stat value={overview.rejections.length} unit="种" label="今日拒绝原因" />
+        </div>
+
+        {overview.rejections.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {overview.rejections.map((row) => (
+              <span
+                key={`${row.axis}-${row.reasonCode}`}
+                className="rounded-sm border border-line bg-surface-2 px-2 py-1 font-mono text-[11px] text-fg-muted"
+              >
+                {row.axis} · {row.reasonCode} · {row.count}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {overview.shadowPool.strata.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">STRATUM</th>
+                  <th className="pb-3 font-semibold">SAMPLES</th>
+                  <th className="pb-3 font-semibold">CAPTURED</th>
+                  <th className="pb-3 font-semibold">BECAME</th>
+                  <th className="pb-3 font-semibold">FNR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line font-mono">
+                {overview.shadowPool.strata.map((row) => (
+                  <tr key={row.stratum}>
+                    <td className="py-2.5 text-fg">{row.stratum}</td>
+                    <td className="py-2.5 text-fg-muted">{row.samples}</td>
+                    <td className="py-2.5 text-fg-muted">{row.captured}</td>
+                    <td className="py-2.5 text-fg-muted">{row.becameOpportunity}</td>
+                    <td className="py-2.5 text-fg-muted">
+                      {row.weightedFnr === null ? '未知' : `${(row.weightedFnr * 100).toFixed(1)}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
       {/* Commercial pricing capture health */}
       <Panel tone="raised" className="p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">

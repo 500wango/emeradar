@@ -26,6 +26,12 @@ import { evaluateAlertTrigger, isEvaluatedRuleType, type CrowdingFacts } from '.
 import { loadCrowding } from '../crowding.service';
 import { CustomQueryRadarService } from '../custom-query-radar.service';
 import { attachAutocompleteClusters } from './discover-candidates';
+import {
+  captureCheckpoint,
+  evaluateShadowOutcome,
+  pendingCheckpoints,
+  sampleShadowPool,
+} from '../shadow-pool.service';
 
 const PIPELINE_LOCK_ID = 481516;
 
@@ -99,6 +105,36 @@ export async function runDailyPipeline(
     serp: new SerpCollector(),
     crawl: new CrawlCollector(),
   };
+
+  // Phase 2：先回收到期回访，再抽样。顺序固定——先收结果，样本池才不会
+  // 因为“今天新抽的样本还没到期”而看起来永远为空。
+  try {
+    const due = await pendingCheckpoints(obsDate);
+    for (const checkpoint of due) {
+      const outcome = await evaluateShadowOutcome(checkpoint.opportunityId);
+      await captureCheckpoint(checkpoint.checkpointId, outcome.outcome, {
+        ...outcome.evidence,
+        horizonDays: checkpoint.horizonDays,
+      });
+    }
+    if (due.length > 0) console.log(`[pipeline] shadow checkpoints captured: ${due.length}`);
+  } catch (error) {
+    // 暗池是观测，不是账本；失败不能拖垮当日管线。
+    console.error('[pipeline] shadow checkpoint capture failed:', error);
+  }
+
+  // 每周抽一次，避免每天都扩样本把回访成本推高。
+  const weekday = new Date(`${obsDate}T00:00:00Z`).getUTCDay();
+  if (weekday === 1) {
+    try {
+      const shadow = await sampleShadowPool(obsDate);
+      if (shadow.sampled > 0) {
+        console.log(`[pipeline] shadow pool sampled ${shadow.sampled} (checkpoints ${shadow.checkpointsScheduled})`);
+      }
+    } catch (error) {
+      console.error('[pipeline] shadow pool sampling failed:', error);
+    }
+  }
 
   const attachedClusterQueries = await attachAutocompleteClusters(obsDate);
   if (attachedClusterQueries > 0) {
