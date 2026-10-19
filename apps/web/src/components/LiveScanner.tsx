@@ -8,6 +8,7 @@ import { Panel } from '@/components/ui/Panel';
 import { VerdictBadge, Badge, type Verdict } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
+import type { ObservationCard } from '@emeradar/services';
 
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
@@ -22,9 +23,181 @@ type RadarState =
   | { status: 'saved'; until: string }
   | { status: 'error'; message?: string };
 
+/**
+ * 观测卡：扫码当天就能看到的真实事实。
+ *
+ * 它**不是裁决**。界面必须把这句话写在最显眼的位置——否则用户会把“Top10 有 4 个弱页”
+ * 读成“建议现在做”，而后者需要 14 天历史。
+ */
+function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean }) {
+  const serp = card.serp;
+  const pricing = card.pricing;
+
+  const statusLabel = (status: string) => {
+    if (status === 'OK') return isZh ? '抓到公开定价' : 'Public pricing found';
+    if (status === 'NOT_FOUND') return isZh ? '看过了，没有公开定价' : 'Read, no public pricing';
+    if (status === 'ROBOTS') return isZh ? 'robots 拒绝抓取' : 'robots.txt disallowed';
+    return isZh ? '抓取被拦截，未知' : 'Blocked — unknown';
+  };
+
+  const statusTone = (status: string) =>
+    status === 'OK' ? 'signal' : status === 'NOT_FOUND' ? 'warn' : 'danger';
+
+  return (
+    <div className="mt-6 rounded-sm border border-line bg-surface-2/60 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="rounded-sm border border-info/40 bg-info/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-info">
+            {isZh ? '观测 · 非建议' : 'OBSERVATION · NOT A VERDICT'}
+          </span>
+          <span className="font-mono text-[11px] text-fg-subtle">
+            {card.market} · {card.language}
+          </span>
+        </div>
+        <span className="font-mono text-[11px] text-fg-subtle">
+          {isZh ? '数据来自' : 'observed'} {String(card.observedAt).slice(0, 10)}
+        </span>
+      </div>
+
+      <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+        {isZh
+          ? `这是现在能看到的事实，不是构建建议。${card.verdictEta.reason}`
+          : `What is observable right now, not a build recommendation. ${card.verdictEta.reason}`}
+      </p>
+
+      {/* SERP 弱点 */}
+      <div className="mt-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h4 className="text-xs font-bold text-fg">
+            {isZh ? 'Google Top 10 竞争面' : 'Google Top 10 competition'}
+          </h4>
+          {serp.available ? (
+            <span className="font-mono text-[11px] text-fg-subtle">
+              {isZh
+                ? `${serp.weakCount}/${serp.items.length} 个弱页 · 弱点率 ${Math.round(serp.weakRatio * 100)}%`
+                : `${serp.weakCount}/${serp.items.length} weak · ${Math.round(serp.weakRatio * 100)}%`}
+              {serp.provider ? ` · ${serp.provider}` : ''}
+            </span>
+          ) : (
+            <span className="font-mono text-[11px] text-danger">
+              {isZh ? '未知（未取到 SERP）' : 'unknown (no SERP)'}
+            </span>
+          )}
+        </div>
+
+        {!serp.available ? (
+          <p className="mt-1 text-[11px] text-fg-subtle">{serp.note}</p>
+        ) : (
+          <ul className="mt-2 space-y-1">
+            {serp.items.map((item) => (
+              <li key={`${item.rank}-${item.url}`} className="flex items-start gap-2 text-[11px]">
+                <span className="w-5 shrink-0 font-mono text-fg-subtle">{item.rank}</span>
+                <span className="min-w-0 flex-1">
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all font-mono text-accent hover:underline"
+                  >
+                    {item.domain}
+                  </a>
+                  <span className="ml-2 text-fg-subtle">{item.resultType}</span>
+                  {item.isWeak && (
+                    <Badge tone="warn" size="sm" className="ml-2">
+                      {item.weaknessType ?? (isZh ? '弱页' : 'weak')}
+                    </Badge>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* 定价 */}
+      <div className="mt-5 border-t border-line pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h4 className="text-xs font-bold text-fg">
+            {isZh ? '前排站点公开定价' : 'Public pricing on competitors'}
+          </h4>
+          <span className="font-mono text-[11px] text-fg-subtle">
+            {isZh
+              ? `探查 ${pricing.probed} · 有价 ${pricing.priced} · 仅网关 ${pricing.infraOnly} · 未知 ${pricing.blocked}`
+              : `${pricing.probed} probed · ${pricing.priced} priced · ${pricing.infraOnly} gateway-only · ${pricing.blocked} unknown`}
+          </span>
+        </div>
+
+        {pricing.domains.length === 0 ? (
+          <p className="mt-1 text-[11px] text-fg-subtle">{pricing.note}</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {pricing.domains.map((row) => (
+              <li key={row.domain} className="flex flex-wrap items-center gap-2 text-[11px]">
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-accent hover:underline"
+                >
+                  {row.domain}
+                </a>
+                <Badge tone={statusTone(row.status)} size="sm">
+                  {statusLabel(row.status)}
+                </Badge>
+                {row.plans.length > 0 && (
+                  <span className="text-fg-muted">
+                    {row.plans
+                      .slice(0, 3)
+                      .map((plan) => `${plan.name} ${plan.currency}${plan.priceMonthly ?? '?'}`)
+                      .join(' · ')}
+                  </span>
+                )}
+                {row.plans.length === 0 && row.gateways.length > 0 && (
+                  <span className="text-fg-subtle">{row.gateways.join(', ')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-[11px] text-fg-subtle">{pricing.note}</p>
+      </div>
+
+      {/* 联想词 */}
+      <div className="mt-5 border-t border-line pt-4">
+        <h4 className="text-xs font-bold text-fg">
+          {isZh ? '实时联想词' : 'Live autocomplete'}
+        </h4>
+        {card.autocomplete.observed ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {card.autocomplete.suggestions.slice(0, 12).map((suggestion) => (
+              <span
+                key={suggestion}
+                className="rounded-sm border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-fg-muted"
+              >
+                {suggestion}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-[11px] text-fg-subtle">{card.autocomplete.note}</p>
+        )}
+      </div>
+
+      {/* 还缺什么 */}
+      <div className="mt-5 rounded-sm border border-warn/30 bg-warn/5 p-3">
+        <p className="text-[11px] leading-relaxed text-fg-muted">
+          {isZh
+            ? `还差什么才能给裁决：联想词需 ${card.verdictEta.needsAutocompleteDays} 天历史，SERP 需 ${card.verdictEta.needsSerpDays} 天历史。现在这张卡是观测，不是推荐。`
+            : `What still gates a verdict: ${card.verdictEta.needsAutocompleteDays} days of autocomplete and ${card.verdictEta.needsSerpDays} days of SERP history. This card is observation, not recommendation.`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function LiveScanner({ onScanSuccess, showQuickChips = false, canTrackRadar = false }: LiveScanModalProps = {}) {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, isZh } = useI18n();
   const [query, setQuery] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +378,8 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false, canTrackRad
             D {scanResult.dBand} · M {scanResult.mBand} · W {scanResult.wBand} · {scanResult.confidence}
           </p>
           <p className="mt-2 text-xs text-fg-muted">{scanResult.whyNowSummary}</p>
+
+          {scanResult.observation && <ObservationPanel card={scanResult.observation} isZh={isZh} />}
 
           <div className="mt-4 border-t border-line pt-4 text-xs">
             {actionable ? (
