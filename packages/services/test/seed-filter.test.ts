@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { isCandidateKeyword } from '../src/pipeline/seed-keyword-candidates';
+import { dedupeKey, isCandidateKeyword } from '../src/pipeline/seed-keyword-candidates';
 
 const item = (keyword: string, mainIntent = 'commercial') => ({
   keyword,
@@ -15,6 +15,8 @@ describe('种子候选过滤', () => {
     assert.strictEqual(isCandidateKeyword(item('ai valuation'), 'software for'), false);
     assert.strictEqual(isCandidateKeyword(item('how to use invoice generator'), 'generator'), false);
     assert.strictEqual(isCandidateKeyword(item('csv file definition'), 'csv'), false);
+    assert.strictEqual(isCandidateKeyword(item('ac buy spreadsheet'), 'spreadsheet'), false);
+    assert.strictEqual(isCandidateKeyword(item('purchase order template'), 'template'), true);
     assert.strictEqual(isCandidateKeyword(item('csv 文件定义'), 'csv'), false);
     assert.strictEqual(isCandidateKeyword(item('csv file', 'informational'), 'csv'), false);
   });
@@ -24,6 +26,11 @@ describe('种子候选过滤', () => {
     assert.strictEqual(isCandidateKeyword(item('crm for agencies'), 'for agencies'), true);
     assert.strictEqual(isCandidateKeyword(item('ai valuation calculator'), 'calculator'), true);
     assert.strictEqual(isCandidateKeyword(item('csv to json converter', 'informational'), 'csv'), true);
+    assert.strictEqual(
+      dedupeKey('csv to excel conversion'),
+      dedupeKey('convert a csv file to excel')
+    );
+    assert.strictEqual(dedupeKey('template spreadsheet'), dedupeKey('template for spreadsheet'));
   });
 
   it('具体种子必须包含种子词，宽种子必须带工具名词', () => {

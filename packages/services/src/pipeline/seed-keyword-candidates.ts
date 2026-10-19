@@ -92,6 +92,7 @@ const TOOL_SIGNAL = /\b(generator|calculator|converter|convert|conversion|templa
 const NEWS_SIGNAL = /\b(hell|news|report|trend|forecast|valuation|funding|salary|jobs?|course|tutorial|stock|price prediction|market size)\b/i;
 const INFORMATIONAL_PREFIX = /^(how to|what is|why |is there|best |top \d+)/i;
 const DEFINITIONAL = /\b(definition|meaning|what is|what are|full form|explained|examples?|wiki)\b/i;
+const PURCHASE_NOISE = /\b(buy|purchase|order)\b/i;
 
 /** 这些种子的词面太宽，不能靠“包含种子”判断，必须出现工具/软件名词。 */
 const BROAD_SEEDS = new Set([
@@ -118,6 +119,8 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
   if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
 
   const toolSignal = TOOL_SIGNAL.test(kw);
+  // “buy”只有在没有工具/交付物名词时才是购买词噪音；"purchase order template" 保留。
+  if (PURCHASE_NOISE.test(kw) && !toolSignal) return false;
   // 信息性搜索只有在出现明确的工具/操作名词时才可能是可构建需求；
   // “csv file”“csv file definition”这类定义词不是机会。
   if (s.mainIntent === 'informational' && !toolSignal) return false;
@@ -142,12 +145,18 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
  * "barcode-generator" 这类拼写变体，各开一个候选只会重复观测同一个 SERP。
  */
 export function dedupeKey(keyword: string): string {
+  const STOP = new Set(['a', 'an', 'the', 'for', 'to', 'of', 'in', 'on', 'file', 'free', 'online', 'best', 'top']);
   return keyword
     .toLowerCase()
     .replace(/[^a-z0-9 ]+/g, ' ')
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w))
+    .map((w) => {
+      let word = w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w;
+      if (['convert', 'conversion', 'converter'].includes(word)) word = 'convert';
+      return word;
+    })
+    .filter((w) => !STOP.has(w))
     .sort()
     .join(' ');
 }
