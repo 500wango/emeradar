@@ -39,4 +39,13 @@ jobs:
             # 就是上面那次 build 的镜像，所以它和 web 是同一份代码。
             docker compose -f docker-compose.prod.yml up -d --no-build worker
             docker compose -f docker-compose.prod.yml up -d --no-build web caddy
+            # 候选池为空时补种一次；只空库触发，不覆盖日常 seed-keywords。
+            CANDIDATES=$(docker compose -f docker-compose.prod.yml exec -T postgres \
+              psql -U postgres -d emeradar -tAc \
+              "SELECT COUNT(*) FROM opportunities WHERE status='CANDIDATE' AND COALESCE(is_demo,false)=false" | tr -d '[:space:]')
+            if [ "$CANDIDATES" = "0" ]; then
+              echo "Candidate pool empty; running seed-keywords once..."
+              docker compose -f docker-compose.prod.yml run --rm worker seed-keywords || \
+                echo "seed-keywords failed; worker will retry on its schedule."
+            fi
             curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused --max-time 10 http://127.0.0.1:3000/login >/dev/null
