@@ -17,6 +17,7 @@ import {
   SerpCollector,
 } from '@emeradar/collectors';
 import { SCORING_CONFIG_VERSION, evaluateKillPredicate } from '@emeradar/scoring';
+import { FEATURE_VERSION, RULE_ENGINE_VERSION } from '../evidence-version';
 import { observeOpportunity, ObservedOpportunity } from './observe-opportunity';
 import { ACTIVE_EVAL_CRITERIA, PredictionEpisodeService } from '../prediction-episode.service';
 import { PublicPublicationService } from '../public-publication.service';
@@ -26,6 +27,7 @@ import { evaluateAlertTrigger, isEvaluatedRuleType, type CrowdingFacts } from '.
 import { loadCrowding } from '../crowding.service';
 import { CustomQueryRadarService } from '../custom-query-radar.service';
 import { attachAutocompleteClusters } from './discover-candidates';
+import { canonicalizeOpportunity } from '../canonical-query.service';
 import {
   captureCheckpoint,
   evaluateShadowOutcome,
@@ -200,6 +202,22 @@ export async function runDailyPipeline(
   }
 
   const publishable = observed.filter((item) => item.publishable);
+
+  // Phase 1：把今天观测过的机会挂进 canonical 簇。L1（词法指纹）零成本先做；
+  // L2（SERP 交集）只在 L1 找不到同伴时才对少量候选付费比较。
+  // 失败不影响账本：归并是观测优化，不是裁决前提。
+  try {
+    const canonicalTargets = observed.slice(0, 50).map((item) => item.opportunityId);
+    for (const opportunityId of canonicalTargets) {
+      await canonicalizeOpportunity(opportunityId, { trySerpMerge: true });
+    }
+    if (canonicalTargets.length > 0) {
+      console.log(`[pipeline] canonicalized ${canonicalTargets.length} opportunities`);
+    }
+  } catch (error) {
+    console.error('[pipeline] canonicalization failed:', error);
+  }
+
   const prevCkpRes = await query<{ final_row_hash: string; checkpoint_hash: string | null }>(
     `SELECT final_row_hash, checkpoint_hash FROM ledger_checkpoints WHERE obs_date < $1 ORDER BY obs_date DESC LIMIT 1`,
     [obsDate]
@@ -319,9 +337,10 @@ export async function runDailyPipeline(
             flags, explanation, features_hash, hash_version,
             d_band, m_band, w_band,
             prediction_spec,
-            prev_hash, row_hash
+            prev_hash, row_hash,
+            feature_version, rule_engine_version
           ) VALUES (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
           )`,
           [
             `vdt_${row.opportunityId}_${obsDate.replace(/-/g, '')}`,
@@ -350,6 +369,10 @@ export async function runDailyPipeline(
             spec === null ? null : JSON.stringify(spec),
             row.prevHash,
             row.rowHash,
+            // 版本列是**哈希之外的元数据**：参与 row_hash 会改写全部历史行，
+            // 把账本变成“每次加字段就整体失效”。它们只用于回答“哪一版算的”。
+            FEATURE_VERSION,
+            RULE_ENGINE_VERSION,
           ]
         );
 

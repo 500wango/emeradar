@@ -24,6 +24,18 @@ export const EXTRACTOR_VERSIONS = {
 
 export type ExtractorVersionKey = keyof typeof EXTRACTOR_VERSIONS;
 
+/**
+ * 特征快照版本（写入 `opportunity_snapshots.metrics` 的那一组派生数值）。
+ * 阈值变了、指标定义变了都要升版本：同一列 `history_days` 在不同版本下不是同一个量。
+ */
+export const FEATURE_VERSION = 'features-1.0.0';
+
+/**
+ * 规则引擎版本（flags / 分档 / 去抖规则）。与 `scoring_config_version` 分开：
+ * 后者是配置数值，前者是判定逻辑本身。
+ */
+export const RULE_ENGINE_VERSION = 'rules-1.0.0';
+
 /** 按 `evidence.source_type` 推导提取器版本；未知类型返回 null，不猜。 */
 export function extractorVersionForSourceType(sourceType: string): string | null {
   switch (sourceType) {

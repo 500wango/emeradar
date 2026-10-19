@@ -33,6 +33,7 @@ import { computeCrowding, storeCrowding } from '../crowding.service';
 import { runCollector } from '../collector-run.service';
 import { storeRawPayload } from '../raw-payload.service';
 import { extractorVersionForSourceType } from '../evidence-version';
+import { storeHtmlDerivative } from '../html-derivative.service';
 import { recordRejections, rejectionsFromFlags, type RejectionInput } from '../rejection.service';
 import { decideSerpSampling, THINNED_INTERVAL_DAYS } from '../sampling-policy.service';
 import {
@@ -1001,6 +1002,16 @@ async function crawlCommercialDomains(
           requestParams: { domain, url: targetUrl },
         });
         crawlRawPayloadId = stored?.id ?? null;
+        // 派生清洗只服务热查询，**不替代原始字节**：解析规则一改，被剪掉的部分
+        // 可能正是下一版需要的。失败也不影响采集。
+        if (crawlRawPayloadId && outcome.raw.mimeType.includes('html')) {
+          await storeHtmlDerivative(crawlRawPayloadId, outcome.raw.content).catch((error) =>
+            console.warn(
+              `[pipeline:collector] derivative failed for ${domain}:`,
+              error instanceof Error ? error.message : error
+            )
+          );
+        }
       } catch (error) {
         console.warn(
           `[pipeline:collector] raw payload archive failed for ${domain}:`,
