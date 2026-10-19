@@ -196,6 +196,43 @@ export class AdminPipelineService {
         LIMIT 20`
     ).catch(() => ({ rows: [] as any[] }));
 
+    // 4b2. Commercial pricing capture health (7d)
+    const commercialRes = await query<{
+      total_7d: number;
+      ok_7d: number;
+      failed_7d: number;
+      blocked_404: number;
+      robots_disallowed: number;
+      budget_skipped: number;
+      priced: number;
+      infra_present: number;
+    }>(
+      `SELECT COUNT(*)::int AS total_7d,
+              COUNT(*) FILTER (WHERE cs.fetch_status = 'OK')::int AS ok_7d,
+              COUNT(*) FILTER (WHERE cs.fetch_status = 'FAILED')::int AS failed_7d,
+              COUNT(*) FILTER (WHERE cs.fetch_status = 'BLOCKED_404')::int AS blocked_404,
+              COUNT(*) FILTER (WHERE cs.fetch_status = 'ROBOTS_DISALLOWED')::int AS robots_disallowed,
+              COUNT(*) FILTER (WHERE cs.fetch_status = 'BUDGET_SKIPPED')::int AS budget_skipped,
+              COUNT(*) FILTER (WHERE cs.commercial_stage = 'PRICED')::int AS priced,
+              COUNT(*) FILTER (WHERE cs.commercial_stage = 'INFRA_PRESENT')::int AS infra_present
+         FROM commercial_snapshots cs
+        WHERE cs.obs_date > CURRENT_DATE - 7`
+    );
+    const commercialFailuresRes = await query<{
+      domain: string;
+      fetch_status: string;
+      obs_date: string;
+      fetch_tier: string;
+    }>(
+      `SELECT ct.domain, cs.fetch_status, cs.obs_date::text, cs.fetch_tier
+         FROM commercial_snapshots cs
+         JOIN commercial_targets ct ON ct.id = cs.commercial_target_id
+        WHERE cs.obs_date > CURRENT_DATE - 7
+          AND cs.fetch_status <> 'OK'
+        ORDER BY cs.obs_date DESC, ct.domain
+        LIMIT 12`
+    );
+
     // 4c. Tavily source status (discovery only; not W-axis)
     const tavilySourceRes = await query<{
       is_active: boolean;
@@ -298,6 +335,22 @@ export class AdminPipelineService {
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
       })),
+      commercial: {
+        total7d: commercialRes.rows[0]?.total_7d ?? 0,
+        ok7d: commercialRes.rows[0]?.ok_7d ?? 0,
+        failed7d: commercialRes.rows[0]?.failed_7d ?? 0,
+        blocked404: commercialRes.rows[0]?.blocked_404 ?? 0,
+        robotsDisallowed: commercialRes.rows[0]?.robots_disallowed ?? 0,
+        budgetSkipped: commercialRes.rows[0]?.budget_skipped ?? 0,
+        priced: commercialRes.rows[0]?.priced ?? 0,
+        infraPresent: commercialRes.rows[0]?.infra_present ?? 0,
+        recentFailures: commercialFailuresRes.rows.map((r) => ({
+          domain: r.domain,
+          fetchStatus: r.fetch_status,
+          obsDate: r.obs_date,
+          fetchTier: r.fetch_tier,
+        })),
+      },
       tavily: {
         configured: Boolean(tavilySource),
         active: Boolean(tavilySource?.is_active),

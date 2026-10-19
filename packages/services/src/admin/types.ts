@@ -97,6 +97,22 @@ export interface AdminPipelineOverview {
     finishedAt: string | null;
     errorMessage: string | null;
   }>;
+  commercial: {
+    total7d: number;
+    ok7d: number;
+    failed7d: number;
+    blocked404: number;
+    robotsDisallowed: number;
+    budgetSkipped: number;
+    priced: number;
+    infraPresent: number;
+    recentFailures: Array<{
+      domain: string;
+      fetchStatus: string;
+      obsDate: string;
+      fetchTier: string;
+    }>;
+  };
   tavily: {
     configured: boolean;
     active: boolean;

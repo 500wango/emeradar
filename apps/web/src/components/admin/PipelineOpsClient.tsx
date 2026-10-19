@@ -273,6 +273,65 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
         </p>
       </Panel>
 
+      {/* Commercial pricing capture health */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <Layers className="h-4 w-4 text-warn" />
+              <span>价格采集状态（7 天）</span>
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              这里能直接看出 M 轴为什么缺证据：页面 404、robots、超时，还是抓到了但没价格。
+            </p>
+          </div>
+          <Badge tone={overview.commercial.total7d > 0 ? 'info' : 'neutral'}>
+            {overview.commercial.total7d} 个快照
+          </Badge>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+          <Stat value={overview.commercial.ok7d} unit="个" label="抓取成功" tone="signal" />
+          <Stat value={overview.commercial.failed7d} unit="个" label="失败" tone="warn" />
+          <Stat value={overview.commercial.blocked404} unit="个" label="404" tone="warn" />
+          <Stat value={overview.commercial.robotsDisallowed} unit="个" label="robots 拒绝" />
+          <Stat value={overview.commercial.priced} unit="个" label="抓到价格" tone="accent" />
+        </div>
+
+        {overview.commercial.total7d === 0 ? (
+          <p className="mt-4 text-xs text-fg-subtle">最近 7 天没有商业快照；可能 pipeline 还没跑到候选。</p>
+        ) : overview.commercial.recentFailures.length === 0 ? (
+          <p className="mt-4 text-xs text-signal">最近 7 天没有失败目标。</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">DOMAIN</th>
+                  <th className="pb-3 font-semibold">STATUS</th>
+                  <th className="pb-3 font-semibold">TIER</th>
+                  <th className="pb-3 font-semibold">DATE</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line font-mono">
+                {overview.commercial.recentFailures.map((row) => (
+                  <tr key={`${row.domain}-${row.obsDate}`}>
+                    <td className="py-2.5 text-fg">{row.domain}</td>
+                    <td className="py-2.5">
+                      <Badge tone={row.fetchStatus === 'BLOCKED_404' ? 'warn' : 'danger'}>
+                        {row.fetchStatus}
+                      </Badge>
+                    </td>
+                    <td className="py-2.5 text-fg-subtle">{row.fetchTier}</td>
+                    <td className="py-2.5 text-fg-subtle">{row.obsDate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
       {/* Tavily discovery source status */}
       <Panel tone="raised" className="p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">

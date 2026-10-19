@@ -60,7 +60,7 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
   private async fetchPublicHtml(url: string, maxRedirects = 3): Promise<string> {
     const parsed = await this.assertPublicUrl(url);
-    const res = await fetch(parsed, { redirect: 'manual', headers: { 'User-Agent': 'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)', Accept: 'text/html,application/xhtml+xml' }, signal: AbortSignal.timeout(4000) });
+    const res = await fetch(parsed, { redirect: 'manual', headers: { 'User-Agent': 'EmeradarBot/1.0 (+https://emeradar.com/bot; compliance@emeradar.com)', Accept: 'text/html,application/xhtml+xml' }, signal: AbortSignal.timeout(10_000) });
     if (res.status >= 300 && res.status < 400) {
       if (maxRedirects === 0) throw new Error('Too many redirects');
       const location = res.headers.get('location');
@@ -312,13 +312,22 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       lower.includes('id="root"') ||
       lower.includes('id="__next"') ||
       lower.includes('id="app"') ||
-      lower.includes('data-reactroot');
+      lower.includes('data-reactroot') ||
+      lower.includes('id="__nuxt"') ||
+      lower.includes('ng-version') ||
+      lower.includes('__sveltekit') ||
+      lower.includes('astro-island') ||
+      lower.includes('vite/client');
     const hasStripeScript =
       lower.includes('stripe-pricing-table') ||
       lower.includes('js.stripe.com') ||
       lower.includes('paddle.js');
 
-    return hasSpaRoot || hasStripeScript;
+    if (hasSpaRoot || hasStripeScript) return true;
+    // 没有典型 SPA 根节点、但脚本多且可见文字很少：大概率是前端渲染。
+    const scriptCount = (lower.match(/<script\b/g) || []).length;
+    const visibleText = lower.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return scriptCount >= 4 && visibleText.length < 800;
   }
 
   private async renderHeadless(url: string): Promise<string | null> {
@@ -371,6 +380,27 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
     const aisaKey = process.env.AISA_API_KEY;
     if (aisaKey) {
+      // Firecrawl 抓取会渲染页面，适合 SPA/动态定价页；比 Tavily extract 更接近
+      // 浏览器里的文字。失败再回退 Tavily extract。
+      try {
+        const res = await fetch('https://api.aisa.one/apis/v1/firecrawl/scrape', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${aisaKey}`,
+          },
+          body: JSON.stringify({ url, proxy: 'basic', formats: ['markdown'] }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const markdown = data?.data?.markdown;
+          if (typeof markdown === 'string' && markdown.length > 50) return markdown;
+        }
+      } catch {
+        // Fall through to Tavily extract
+      }
+
       try {
         const endpoint = 'https://api.aisa.one/apis/v1/tavily/extract';
         const res = await fetch(endpoint, {
@@ -399,32 +429,121 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
 
   extractPricingPlans(html: string): PricingPlan[] {
     const plans: PricingPlan[] = [];
-    const lower = html.toLowerCase();
+    const seen = new Set<string>();
+    const add = (plan: PricingPlan) => {
+      const key = `${plan.name}|${plan.priceMonthly ?? ''}|${plan.priceYearly ?? ''}|${plan.currency}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      plans.push(plan);
+    };
 
-    // Standard pattern matching for plan names and prices
-    const planNames = ['Starter', 'Hobby', 'Basic', 'Pro', 'Growth', 'Business', 'Team', 'Enterprise'];
-    const priceRegex = /(?:(\$|€|£)\s*(\d+(?:\.\d{2})?)\s*(?:\/|\s*per\s*)?(mo|month|yr|year)?)/gi;
+    const decoded = html
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#36;|&dollar;/gi, '$')
+      .replace(/&#8364;|&euro;/gi, '€')
+      .replace(/&#163;|&pound;/gi, '£')
+      .replace(/&amp;/gi, '&');
+
+    // 1) JSON-LD Product/Offer：很多现代站点只在这里写价格。
+    for (const match of decoded.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+      try {
+        const data = JSON.parse(match[1]);
+        const visit = (node: any) => {
+          if (!node || typeof node !== 'object') return;
+          if (Array.isArray(node)) {
+            node.forEach(visit);
+            return;
+          }
+          const type = String(node['@type'] ?? '').toLowerCase();
+          const offer = node.price ?? node.priceSpecification?.price;
+          if (offer !== undefined && (type.includes('offer') || type.includes('product') || type.includes('service') || node.priceCurrency)) {
+            const price = Number(String(offer).replace(/[^0-9.]/g, ''));
+            if (Number.isFinite(price) && price > 0) {
+              const currency = String(node.priceCurrency ?? node.priceSpecification?.priceCurrency ?? 'USD').toUpperCase();
+              const name = String(node.itemOffered?.name ?? node.name ?? 'Listed plan').slice(0, 80);
+              const period = String(node.priceSpecification?.billingDuration ?? node.billingPeriod ?? '').toLowerCase();
+              const yearly = period.includes('year') || period.includes('annual') || period.includes('p1y');
+              add({
+                name,
+                currency: currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency,
+                priceMonthly: yearly ? Math.round(price / 12) : price,
+                priceYearly: yearly ? price : price * 10,
+                billingPeriod: yearly ? 'yearly' : 'monthly',
+              });
+            }
+          }
+          Object.values(node).forEach(visit);
+        };
+        visit(data);
+      } catch {
+        // 坏 JSON-LD 不影响后续 HTML 解析
+      }
+    }
+
+    // 2) Meta price（部分独立站只暴露 product/og price）
+    for (const match of decoded.matchAll(/<meta[^>]+(?:property|name)=["'](?:product:price:amount|og:price:amount)["'][^>]+content=["']([^"']+)["']/gi)) {
+      const price = Number(match[1].replace(/[^0-9.]/g, ''));
+      if (Number.isFinite(price) && price > 0) {
+        add({ name: 'Listed plan', currency: '$', priceMonthly: price, priceYearly: price * 10, billingPeriod: 'monthly' });
+      }
+    }
+
+    // 3) 可见文本：计划名附近找价格；不再要求必须在固定的 8 个名字里。
+    const visible = decoded
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const lower = visible.toLowerCase();
+
+    const planNames = [
+      'Free', 'Starter', 'Hobby', 'Basic', 'Solo', 'Pro', 'Professional', 'Growth',
+      'Business', 'Team', 'Scale', 'Plus', 'Premium', 'Enterprise', 'Agency',
+    ];
+
+    const readPrice = (windowText: string): { price: number; currency: string; period: string } | null => {
+      const pricePattern = /(?:US)?\$\s*(\d{1,5}(?:[.,]\d{1,2})?)|€\s*(\d{1,5}(?:[.,]\d{1,2})?)|£\s*(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:USD|EUR|GBP|\$|€|£)/i;
+      const match = pricePattern.exec(windowText);
+      if (!match) return null;
+      const currency = match[1] || (match[2] ? '€' : match[3] ? '£' : '$');
+      const raw = match[1] || match[2] || match[3] || match[4];
+      const price = Number(raw.replace(',', '.'));
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const after = windowText.slice(match.index, match.index + 80);
+      const periodMatch = /(\/\s*(?:mo|month)|per\s+month|monthly|\/\s*(?:yr|year)|per\s+year|annual|yearly)/i.exec(after);
+      const period = periodMatch ? (/yr|year|annual/i.test(periodMatch[0]) ? 'yearly' : 'monthly') : 'unknown';
+      return { price, currency, period };
+    };
 
     for (const name of planNames) {
-      const idx = lower.indexOf(name.toLowerCase());
-      if (idx !== -1) {
-        // Look within 300 characters around plan name
-        const snippet = html.slice(Math.max(0, idx - 50), Math.min(html.length, idx + 250));
-        priceRegex.lastIndex = 0;
-        const match = priceRegex.exec(snippet);
-        if (match) {
-          const currency = match[1] ?? '$';
-          const price = parseFloat(match[2]);
-          const period = match[3]?.toLowerCase();
+      const re = new RegExp(`\\b${name.toLowerCase()}\\b`, 'gi');
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(lower)) !== null) {
+        const windowText = lower.slice(match.index, match.index + 260);
+        const price = readPrice(windowText);
+        if (!price) continue;
+        add({
+          name,
+          currency: price.currency,
+          priceMonthly: price.period === 'yearly' ? Math.round(price.price / 12) : price.price,
+          priceYearly: price.period === 'yearly' ? price.price : price.price * 10,
+          billingPeriod: price.period === 'unknown' ? 'unknown' : price.period === 'yearly' ? 'yearly' : 'monthly',
+        });
+      }
+    }
 
-          plans.push({
-            name,
-            currency,
-            priceMonthly: period && period.startsWith('y') ? Math.round(price / 12) : price,
-            priceYearly: period && period.startsWith('y') ? price : price * 10,
-            billingPeriod: !period ? 'unknown' : period.startsWith('y') ? 'yearly' : 'monthly',
-          });
-        }
+    // 4) 没有可识别计划名，但页面有明确“pricing/per month”价格：至少保留一条可观察价格。
+    if (plans.length === 0 && /pricing|per month|\/mo|monthly/i.test(visible)) {
+      const price = readPrice(lower);
+      if (price) {
+        add({
+          name: 'Listed plan',
+          currency: price.currency,
+          priceMonthly: price.period === 'yearly' ? Math.round(price.price / 12) : price.price,
+          priceYearly: price.period === 'yearly' ? price.price : price.price * 10,
+          billingPeriod: price.period === 'unknown' ? 'unknown' : price.period === 'yearly' ? 'yearly' : 'monthly',
+        });
       }
     }
 

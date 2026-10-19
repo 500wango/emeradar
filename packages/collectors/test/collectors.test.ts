@@ -421,6 +421,28 @@ describe('CrawlCollector', () => {
     assert.deepEqual(gateways, ['Stripe']);
   });
 
+  it('should parse JSON-LD and price-without-plan-name pricing pages', () => {
+    const jsonLd = `
+      <html><body>
+        <script type="application/ld+json">
+          {"@context":"https://schema.org","@type":"Product","name":"Acme Pro",
+           "offers":{"@type":"Offer","price":"29","priceCurrency":"USD"}}
+        </script>
+        <p>Simple pricing.</p>
+      </body></html>`;
+    const present = collector.extractPricingPlans(jsonLd);
+    assert.ok(present.some((plan) => plan.priceMonthly === 29), 'JSON-LD Offer 没被解析');
+
+    const priceOnly = `<html><body><p>Simple pricing, starting at $15 per month.</p></body></html>`;
+    const generic = collector.extractPricingPlans(priceOnly);
+    assert.ok(generic.some((plan) => plan.priceMonthly === 15), '无计划名价格没被解析');
+
+    const suffix = `<div><h2>Starter</h2><span>19 USD per month</span></div>`;
+    const plans = collector.extractPricingPlans(suffix);
+    assert.strictEqual(plans[0]?.name, 'Starter');
+    assert.strictEqual(plans[0]?.priceMonthly, 19);
+  });
+
   it('should collect commercial data and classify PRICED stage', async () => {
     const ctx = createMockContext();
     const outcome = await collector.collect(ctx, {
