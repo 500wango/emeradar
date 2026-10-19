@@ -44,7 +44,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
   const [selectedArchetype, setSelectedArchetype] = useState<string>(activeFilters.archetype || 'ALL');
   const [selectedClass, setSelectedClass] = useState<string>(activeFilters.executionClass || 'ALL');
   const [searchQuery, setSearchQuery] = useState<string>(activeFilters.search || '');
-  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   useEffect(() => {
     setSelectedVerdict(activeFilters.verdict || 'ALL');
@@ -74,11 +73,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
     navigate({ verdict: undefined, archetype: undefined, execution_class: undefined, search: undefined, offset: undefined });
   };
 
-  function toggleCompare(opportunityId: string) {
-    setCompareIds((current) => current.includes(opportunityId)
-      ? current.filter((id) => id !== opportunityId)
-      : current.length < 3 ? [...current, opportunityId] : current);
-  }
 
   const getArchetypeLabel = (arch: string) => {
     const key = `common.archetypes.${arch}`;
@@ -259,17 +253,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
                     </div>
                   </div>
 
-                  <label className="mb-3 inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-fg-muted">
-                    <input
-                      type="checkbox"
-                      checked={compareIds.includes(opp.opportunityId)}
-                      disabled={!compareIds.includes(opp.opportunityId) && compareIds.length >= 3}
-                      onChange={() => toggleCompare(opp.opportunityId)}
-                      className="h-4 w-4 rounded-sm border-line-control accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    />
-                    {t('feed.addToCompare')}
-                  </label>
-
                   {/* Title & Primary Query */}
                   <Link
                     href={`/opportunities/${opp.slug}`}
@@ -408,24 +391,6 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
         </nav>
       )}
 
-      {compareIds.length > 0 && (
-        <div className="sticky bottom-4 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-accent/40 bg-surface/95 px-4 py-3 backdrop-blur">
-          <span className="text-xs font-semibold text-fg">
-            {t('feed.compareSelectedCount', { count: compareIds.length })}
-          </span>
-          {compareIds.length >= 2 ? (
-            <Link
-              href={`/compare?ids=${encodeURIComponent(compareIds.join(','))}`}
-              className={buttonVariants({ size: 'sm' })}
-            >
-              {t('feed.compareStart')}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          ) : (
-            <span className="text-xs text-fg-muted">{t('feed.compareNeedMore')}</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

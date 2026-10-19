@@ -17,8 +17,6 @@ import { query } from '@emeradar/db';
 import { formatScoringFlag, deriveBasisState } from '@emeradar/report';
 import { EvidenceInteractiveList } from '@/components/EvidenceInteractiveList';
 import { CommercialProofPanel } from '@/components/CommercialProofPanel';
-import { GoogleTrendsPanel } from '@/components/GoogleTrendsPanel';
-import { UserPainPointsPanel } from '@/components/UserPainPointsPanel';
 import { DecisionBar } from '@/components/DecisionBar';
 import { OpportunityFeedback } from '@/components/OpportunityFeedback';
 import { getServerI18n } from '@/lib/i18n/server';
@@ -28,7 +26,6 @@ import { PageFrame } from '@/components/ui/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 import { Badge, VerdictBadge, AxisBadge, type Verdict } from '@/components/ui/Badge';
 import { buttonVariants } from '@/components/ui/Button';
-import { cn } from '@/lib/cn';
 
 interface OpportunityWorkspacePageProps {
   params: Promise<{ slug: string }>;
@@ -151,16 +148,7 @@ export default async function OpportunityWorkspacePage({
       ? 'info'
       : 'warn';
 
-  const progressSteps: Array<[string, boolean]> = [
-    [t('opportunityWorkspace.progressSignal'), true],
-    [t('opportunityWorkspace.progressCandidate'), true],
-    [t('opportunityWorkspace.progressObservation'), opportunity.status === 'TRACKED'],
-    [t('opportunityWorkspace.progressGate'), opportunity.status === 'TRACKED'],
-    [
-      t('opportunityWorkspace.progressPrediction'),
-      opportunity.status === 'TRACKED' && Boolean(latestVerdict),
-    ],
-  ];
+
 
   const weakCount = serpResults.filter((r: any) => r.is_weak).length;
 
@@ -424,34 +412,11 @@ export default async function OpportunityWorkspacePage({
           </div>
         )}
 
-        <div className="mt-6 pt-5 border-t border-line">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="text-sm font-bold text-fg">{t('opportunityWorkspace.decisionProgress')}</h2>
-            <span className="text-[11px] text-fg-subtle">
-              {opportunity.status === 'TRACKED'
-                ? t('opportunityWorkspace.publishedRecord')
-                : t('opportunityWorkspace.stillObserving')}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
-            {progressSteps.map(([stepLabel, done], index) => (
-              <div
-                key={String(stepLabel)}
-                className={cn(
-                  'rounded-sm border px-3 py-2',
-                  done
-                    ? 'border-accent/40 bg-accent/10 text-accent'
-                    : 'border-line bg-surface-2 text-fg-muted'
-                )}
-              >
-                <span className="font-mono font-bold">{index + 1}</span> {stepLabel}
-              </div>
-            ))}
-          </div>
-          {opportunity.status !== 'TRACKED' && (
-            <p className="mt-3 text-xs text-fg-subtle">{t('opportunityWorkspace.candidateNote')}</p>
-          )}
-        </div>
+        {opportunity.status !== 'TRACKED' && (
+          <p className="mt-4 border-t border-line pt-4 text-xs text-fg-subtle">
+            {t('opportunityWorkspace.candidateNote')}
+          </p>
+        )}
       </Panel>
 
       {/* Decision Workspace Content Sections */}
@@ -469,22 +434,6 @@ export default async function OpportunityWorkspacePage({
               {t('opportunityWorkspace.earlyBetWarning')}
             </p>
           )}
-
-          {/* Section 1: Google Trends Demand & Trajectory */}
-          <GoogleTrendsPanel
-            query={opportunity.primary_query}
-            marketCountry={opportunity.market_country}
-            clusterQueries={queries}
-          />
-
-          {/* Section 2: Real User Needs & Frustration Analysis */}
-          <UserPainPointsPanel
-            primaryQuery={opportunity.primary_query}
-            recommendedArchetype={opportunity.recommended_archetype}
-            executionClass={opportunity.execution_class}
-            topIdea={opportunity.top_idea}
-            serpResults={serpResults}
-          />
 
           {/* Section 3: Why Now & Top Concept */}
           <Panel className="p-6">
@@ -604,6 +553,16 @@ export default async function OpportunityWorkspacePage({
             </div>
           </Panel>
 
+          {/* 证据与商业证明折叠：它们是「依据」，不是正文。
+              用户先看结论；需要核对时再展开。 */}
+          <details className="group rounded-sm border border-line bg-surface-2">
+            <summary className="cursor-pointer select-none px-5 py-4 text-xs font-semibold text-fg-muted hover:text-fg">
+              {t('opportunityWorkspace.evidenceChainTitle')}
+              <span className="ml-2 font-mono text-[11px] text-fg-subtle">
+                {t('opportunityWorkspace.evidenceCount', { count: evidence.length })}
+              </span>
+            </summary>
+            <div className="space-y-4 border-t border-line p-5">
           {/* Section 6: Commercial Signal Proof Boundary (docs/16 §3.3-5) */}
           <CommercialProofPanel
             stage={commercialProof?.stage || 'NONE'}
@@ -632,6 +591,8 @@ export default async function OpportunityWorkspacePage({
 
             <EvidenceInteractiveList evidence={evidence} />
           </Panel>
+            </div>
+          </details>
         </div>
 
         {/* Right Column (1 Col): Rules, Blueprint & Evidence */}

@@ -7,11 +7,8 @@ import { buttonVariants } from '@/components/ui/Button';
 import { Panel } from '@/components/ui/Panel';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Stat } from '@/components/ui/Stat';
-import { AxisBands } from '@/components/observatory/AxisBands';
-import { ReportSkeleton } from '@/components/observatory/ReportSkeleton';
 import { SignalCard } from '@/components/observatory/SignalCard';
 import { TelemetryPanel } from '@/components/observatory/TelemetryPanel';
-import { Ticker } from '@/components/observatory/Ticker';
 
 /** docs/16 §3.1a caps the homepage at two published BUILD NOW cards. */
 const MAX_BUILD_NOW = 2;
@@ -111,15 +108,6 @@ export default async function HomePage() {
     { title: t('home.principle3Title'), desc: t('home.principle3Desc') },
   ];
 
-  // The strip echoes the same records the board shows — query plus the three
-  // band readings, all read from the opportunity table.
-  const tickerItems = telemetry.cards.slice(0, 8).map((card) => (
-    <>
-      <span className="text-fg-muted">{`\`${card.primaryQuery}\``}</span>
-      {` D ${card.dBand} · M ${card.mBand} · W ${card.wBand}`}
-    </>
-  ));
-
   return (
     <div>
       {/* 1 ── Hero: claim on the left, live ledger readings on the right */}
@@ -216,7 +204,6 @@ export default async function HomePage() {
       </section>
 
       {/* 2 ── Live strip (only when there is something to scroll) */}
-      {telemetry.cards.length >= 3 && <Ticker items={tickerItems} />}
 
       {/* 3 ── Method constants, as a hairline instrument strip */}
       <section className="border-b border-line">
@@ -331,11 +318,6 @@ export default async function HomePage() {
               ))}
             </div>
           </div>
-
-          <AxisBands
-            gates={{ d: t('home.axesGateD'), m: t('home.axesGateM'), w: t('home.axesGateW') }}
-            note={t('home.axesNote')}
-          />
         </div>
       </section>
 
@@ -368,7 +350,6 @@ export default async function HomePage() {
             </Link>
           </div>
 
-          <ReportSkeleton caption={t('home.reportPreviewCaption')} />
         </div>
       </section>
 

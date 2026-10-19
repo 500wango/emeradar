@@ -58,7 +58,6 @@ export const PRIVATE_PATH_PREFIXES = [
   '/admin',
   '/alerts',
   '/billing',
-  '/compare',
   '/feed',
   '/scan',
   '/forgot-password',

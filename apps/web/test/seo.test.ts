@@ -22,7 +22,7 @@ import {
 } from '../src/lib/seo/site';
 
 test('私有路径用响应头声明 noindex，公开页不声明', () => {
-  for (const path of ['/feed', '/alerts', '/projects/abc', '/settings', '/login', '/register', '/admin/users', '/opportunities/some-slug', '/billing', '/compare']) {
+  for (const path of ['/feed', '/alerts', '/projects/abc', '/settings', '/login', '/register', '/admin/users', '/opportunities/some-slug', '/billing']) {
     const response = middleware(new NextRequest(`https://emeradar.com${path}`));
     assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow', `${path} 应当是 noindex`);
   }

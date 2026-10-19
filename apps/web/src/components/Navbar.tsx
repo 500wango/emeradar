@@ -17,7 +17,6 @@ import {
   Radio,
   Search,
   Users,
-  Inbox,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth-context';
@@ -154,13 +153,6 @@ export function Navbar() {
                   >
                     <Radar className={navIcon} />
                     {t('nav.opportunities')}
-                  </Link>
-                  <Link
-                    href="/inbox"
-                    className={cn(navItem, pathname === '/inbox' ? navActive : navIdle)}
-                  >
-                    <Inbox className={navIcon} />
-                    {t('nav.inbox')}
                   </Link>
                   <Link
                     href="/scan"
@@ -327,13 +319,6 @@ export function Navbar() {
                           >
                             <Settings className="h-4 w-4 text-fg-subtle" />
                             <span>{t('nav.accountSettings')}</span>
-                          </Link>
-                          <Link
-                            href="/inbox"
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
-                          >
-                            <Inbox className="h-4 w-4 text-fg-subtle" />
-                            <span>{t('nav.inbox')}</span>
                           </Link>
                           <Link
                             href="/scan"
