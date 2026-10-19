@@ -260,6 +260,16 @@ export class AIsaSearchDiscoverySource implements DiscoverySource {
  * 响应：`{ results: [{ title, url, content, score, published_date? }] }`。
  * 免费额度 1,000 credits/月；basic search 每次 1 credit。
  */
+/**
+ * 没有显式查询时的 3 个最小种子；只用于让 Tavily 在配好 key 后真的开始工作，
+ * 而不是永远停在“已接入但没运行”。数量刻意压到 3 次/天。
+ */
+export const DEFAULT_TAVILY_QUERIES = [
+  'indie saas pricing',
+  'micro saas launch',
+  'solo founder tool',
+];
+
 export class TavilyDiscoverySource implements DiscoverySource {
   readonly sourceId = 'src_tavily';
   readonly provider = 'TAVILY';
@@ -267,19 +277,25 @@ export class TavilyDiscoverySource implements DiscoverySource {
   constructor(
     private readonly queries: string[],
     private readonly apiKey = process.env.TAVILY_API_KEY,
-    private readonly endpoint = 'https://api.tavily.com/search',
+    private readonly aisaKey = process.env.AISA_API_KEY,
     private readonly maxResults = 10
   ) {}
 
   async discover(): Promise<DiscoveryResult | DiscoveryFailure> {
-    if (!this.apiKey) {
+    const direct = Boolean(this.apiKey);
+    const viaAisa = !direct && Boolean(this.aisaKey);
+    if (!direct && !viaAisa) {
       return {
         status: 'FAILED',
         retryable: false,
         errorCode: 'TAVILY_NOT_CONFIGURED',
-        message: 'TAVILY_API_KEY is required.',
+        message: 'TAVILY_API_KEY or AISA_API_KEY is required.',
       };
     }
+    const endpoint = direct
+      ? 'https://api.tavily.com/search'
+      : 'https://api.aisa.one/apis/v1/tavily/search';
+    const token = direct ? this.apiKey : this.aisaKey;
     if (this.queries.length === 0) {
       return {
         status: 'FAILED',
@@ -293,6 +309,7 @@ export class TavilyDiscoverySource implements DiscoverySource {
     const seen = new Set<string>();
     const rawPayloads: unknown[] = [];
     let requests = 0;
+    let actualCostUsd = 0;
     const topic = process.env.TAVILY_TOPIC === 'news' ? 'news' : 'general';
     const timeRange = (process.env.TAVILY_TIME_RANGE || '').trim();
     const costPerRequestUsd = Number(process.env.TAVILY_COST_PER_REQUEST_USD ?? '0.008');
@@ -308,10 +325,10 @@ export class TavilyDiscoverySource implements DiscoverySource {
           include_raw_content: false,
         };
         if (timeRange) body.time_range = timeRange;
-        const response = await fetch(this.endpoint, {
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
@@ -321,6 +338,12 @@ export class TavilyDiscoverySource implements DiscoverySource {
           throw new Error(`Tavily returned ${response.status} for "${query}"`);
         }
         requests++;
+        const actualMicros = Number(response.headers.get('x-aisa-customer-cost-micros-usd'));
+        if (Number.isFinite(actualMicros) && actualMicros > 0) {
+          actualCostUsd += actualMicros / 1e6;
+        } else {
+          actualCostUsd += Number.isFinite(costPerRequestUsd) ? costPerRequestUsd : 0.008;
+        }
         const payload = (await response.json()) as any;
         rawPayloads.push(payload);
         const rows = payload?.results;
@@ -355,7 +378,7 @@ export class TavilyDiscoverySource implements DiscoverySource {
             publishedAt,
             collectedAt: new Date(),
             contentHash: sha256(canonical),
-            requestHash: requestHash(this.endpoint),
+            requestHash: requestHash(endpoint),
             metadata: {
               query,
               score: typeof row?.score === 'number' ? row.score : undefined,
@@ -379,7 +402,7 @@ export class TavilyDiscoverySource implements DiscoverySource {
       raw: { content: rawContent, contentHash: sha256(rawContent), mimeType: 'application/json' },
       cost: {
         sourceId: this.sourceId,
-        costUsd: Math.round(requests * (Number.isFinite(costPerRequestUsd) ? costPerRequestUsd : 0.008) * 1e6) / 1e6,
+        costUsd: Math.round(actualCostUsd * 1e6) / 1e6,
         category: 'INFRA',
         units: requests,
       },

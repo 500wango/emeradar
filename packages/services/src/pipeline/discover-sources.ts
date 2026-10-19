@@ -2,6 +2,7 @@ import { query, transaction, getClient } from '@emeradar/db';
 import {
   AIsaSearchDiscoverySource,
   TavilyDiscoverySource,
+  DEFAULT_TAVILY_QUERIES,
   DiscoverySource,
   HackerNewsDiscoverySource,
   RssDiscoverySource,
@@ -22,12 +23,18 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
   }
 
   // Tavily 搜索：discovery，不是 SERP；必须配 key。查询未配置时回退 AISA_SEARCH_QUERIES。
-  const tavilyQueries = (process.env.TAVILY_QUERIES || process.env.AISA_SEARCH_QUERIES || '')
+  const configuredTavilyQueries = (process.env.TAVILY_QUERIES || process.env.AISA_SEARCH_QUERIES || '')
     .split(/[\r\n,]+/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (process.env.TAVILY_API_KEY && tavilyQueries.length > 0) {
-    sources.push(new TavilyDiscoverySource(tavilyQueries));
+  // 没有显式查询时也启用 3 个最小种子，前提是至少有一个可用凭证；否则这个源
+  // 永远只是“已接入但没运行”。
+  if (process.env.TAVILY_API_KEY || process.env.AISA_API_KEY) {
+    sources.push(
+      new TavilyDiscoverySource(
+        configuredTavilyQueries.length > 0 ? configuredTavilyQueries : DEFAULT_TAVILY_QUERIES
+      )
+    );
   }
 
   // 1. HackerNews Discovery Source

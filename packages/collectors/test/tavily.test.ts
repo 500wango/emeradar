@@ -16,6 +16,7 @@ describe('Tavily discovery 源', () => {
       auth = init.headers.Authorization;
       return {
         ok: true,
+        headers: { get: () => null },
         json: async () => ({
           results: [{
             title: 'Pricing teardown',
@@ -42,12 +43,26 @@ describe('Tavily discovery 源', () => {
     assert.ok(outcome.items[0].publishedAt);
   });
 
+  it('没有 direct key 时走 AIsa Tavily 代理', async () => {
+    let url = '';
+    let auth = '';
+    globalThis.fetch = (async (u: any, init: any) => {
+      url = String(u);
+      auth = init.headers.Authorization;
+      return { ok: true, headers: { get: () => null }, json: async () => ({ results: [] }) } as any;
+    }) as any;
+    const outcome = await new TavilyDiscoverySource(['q'], '', 'aisa_key').discover();
+    assert.strictEqual(outcome.status, 'OK');
+    assert.strictEqual(url, 'https://api.aisa.one/apis/v1/tavily/search');
+    assert.strictEqual(auth, 'Bearer aisa_key');
+  });
+
   it('HTTP 错误或缺少 results 返回 FAILED', async () => {
     globalThis.fetch = (async () => ({ ok: false, status: 401, json: async () => ({}) } as any)) as any;
     const source = new TavilyDiscoverySource(['q'], 'test_key');
     assert.strictEqual((await source.discover()).status, 'FAILED');
 
-    globalThis.fetch = (async () => ({ ok: true, json: async () => ({ answer: 'x' }) } as any)) as any;
+    globalThis.fetch = (async () => ({ ok: true, headers: { get: () => null }, json: async () => ({ answer: 'x' }) } as any)) as any;
     const schema = await source.discover();
     assert.strictEqual(schema.status, 'FAILED');
     if (schema.status === 'FAILED') assert.match(schema.message, /results/);
