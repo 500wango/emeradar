@@ -811,6 +811,12 @@ export async function observeOpportunity(
   };
 }
 
+/** Crawl 的 404/robots/budget 是目标站点问题，不算 src_crawl 供应商故障。 */
+function isCrawlTargetFailure(outcome: { status: string; message?: string }): boolean {
+  if (outcome.status !== 'FAILED') return false;
+  return /HTTP \d{3}|ROBOTS|BUDGET|BLOCKED/i.test(outcome.message ?? '');
+}
+
 async function crawlCommercialDomains(
   items: Array<{ domain: string; url: string }>,
   opportunityId: string,
@@ -836,13 +842,17 @@ async function crawlCommercialDomains(
     if (await hasFreshCommercialSnapshot(domain, obsDate, COMMERCIAL_STALENESS_DAYS)) continue;
 
     attempted += 1;
-    const outcome = await runCollector('src_crawl', `${opportunityId}:${domain}`, () =>
-      crawl.collect(ctx, {
-        targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
-        domain,
-        targetUrl,
-        opportunityId,
-      })
+    const outcome = await runCollector(
+      'src_crawl',
+      `${opportunityId}:${domain}`,
+      () =>
+        crawl.collect(ctx, {
+          targetId: `cmt_${domain.replace(/[^a-z0-9]/g, '_').slice(0, 40)}`,
+          domain,
+          targetUrl,
+          opportunityId,
+        }),
+      { countFailureAsSourceDown: (result) => !isCrawlTargetFailure(result) }
     );
 
     if (outcome.status !== 'OK') {

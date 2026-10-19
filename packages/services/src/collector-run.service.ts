@@ -29,6 +29,11 @@ export interface CollectorRunOptions {
   attempts?: number;
   /** 首次退避基数；测试传 0。 */
   retryBaseMs?: number;
+  /**
+   * 这次失败是否应算作“采集源故障”（参与熔断）。默认 true。
+   * Crawl 的 404/410/robots/budget 是目标站点问题，传 false。
+   */
+  countFailureAsSourceDown?: (outcome: CollectorOutcomeLike) => boolean;
 }
 
 const DEFAULT_ATTEMPTS = 3;
@@ -73,8 +78,8 @@ async function evaluateCircuit(sourceId: string, finalStatus: CollectorOutcomeLi
     if (finalStatus !== 'FAILED') return;
 
     const stats = await query<{ total: number; failed: number }>(
-      `SELECT COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed
+      `SELECT COUNT(*) FILTER (WHERE is_source_failure)::int AS total,
+              COUNT(*) FILTER (WHERE is_source_failure AND status = 'FAILED')::int AS failed
          FROM collector_runs
         WHERE source_id = $1
           AND started_at > NOW() - ($2 || ' minutes')::interval`,
@@ -232,11 +237,18 @@ export async function runCollector<T extends CollectorOutcomeLike>(
         ? `SKIPPED: ${final.reason ?? 'unknown'} (${itemKey})`
         : null;
 
+    const sourceFailure =
+      final.status === 'OK'
+        ? true
+        : final.status === 'SKIPPED'
+        ? false
+        : (options.countFailureAsSourceDown ? options.countFailureAsSourceDown(final) : true);
     await query(
       `UPDATE collector_runs
-          SET status = $2, items_collected = $3, error_message = $4, finished_at = NOW()
+          SET status = $2, items_collected = $3, error_message = $4,
+              is_source_failure = $5, finished_at = NOW()
         WHERE id = $1`,
-      [runId, status, items, error ? error.slice(0, 1000) : null]
+      [runId, status, items, error ? error.slice(0, 1000) : null, sourceFailure]
     );
     // 供原始载荷归档使用；不改变 collector 的 outcome 契约。
     (final as T & { collectorRunId?: string }).collectorRunId = runId;

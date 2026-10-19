@@ -48,6 +48,33 @@ describe('collector run：重试与熔断', () => {
     assert.strictEqual(run.rows[0].items_collected, 1);
   });
 
+  it('Crawl 的目标 404 不计入源故障，不应打开熔断', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { runCollector } = harness.services;
+    const outcome = await runCollector(
+      'src_crawl',
+      'opp:404.example',
+      async () => ({
+        status: 'FAILED' as const,
+        retryable: false,
+        errorCode: 'CRAWL_FETCH_ERROR',
+        message: 'HTTP 404 (opp:404.example)',
+      }),
+      { countFailureAsSourceDown: () => false }
+    );
+    assert.strictEqual(outcome.status, 'FAILED');
+
+    const run = await harness.db.query<{ is_source_failure: boolean }>(
+      `SELECT is_source_failure FROM collector_runs WHERE source_id='src_crawl' ORDER BY started_at DESC LIMIT 1`
+    );
+    assert.strictEqual(run.rows[0].is_source_failure, false);
+
+    const circuit = await harness.db.query<{ open_until: Date | null }>(
+      `SELECT open_until FROM source_circuit_breakers WHERE source_id='src_crawl'`
+    );
+    assert.strictEqual(circuit.rows[0]?.open_until ?? null, null);
+  });
+
   it('5 分钟窗口失败率 >50% 时打开熔断，后续调用不再触发采集', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { runCollector } = harness.services;
