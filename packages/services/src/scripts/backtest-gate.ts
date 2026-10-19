@@ -111,10 +111,37 @@ async function main() {
     );
   }
 
+  // 只写 DRAFT 提案，**绝不改线上配置**。人工批准后由人改代码、发版，再进 SHADOW。
+  const feasible = GRID.map((threshold) => evaluate(valid, threshold)).filter(
+    (m) => m.predictedPositive > 0 || valid.length === 0
+  );
+  const best = feasible.sort((a, b) => a.costUnits - b.costUnits)[0];
+  if (best) {
+    const current = Math.max(...GRID);
+    if (best.threshold !== current) {
+      await query(
+        `INSERT INTO scoring_config_proposals
+           (status, parameter, current_value, proposed_value, horizon_days, sample_size,
+            metrics, backtest_rule_version, rationale)
+         VALUES ('DRAFT','D_BASELINE_DAYS',$1,$2,$3,$4,$5,$6,$7)`,
+        [
+          String(current),
+          String(best.threshold),
+          horizon,
+          sorted.length,
+          JSON.stringify({ train: train.length, valid: valid.length, best }),
+          'backtest-v1',
+          `lowest costUnits (${best.costUnits.toFixed(2)}) among the preregistered grid on the validation split`,
+        ]
+      );
+      console.log('');
+      console.log('[backtest] DRAFT proposal recorded (NOT applied):');
+      console.log(`  D_BASELINE_DAYS ${current} -> ${best.threshold} (costUnits ${best.costUnits.toFixed(2)})`);
+    }
+  }
   console.log('');
-  console.log('[backtest] SHADOW proposal (NOT applied):');
-  console.log('  - pick the threshold with the lowest costUnits whose FN 95% upper bound is acceptable;');
-  console.log('  - write it to a DRAFT scoring config, run SHADOW for >=14 days, then get human approval.');
+  console.log('[backtest] next steps (all human):');
+  console.log('  - review the DRAFT proposal, set SHADOW, observe >=14 days, then approve or reject;');
   console.log('  - 300-500 T+90 samples across 5 thresholds will overfit; require a larger sample or fewer thresholds.');
 }
 

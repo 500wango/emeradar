@@ -95,6 +95,29 @@ describe('Phase 0 数据契约', () => {
     assert.strictEqual(summary[0].count, 1);
   });
 
+  it('回测提案只写 DRAFT，且线上配置不含自动应用路径', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+    await query(
+      `INSERT INTO scoring_config_proposals
+         (status, parameter, current_value, proposed_value, horizon_days, sample_size,
+          metrics, backtest_rule_version, rationale)
+       VALUES ('DRAFT','D_BASELINE_DAYS','30','9',60,420,'{}','backtest-v1','test')`
+    );
+    const rows = await query<{ status: string }>(
+      `SELECT status FROM scoring_config_proposals WHERE parameter = 'D_BASELINE_DAYS'`
+    );
+    assert.strictEqual(rows.rows[0].status, 'DRAFT');
+    // 约束层兜底：非法状态进不去。
+    await assert.rejects(() =>
+      query(
+        `INSERT INTO scoring_config_proposals
+           (status, parameter, proposed_value, sample_size, backtest_rule_version)
+         VALUES ('AUTO_APPLIED','x','1',1,'v')`
+      )
+    );
+  });
+
   it('flags 能映射成拒绝原因，未知 flag 不猜', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { rejectionsFromFlags } = harness.services;

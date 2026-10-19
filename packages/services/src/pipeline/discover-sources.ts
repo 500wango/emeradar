@@ -8,6 +8,7 @@ import {
   RssDiscoverySource,
   CostLedgerService,
 } from '@emeradar/collectors';
+import { storeRawPayload } from '../raw-payload.service';
 
 async function getDiscoverySources(): Promise<DiscoverySource[]> {
   const sources: DiscoverySource[] = [];
@@ -140,6 +141,7 @@ async function discoverSourcesInner(): Promise<{
   failed: number;
   recentItems: Array<{ title: string; provider: string; url: string }>;
 }> {
+  const obsDate = new Date().toISOString().slice(0, 10);
   const sources = await getDiscoverySources();
   let collected = 0;
   let inserted = 0;
@@ -157,6 +159,26 @@ async function discoverSourcesInner(): Promise<{
     const outcome = await source.discover();
     if (outcome.cost && outcome.cost.costUsd > 0) {
       await CostLedgerService.recordCost(outcome.cost);
+    }
+    // Phase 0：discovery 也归档原始载荷。没有它，“这条信号是从哪份响应里来的”
+    // 只能靠猜；有了它，过滤规则改了仍能重放并解释为什么当初收/不收。
+    if (outcome.status === 'OK' && outcome.raw) {
+      try {
+        await storeRawPayload({
+          collectorRunId: runId,
+          sourceId: source.sourceId,
+          provider: source.provider,
+          obsDate,
+          content: outcome.raw.content,
+          mimeType: outcome.raw.mimeType,
+          requestParams: { provider: source.provider },
+        });
+      } catch (error) {
+        console.warn(
+          `[discover] raw payload archive failed for ${source.provider}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
     }
     if (outcome.status === 'FAILED') {
       failed++;
