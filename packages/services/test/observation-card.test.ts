@@ -174,7 +174,8 @@ describe('观测卡', () => {
     assert.strictEqual(byDomain['rss.com'], 'HOSTING_SERVICE');
     assert.strictEqual(byDomain['quora.com'], 'UGC');
     assert.strictEqual(card.serp.dedicatedToolPages, 0);
-    assert.strictEqual(card.intent.intentFit, 'INFORMATIONAL');
+    // 没有工具页、也一次都没探测定价 → 只能说“证据不足”，不能说“信息型”。
+    assert.strictEqual(card.intent.intentFit, 'INSUFFICIENT');
     assert.strictEqual(card.serp.distinctDomains, 4);
   });
 

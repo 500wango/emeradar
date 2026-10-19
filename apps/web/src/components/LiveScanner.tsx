@@ -29,6 +29,20 @@ type RadarState =
  * 它**不是裁决**。界面必须把这句话写在最显眼的位置——否则用户会把“Top10 有 4 个弱页”
  * 读成“建议现在做”，而后者需要 14 天历史。
  */
+/** 页面种类的人类可读名。裸枚举（UNCLASSIFIED）对用户没有信息量。 */
+const PAGE_KIND_LABELS: Record<string, { zh: string; en: string; tone: 'neutral' | 'warn' | 'signal' | 'danger' }> = {
+  DEDICATED_TOOL: { zh: '专属工具页', en: 'tool page', tone: 'signal' },
+  GENERIC_PLATFORM: { zh: '泛平台页', en: 'platform page', tone: 'warn' },
+  HOSTING_SERVICE: { zh: '托管服务', en: 'hosting', tone: 'warn' },
+  DIRECTORY: { zh: '目录站', en: 'directory', tone: 'neutral' },
+  UGC: { zh: '社区帖', en: 'UGC', tone: 'warn' },
+  DOC: { zh: '文档', en: 'docs', tone: 'warn' },
+  CONTENT: { zh: '内容页', en: 'content', tone: 'neutral' },
+  VIDEO: { zh: '视频', en: 'video', tone: 'neutral' },
+  OFFICIAL_BRAND: { zh: '品牌官网', en: 'brand site', tone: 'neutral' },
+  UNCLASSIFIED: { zh: '未分类', en: 'unclassified', tone: 'neutral' },
+};
+
 /** 价格展示：货币符号与金额必须分开，金额缺失时明确显示 ?，不拼接。 */
 function formatPrice(plan: { currency?: string; priceMonthly?: number }): string {
   const symbol = typeof plan.currency === 'string' && plan.currency.length <= 3 ? plan.currency : '';
@@ -165,10 +179,22 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
                   >
                     {item.domain}
                   </a>
-                  <span className="ml-2 text-fg-subtle">{item.resultType}</span>
+                  {(() => {
+                    const kind = item.pageKind ?? 'UNCLASSIFIED';
+                    const label = PAGE_KIND_LABELS[kind] ?? PAGE_KIND_LABELS.UNCLASSIFIED;
+                    return (
+                      <Badge tone={label.tone} size="sm" className="ml-2">
+                        {isZh ? label.zh : label.en}
+                      </Badge>
+                    );
+                  })()}
                   {item.isWeak && (
                     <Badge tone="warn" size="sm" className="ml-2">
-                      {item.weaknessType ?? (isZh ? '弱页' : 'weak')}
+                      {item.weaknessType === 'FORUM_OR_QA'
+                        ? isZh ? '论坛/问答' : 'forum/QA'
+                        : item.weaknessType === 'GENERIC_PLATFORM'
+                        ? isZh ? '泛平台占位' : 'platform page'
+                        : item.weaknessType ?? (isZh ? '弱页' : 'weak')}
                     </Badge>
                   )}
                 </span>
@@ -192,10 +218,10 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
         </div>
 
         {pricing.domains.length === 0 ? (
-          <p className="mt-1 text-[11px] text-fg-subtle">
+          <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">
             {isZh
-              ? '这次没有可探查的竞品域名（SERP 缺失，或前排都是社区/平台页）。'
-              : 'No competitor domain was available to probe (SERP missing, or the Top 10 is all UGC/platform pages).'}
+              ? '还没有对前排站点做过定价探测。这会让意图判断停在“证据不足”——重新扫一次，或等每日管线抓过这些域名后可补上。'
+              : 'No competitor pricing has been probed yet, which keeps intent at “insufficient”. Re-scan, or wait for the daily crawl to cover these domains.'}
           </p>
         ) : (
           <ul className="mt-2 space-y-1.5">

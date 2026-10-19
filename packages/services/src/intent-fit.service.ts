@@ -34,6 +34,13 @@ export interface IntentSignals {
   pricedDomains: number;
   /** 探查失败的域名数——它们不代表“没人收费”。 */
   blockedDomains: number;
+  /**
+   * 实际探查过几个域名（成功+失败）。
+   *
+   * 这是判断“信息型”的前提：**没查过**和**查过但没人收费**是两件事。
+   * 前者只能说“不知道”，后者才是“这条 SERP 没有商业存在”。
+   */
+  probedDomains?: number;
   /** 供应商给的 main_intent（第三方估计，只作参考，不作判据）。 */
   vendorIntent?: string | null;
 }
@@ -67,6 +74,7 @@ export function evaluateIntentFit(input: IntentSignals): IntentDecision {
   const distinctDomains = input.pageKinds.length;
   const toolPageShare = distinctDomains > 0 ? dedicatedToolPages / distinctDomains : 0;
 
+  const probedDomains = input.probedDomains ?? input.pricedDomains + input.blockedDomains;
   const signals = {
     toolModifier,
     informationalModifier,
@@ -75,6 +83,7 @@ export function evaluateIntentFit(input: IntentSignals): IntentDecision {
     toolPageShare,
     pricedDomains: input.pricedDomains,
     blockedDomains: input.blockedDomains,
+    probedDomains,
     vendorIntent: input.vendorIntent ?? null,
   };
 
@@ -131,6 +140,20 @@ export function evaluateIntentFit(input: IntentSignals): IntentDecision {
     };
   }
 
+  // 4a. 一个都没探查过，也没有工具页：只知道 SERP 形态，不知道商业存在。
+  //     此时说“信息型”等于把“我们没查”包装成“市场没需求”。
+  if (probedDomains === 0 && dedicatedToolPages === 0) {
+    return {
+      intentFit: 'INSUFFICIENT',
+      score: 0.3,
+      signals,
+      reason:
+        'No dedicated tool page in the Top results and no competitor pricing was probed, ' +
+        'so commercial intent cannot be confirmed either way. Run another observation or wait for the daily crawl.',
+      ruleVersion: INTENT_RULE_VERSION,
+    };
+  }
+
   // 4. 有域名被拦截，且工具页不占主流：不知道被拦的是不是工具站，不猜。
   if (input.blockedDomains >= 2 && toolPageShare < 0.4) {
     return {
@@ -152,7 +175,8 @@ export function evaluateIntentFit(input: IntentSignals): IntentDecision {
       signals,
       reason:
         `${dedicatedToolPages} dedicated tool page(s) out of Top ${distinctDomains}; ` +
-        'the rest are UGC, content or generic platform pages. This looks like an informational query, not a product purchase.',
+        `the rest are UGC, content or generic platform pages, and ${probedDomains} probed domain(s) ` +
+        'showed no public paid tiers. This looks like an informational query, not a product purchase.',
       ruleVersion: INTENT_RULE_VERSION,
     };
   }

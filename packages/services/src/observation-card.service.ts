@@ -473,6 +473,7 @@ export async function collectObservationCard(
     pageKinds: rawKinds,
     pricedDomains: priced,
     blockedDomains: blocked,
+    probedDomains: pricing.length,
   });
 
   return {
@@ -638,6 +639,7 @@ export async function loadObservationCard(
     pageKinds: rawKinds,
     pricedDomains: pricing.filter((row) => row.plans.length > 0).length,
     blockedDomains: pricing.filter((row) => row.status === 'BLOCKED' || row.status === 'ROBOTS').length,
+    probedDomains: pricing.length,
   });
 
   const snapshot = snapshotRes.rows[0];

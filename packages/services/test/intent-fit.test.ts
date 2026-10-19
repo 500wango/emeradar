@@ -17,6 +17,7 @@ describe('意图适配 intent_fit', () => {
       pageKinds: ['DEDICATED_TOOL', 'DEDICATED_TOOL', 'DEDICATED_TOOL', 'CONTENT'],
       pricedDomains: 2,
       blockedDomains: 0,
+      probedDomains: 3,
     });
     assert.strictEqual(d.intentFit, 'TOOL_INTENT');
     assert.ok(d.score >= 0.5);
@@ -29,6 +30,7 @@ describe('意图适配 intent_fit', () => {
       pageKinds: ['UGC', 'DEDICATED_TOOL', 'UGC', 'GENERIC_PLATFORM', 'DEDICATED_TOOL', 'UGC', 'HOSTING_SERVICE', 'CONTENT'],
       pricedDomains: 1,
       blockedDomains: 0,
+      probedDomains: 3,
     });
     assert.strictEqual(d.intentFit, 'INFORMATIONAL');
     assert.match(d.reason, /informational/i);
@@ -40,6 +42,7 @@ describe('意图适配 intent_fit', () => {
       pageKinds: ['DEDICATED_TOOL', 'DEDICATED_TOOL', 'CONTENT'],
       pricedDomains: 1,
       blockedDomains: 0,
+      probedDomains: 3,
     });
     assert.strictEqual(d.intentFit, 'INFORMATIONAL');
   });
@@ -56,9 +59,22 @@ describe('意图适配 intent_fit', () => {
       pageKinds: ['DEDICATED_TOOL', 'UGC', 'DOC', 'CONTENT', 'GENERIC_PLATFORM'],
       pricedDomains: 0,
       blockedDomains: 2,
+      probedDomains: 2,
     });
     assert.strictEqual(d.intentFit, 'INSUFFICIENT');
     assert.match(d.reason, /could not be observed/i);
+  });
+
+  it('没有工具页、也一次都没探测定价 → INSUFFICIENT（不能把“没查”说成“没需求”）', () => {
+    const d = evaluateIntentFit({
+      query: 'podcast transcript seo',
+      pageKinds: ['UGC', 'UNCLASSIFIED', 'UGC', 'GENERIC_PLATFORM', 'UNCLASSIFIED', 'UGC', 'HOSTING_SERVICE'],
+      pricedDomains: 0,
+      blockedDomains: 0,
+      probedDomains: 0,
+    });
+    assert.strictEqual(d.intentFit, 'INSUFFICIENT');
+    assert.match(d.reason, /no competitor pricing was probed/i);
   });
 
   it('判定是确定性的，并带规则版本', () => {
@@ -67,6 +83,7 @@ describe('意图适配 intent_fit', () => {
       pageKinds: ['DEDICATED_TOOL', 'CONTENT'],
       pricedDomains: 0,
       blockedDomains: 0,
+      probedDomains: 2,
     };
     assert.deepStrictEqual(evaluateIntentFit(input), evaluateIntentFit(input));
     assert.strictEqual(evaluateIntentFit(input).ruleVersion, 'intent-fit-v1');
