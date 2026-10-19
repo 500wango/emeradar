@@ -1,7 +1,7 @@
 import { query, transaction, getClient } from '@emeradar/db';
 import {
   AIsaSearchDiscoverySource,
-  AnySearchDiscoverySource,
+  TavilyDiscoverySource,
   DiscoverySource,
   HackerNewsDiscoverySource,
   RssDiscoverySource,
@@ -21,17 +21,13 @@ async function getDiscoverySources(): Promise<DiscoverySource[]> {
     sources.push(new AIsaSearchDiscoverySource(aisaQueries));
   }
 
-  // AnySearch 统一搜索：同样是 discovery，不是 SERP。生产默认要求 key；
-  // 匿名模式必须显式打开，避免共享出口 IP 的免费额度被悄悄耗尽。
-  const anySearchQueries = (process.env.ANYSEARCH_QUERIES || process.env.AISA_SEARCH_QUERIES || '')
+  // Tavily 搜索：discovery，不是 SERP；必须配 key。查询未配置时回退 AISA_SEARCH_QUERIES。
+  const tavilyQueries = (process.env.TAVILY_QUERIES || process.env.AISA_SEARCH_QUERIES || '')
     .split(/[\r\n,]+/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const anySearchEnabled =
-    anySearchQueries.length > 0 &&
-    (Boolean(process.env.ANYSEARCH_API_KEY) || process.env.ANYSEARCH_ALLOW_ANONYMOUS === 'true');
-  if (anySearchEnabled) {
-    sources.push(new AnySearchDiscoverySource(anySearchQueries));
+  if (process.env.TAVILY_API_KEY && tavilyQueries.length > 0) {
+    sources.push(new TavilyDiscoverySource(tavilyQueries));
   }
 
   // 1. HackerNews Discovery Source

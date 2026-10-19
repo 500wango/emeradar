@@ -250,43 +250,42 @@ export class AIsaSearchDiscoverySource implements DiscoverySource {
   }
 }
 
+
 /**
- * AnySearch 统一搜索（`POST https://api.anysearch.com/v1/search`）。
+ * Tavily 搜索（`POST https://api.tavily.com/search`）。
  *
- * 和 AIsa Smart Search 一样，这是多源网页搜索，不是 Google SERP；只能用于
- * discovery / Why Now，不能进 W 轴。响应形状：
- * `{ code: 0, data: { results: [{ title, url, snippet?, content? }] } }`。
+ * 和 AIsa Smart Search 一样，这是面向 LLM/Agent 的多源网页搜索，不是 Google SERP；
+ * 只能用于 discovery / Why Now，不能进 W 轴。
  *
- * 匿名访问有每日免费额度但按 IP 限流；生产默认要求 `ANYSEARCH_API_KEY`，
- * 只有显式 `ANYSEARCH_ALLOW_ANONYMOUS=true` 才允许无 key 运行。
- * 种子查询来自 `ANYSEARCH_QUERIES`，未配置时回退 `AISA_SEARCH_QUERIES`。
+ * 响应：`{ results: [{ title, url, content, score, published_date? }] }`。
+ * 免费额度 1,000 credits/月；basic search 每次 1 credit。
  */
-export class AnySearchDiscoverySource implements DiscoverySource {
-  readonly sourceId = 'src_anysearch';
-  readonly provider = 'ANYSEARCH';
+export class TavilyDiscoverySource implements DiscoverySource {
+  readonly sourceId = 'src_tavily';
+  readonly provider = 'TAVILY';
 
   constructor(
     private readonly queries: string[],
-    private readonly apiKey = process.env.ANYSEARCH_API_KEY,
-    private readonly endpoint = 'https://api.anysearch.com/v1/search',
+    private readonly apiKey = process.env.TAVILY_API_KEY,
+    private readonly endpoint = 'https://api.tavily.com/search',
     private readonly maxResults = 10
   ) {}
 
   async discover(): Promise<DiscoveryResult | DiscoveryFailure> {
-    if (!this.apiKey && process.env.ANYSEARCH_ALLOW_ANONYMOUS !== 'true') {
+    if (!this.apiKey) {
       return {
         status: 'FAILED',
         retryable: false,
-        errorCode: 'ANYSEARCH_NOT_CONFIGURED',
-        message: 'ANYSEARCH_API_KEY is required unless ANYSEARCH_ALLOW_ANONYMOUS=true.',
+        errorCode: 'TAVILY_NOT_CONFIGURED',
+        message: 'TAVILY_API_KEY is required.',
       };
     }
     if (this.queries.length === 0) {
       return {
         status: 'FAILED',
         retryable: false,
-        errorCode: 'ANYSEARCH_NO_QUERIES',
-        message: 'ANYSEARCH_QUERIES is empty; refusing to search without a query.',
+        errorCode: 'TAVILY_NO_QUERIES',
+        message: 'TAVILY_QUERIES is empty; refusing to search without a query.',
       };
     }
 
@@ -294,61 +293,73 @@ export class AnySearchDiscoverySource implements DiscoverySource {
     const seen = new Set<string>();
     const rawPayloads: unknown[] = [];
     let requests = 0;
+    const topic = process.env.TAVILY_TOPIC === 'news' ? 'news' : 'general';
+    const timeRange = (process.env.TAVILY_TIME_RANGE || '').trim();
+    const costPerRequestUsd = Number(process.env.TAVILY_COST_PER_REQUEST_USD ?? '0.008');
 
     try {
       for (const query of this.queries.slice(0, 10)) {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+        const body: Record<string, unknown> = {
+          query,
+          max_results: Math.min(20, Math.max(1, this.maxResults)),
+          search_depth: 'basic',
+          topic,
+          include_published_date: true,
+          include_raw_content: false,
+        };
+        if (timeRange) body.time_range = timeRange;
         const response = await fetch(this.endpoint, {
           method: 'POST',
-          headers,
-          body: JSON.stringify({
-            query,
-            max_results: Math.min(10, Math.max(1, this.maxResults)),
-            zone: 'intl',
-            language: 'en',
-          }),
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
           signal: AbortSignal.timeout(20_000),
         });
         if (!response.ok) {
-          throw new Error(`AnySearch returned ${response.status} for "${query}"`);
+          throw new Error(`Tavily returned ${response.status} for "${query}"`);
         }
         requests++;
         const payload = (await response.json()) as any;
         rawPayloads.push(payload);
-        if (payload?.code !== 0) {
-          throw new Error(`AnySearch business error ${payload?.code ?? 'unknown'}: ${payload?.message ?? ''}`);
-        }
-        const rows = payload?.data?.results;
+        const rows = payload?.results;
         if (!Array.isArray(rows)) {
-          throw new Error('AnySearch response does not expose data.results[]');
+          throw new Error('Tavily response does not expose results[]');
         }
         for (const row of rows) {
           const sourceUrl = typeof row?.url === 'string' ? row.url : null;
-          if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) continue;
+          const title = typeof row?.title === 'string' && row.title.trim().length > 0 ? row.title.trim() : null;
+          if (!sourceUrl || !title || !/^https?:\/\//i.test(sourceUrl)) continue;
           if (seen.has(sourceUrl)) continue;
           seen.add(sourceUrl);
-          const title =
-            typeof row?.title === 'string' && row.title.trim().length > 0
-              ? row.title.trim()
-              : sourceUrl;
-          const excerpt =
-            typeof row?.snippet === 'string' && row.snippet.trim().length > 0
-              ? row.snippet.slice(0, 500)
-              : typeof row?.content === 'string'
-              ? row.content.slice(0, 500)
+          const excerpt = typeof row?.content === 'string' && row.content.trim().length > 0
+            ? row.content.slice(0, 500)
+            : undefined;
+          const publishedAt =
+            typeof row?.published_date === 'string' && !Number.isNaN(Date.parse(row.published_date))
+              ? new Date(row.published_date)
               : undefined;
-          const canonical = JSON.stringify({ url: sourceUrl, title, excerpt: excerpt ?? null });
+          const canonical = JSON.stringify({
+            url: sourceUrl,
+            title,
+            excerpt: excerpt ?? null,
+            publishedAt: publishedAt?.toISOString() ?? null,
+          });
           items.push({
             sourceItemId: sha256(sourceUrl),
             provider: this.provider,
             sourceUrl,
             title,
             excerpt,
+            publishedAt,
             collectedAt: new Date(),
             contentHash: sha256(canonical),
             requestHash: requestHash(this.endpoint),
-            metadata: { query },
+            metadata: {
+              query,
+              score: typeof row?.score === 'number' ? row.score : undefined,
+            },
           });
         }
       }
@@ -356,7 +367,7 @@ export class AnySearchDiscoverySource implements DiscoverySource {
       return {
         status: 'FAILED',
         retryable: true,
-        errorCode: 'ANYSEARCH_ERROR',
+        errorCode: 'TAVILY_ERROR',
         message: (error as Error).message,
       };
     }
@@ -368,7 +379,7 @@ export class AnySearchDiscoverySource implements DiscoverySource {
       raw: { content: rawContent, contentHash: sha256(rawContent), mimeType: 'application/json' },
       cost: {
         sourceId: this.sourceId,
-        costUsd: 0,
+        costUsd: Math.round(requests * (Number.isFinite(costPerRequestUsd) ? costPerRequestUsd : 0.008) * 1e6) / 1e6,
         category: 'INFRA',
         units: requests,
       },
