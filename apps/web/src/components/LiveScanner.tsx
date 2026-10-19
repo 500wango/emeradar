@@ -192,7 +192,11 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
         </div>
 
         {pricing.domains.length === 0 ? (
-          <p className="mt-1 text-[11px] text-fg-subtle">{pricing.note}</p>
+          <p className="mt-1 text-[11px] text-fg-subtle">
+            {isZh
+              ? '这次没有可探查的竞品域名（SERP 缺失，或前排都是社区/平台页）。'
+              : 'No competitor domain was available to probe (SERP missing, or the Top 10 is all UGC/platform pages).'}
+          </p>
         ) : (
           <ul className="mt-2 space-y-1.5">
             {pricing.domains.map((row) => (
@@ -223,7 +227,13 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
             ))}
           </ul>
         )}
-        <p className="mt-2 text-[11px] text-fg-subtle">{pricing.note}</p>
+        {pricing.domains.length > 0 && (
+          <p className="mt-2 text-[11px] text-fg-subtle">
+            {isZh
+              ? '只记录观测到的公开定价；没有定价不等于没有付费意愿。'
+              : 'Public pricing only; absence of pricing is not proof of no willingness to pay.'}
+          </p>
+        )}
       </div>
 
       {/* 联想词 */}

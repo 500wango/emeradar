@@ -10,6 +10,12 @@ import {
 import type { CommercialStage } from '@emeradar/core';
 import type { ResultType } from '@emeradar/scoring';
 import { EXTRACTOR_VERSIONS } from './evidence-version';
+import {
+  factsFromCrawl,
+  writeCommercialSnapshot,
+  writeFailedCommercialSnapshot,
+} from './pipeline/commercial-assembly';
+import { classifyPage } from '@emeradar/scoring';
 import { evaluateIntentFit, type IntentDecision } from './intent-fit.service';
 import { storeRawPayload } from './raw-payload.service';
 import { storeHtmlDerivative } from './html-derivative.service';
@@ -290,6 +296,9 @@ async function probePricing(
   }
 
   if (outcome.status === 'SKIPPED') {
+    await writeFailedCommercialSnapshot(input.opportunityId, domain, targetUrl, input.obsDate, {
+      fetchStatus: outcome.reason === 'ROBOTS_DISALLOWED' ? 'ROBOTS_DISALLOWED' : 'BUDGET_SKIPPED',
+    }).catch(() => null);
     return {
       domain,
       url: targetUrl,
@@ -306,6 +315,9 @@ async function probePricing(
   }
   if (outcome.status === 'FAILED') {
     const blocked404 = /HTTP 404/.test(outcome.message);
+    await writeFailedCommercialSnapshot(input.opportunityId, domain, targetUrl, input.obsDate, {
+      fetchStatus: blocked404 ? 'BLOCKED_404' : 'FAILED',
+    }).catch(() => null);
     return {
       domain,
       url: targetUrl,
@@ -365,6 +377,19 @@ async function probePricing(
         rawPayloadId,
         EXTRACTOR_VERSIONS.COMMERCIAL,
       ]
+    );
+  }
+
+  // 落库：扫码的定价观测必须持久。
+  // 之前只写 evidence + 原始载荷，没写 commercial_targets/snapshots，于是刷新后
+  // 定价一栏永远是「探查 0」——观测卡看起来像没工作，其实是没存。
+  try {
+    const facts = factsFromCrawl(snap.data);
+    await writeCommercialSnapshot(input.opportunityId, domain, targetUrl, facts, rawPayloadId);
+  } catch (error) {
+    console.warn(
+      `[observation] commercial snapshot persist failed for ${domain}:`,
+      error instanceof Error ? error.message : error
     );
   }
 
@@ -435,9 +460,13 @@ export async function collectObservationCard(
   const infraOnly = pricing.filter((row) => row.plans.length === 0 && row.gateways.length > 0).length;
   const blocked = pricing.filter((row) => row.status === 'BLOCKED' || row.status === 'ROBOTS').length;
 
-  const rawKinds = ((snap?.data?.items ?? []) as any[]).map(
-    (item) => item.pageKind ?? item.resultType ?? 'UNCLASSIFIED'
-  );
+  // 与读路径同一口径：有公开付费档位的域名升级为 DEDICATED_TOOL。
+  const pricedDomainsSet = new Set(pricing.filter((row) => row.plans.length > 0).map((row) => row.domain));
+  const rawKinds = ((snap?.data?.items ?? []) as any[]).map((item) => {
+    const domain = item.domain ?? domainOf(item.url);
+    if (pricedDomainsSet.has(domain)) return 'DEDICATED_TOOL';
+    return item.pageKind ?? item.resultType ?? 'UNCLASSIFIED';
+  });
   const stats = serpStats(items, rawKinds);
   const intent = evaluateIntentFit({
     query: input.query,
@@ -544,17 +573,25 @@ export async function loadObservationCard(
     [opportunityId]
   );
 
-  const items: ObservationSerpItem[] = itemsRes.rows.map((row) => ({
-    rank: row.rank,
-    url: row.url,
-    domain: row.domain,
-    title: row.title,
-    resultType: row.result_type,
-    pageKind: row.page_kind ?? undefined,
-    domainAuthorityClass: row.domain_authority_class,
-    isWeak: row.is_weak,
-    weaknessType: row.weakness_type ?? undefined,
-  }));
+  // 读时重算分类。
+  //
+  // 分类是 (url, title, snippet) 的**纯函数**，所以历史行也可以按当前规则重新解释，
+  // 不需要先把库改一遍。这样修好规则后，旧快照立刻显示正确标签；
+  // 库里存的 `page_kind/classifier_version` 仍然保留，用于审计“当时是哪一版”。
+  const items: ObservationSerpItem[] = itemsRes.rows.map((row) => {
+    const classification = classifyPage(row.url, row.title, '');
+    return {
+      rank: row.rank,
+      url: row.url,
+      domain: row.domain,
+      title: row.title,
+      resultType: classification.resultType,
+      pageKind: classification.kind,
+      domainAuthorityClass: row.domain_authority_class,
+      isWeak: row.is_weak,
+      weaknessType: row.weakness_type ?? undefined,
+    };
+  });
 
   const pricing: ObservationPricing[] = pricingRes.rows.map((row) => {
     const plans = (row.pricing_plans ?? []) as PricingPlan[];
@@ -586,7 +623,15 @@ export async function loadObservationCard(
     };
   });
 
-  const rawKinds = itemsRes.rows.map((row) => row.page_kind ?? row.result_type ?? 'UNCLASSIFIED');
+  // 有公开付费档位的域名，本身就是“为这个需求做的商业产品页”的正面证据：
+  // 首页类工具站没有 /pricing 路径，单看 URL 会判成 UNCLASSIFIED，把工具需求误判成信息型。
+  const pricedDomainSet = new Set(
+    pricing.filter((row) => row.plans.length > 0).map((row) => row.domain)
+  );
+  const rawKinds = items.map((item) => {
+    if (pricedDomainSet.has(item.domain)) return 'DEDICATED_TOOL';
+    return item.pageKind ?? item.resultType ?? 'UNCLASSIFIED';
+  });
   const stats = serpStats(items, rawKinds);
   const intent = evaluateIntentFit({
     query: queryText,

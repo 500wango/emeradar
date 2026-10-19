@@ -129,6 +129,55 @@ describe('观测卡', () => {
     assert.match(card.serp.note, /unknown, not weak/i);
   });
 
+  it('读时按当前分类器重算标签：LinkedIn 是 UGC，wix 是泛平台', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+    await query(
+      `INSERT INTO opportunities (id, slug, title, status, first_observed_date, market_country, research_language)
+       VALUES ('opp_obs_reclass', 'obs-reclass', 'Reclass', 'CANDIDATE', CURRENT_DATE, 'US', 'en-US')`
+    );
+    await query(
+      `INSERT INTO queries (id, query_text, market_country, research_language, first_seen_date, tier)
+       VALUES ('qry_obs_reclass', 'podcast transcript seo', 'US', 'en-US', CURRENT_DATE, 'A')`
+    );
+    await query(
+      `INSERT INTO opportunity_queries (opportunity_id, query_id, role) VALUES ('opp_obs_reclass','qry_obs_reclass','PRIMARY')`
+    );
+    await query(
+      `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider)
+       VALUES ('srp_obs_reclass','qry_obs_reclass', CURRENT_DATE, 0.3, 10, 4, 'AISA_DATAFORSEO')`
+    );
+    const rows: Array<[number, string, string, string]> = [
+      [1, 'https://www.linkedin.com/posts/x', 'linkedin.com', 'SPECIALIST'],
+      [2, 'https://www.wix.com/', 'wix.com', 'SPECIALIST'],
+      [3, 'https://rss.com/podcasts/', 'rss.com', 'SPECIALIST'],
+      [4, 'https://www.quora.com/What-is-podcast-seo', 'quora.com', 'UGC_THREAD'],
+    ];
+    for (const [rank, url, domain, resultType] of rows) {
+      await query(
+        `INSERT INTO serp_results (serp_snapshot_id, rank, url, domain, title, snippet, result_type, domain_authority_class, is_weak)
+         VALUES ('srp_obs_reclass',$1,$2,$3,'t','s',$4,'SPECIALIST',false)`,
+        [rank, url, domain, resultType]
+      );
+    }
+
+    const card = await harness.services.loadObservationCard(
+      'opp_obs_reclass',
+      'qry_obs_reclass',
+      'podcast transcript seo',
+      'US',
+      'en-US'
+    );
+    const byDomain = Object.fromEntries(card.serp.items.map((item) => [item.domain, item.pageKind]));
+    assert.strictEqual(byDomain['linkedin.com'], 'UGC');
+    assert.strictEqual(byDomain['wix.com'], 'GENERIC_PLATFORM');
+    assert.strictEqual(byDomain['rss.com'], 'HOSTING_SERVICE');
+    assert.strictEqual(byDomain['quora.com'], 'UGC');
+    assert.strictEqual(card.serp.dedicatedToolPages, 0);
+    assert.strictEqual(card.intent.intentFit, 'INFORMATIONAL');
+    assert.strictEqual(card.serp.distinctDomains, 4);
+  });
+
   it('内容指纹随事实变化而变', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { observationFingerprint } = harness.services;
