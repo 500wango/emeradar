@@ -9,7 +9,7 @@ import {
   KeywordSuggestion,
 } from '@emeradar/collectors';
 import { classifyQueryIntent } from '../query-intent';
-
+import { lexicalFingerprint } from '../canonical-query.service';
 /**
  * 工具意图种子（02 §7「修饰词模板」）。每个种子是一个产品形态，`keyword_suggestions`
  * 返回包含它的长尾词，例如 generator → "fantasy name generator"、"invoice generator"。
@@ -145,20 +145,9 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
  * "barcode-generator" 这类拼写变体，各开一个候选只会重复观测同一个 SERP。
  */
 export function dedupeKey(keyword: string): string {
-  const STOP = new Set(['a', 'an', 'the', 'for', 'to', 'of', 'in', 'on', 'file', 'free', 'online', 'best', 'top']);
-  return keyword
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => {
-      let word = w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w;
-      if (['convert', 'conversion', 'converter'].includes(word)) word = 'convert';
-      return word;
-    })
-    .filter((w) => !STOP.has(w))
-    .sort()
-    .join(' ');
+  // 与 canonical-query.service 的 lexicalFingerprint 同一口径：种子层与
+  // canonical 层必须得到同一个键，否则同一个需求会被合并两次、各算一套观测。
+  return lexicalFingerprint(keyword);
 }
 
 export interface SeedMarket {
@@ -319,6 +308,11 @@ export async function seedKeywordCandidates(
           ]
         );
         if (opp.rows.length === 0) return false;
+        // 词法指纹随候选落库：canonical 归并与重复观测拦截都依赖它。
+        await client.query(
+          `UPDATE opportunities SET lexical_fingerprint = $2 WHERE id = $1`,
+          [opportunityId, dedupeKey(text)]
+        );
         await client.query(
           `INSERT INTO opportunity_queries (opportunity_id, query_id, role) VALUES ($1, $2, 'PRIMARY')
            ON CONFLICT (opportunity_id, query_id) DO NOTHING`,
