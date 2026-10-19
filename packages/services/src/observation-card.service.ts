@@ -70,6 +70,26 @@ export interface ObservationSerpItem {
   weaknessType?: string;
 }
 
+/**
+ * 去重后的竞争者（按域名）。
+ *
+ * Google 常常让同一个域名占两个位置（首页 + 子页），这不代表有两家公司在竞争。
+ * 竞争面要按**域名**看，位置数只作为“这家占得多不多”的参考。
+ */
+export interface ObservationCompetitor {
+  domain: string;
+  /** 该域名出现的最好名次。 */
+  bestRank: number;
+  /** 它占用的所有名次。 */
+  ranks: number[];
+  url: string;
+  title: string;
+  pageKind: string;
+  resultType: ResultType;
+  isWeak: boolean;
+  weaknessType?: string;
+}
+
 export interface ObservationPricing {
   domain: string;
   url: string;
@@ -108,9 +128,13 @@ export interface ObservationCard {
     weakCount: number;
     weakRatio: number;
     weaknessScore: number | null;
-    /** 页面种类分布（确定性分类器）。 */
+    /** 页面种类分布（确定性分类器，按域名计）。 */
     pageKindCounts: Record<string, number>;
-    /** Top10 里“为这个需求做的产品页”数量。 */
+    /** 去重后的竞争者列表：竞争面按域名看，不按位置看。 */
+    competitors: ObservationCompetitor[];
+    /** 按域名计的弱页数。 */
+    weakDomains: number;
+    /** Top10 里“为这个需求做的产品页”数量（按域名计）。 */
     dedicatedToolPages: number;
     note: string;
   };
@@ -149,18 +173,63 @@ function domainOf(url: string): string {
   }
 }
 
-/** 位置 vs 去重竞争者：同一个域名占两个位置时，竞争面被夸大了。 */
+/**
+ * 位置 vs 去重竞争者。
+ *
+ * 同一个域名占两个位置（例如首页 + 子页）不代表两家公司竞争，所以：
+ *   - `competitors` 按域名去重，保留最好名次与它占的全部名次；
+ *   - 弱点率、工具页数、意图判断全部按**域名**口径；
+ *   - `positions` / `duplicatePositions` 保留，用于说明“这家占得多”。
+ */
 function serpStats(items: ObservationSerpItem[], rawKinds: string[]) {
-  const domains = items.map((item) => item.domain || domainOf(item.url)).filter(Boolean);
-  const distinctDomains = new Set(domains).size;
+  const byDomain = new Map<string, ObservationCompetitor>();
+
+  items.forEach((item, index) => {
+    const domain = item.domain || domainOf(item.url) || 'unknown';
+    const kind = rawKinds[index] ?? item.pageKind ?? item.resultType ?? 'UNCLASSIFIED';
+    const existing = byDomain.get(domain);
+    if (!existing) {
+      byDomain.set(domain, {
+        domain,
+        bestRank: item.rank,
+        ranks: [item.rank],
+        url: item.url,
+        title: item.title,
+        pageKind: kind,
+        resultType: item.resultType,
+        isWeak: item.isWeak,
+        weaknessType: item.weaknessType,
+      });
+      return;
+    }
+    existing.ranks.push(item.rank);
+    // 更好名次的那一条决定这个域名的形态：它给用户的印象由最靠前那页决定。
+    if (item.rank < existing.bestRank) {
+      existing.bestRank = item.rank;
+      existing.url = item.url;
+      existing.title = item.title;
+      existing.pageKind = kind;
+      existing.resultType = item.resultType;
+      existing.isWeak = item.isWeak;
+      existing.weaknessType = item.weaknessType;
+    }
+  });
+
+  const competitors = [...byDomain.values()].sort((a, b) => a.bestRank - b.bestRank);
   const pageKindCounts: Record<string, number> = {};
-  for (const kind of rawKinds) pageKindCounts[kind] = (pageKindCounts[kind] ?? 0) + 1;
+  for (const competitor of competitors) {
+    pageKindCounts[competitor.pageKind] = (pageKindCounts[competitor.pageKind] ?? 0) + 1;
+  }
+
   return {
     positions: items.length,
-    distinctDomains,
-    duplicatePositions: Math.max(0, items.length - distinctDomains),
+    distinctDomains: competitors.length,
+    duplicatePositions: Math.max(0, items.length - competitors.length),
+    competitors,
     pageKindCounts,
-    dedicatedToolPages: rawKinds.filter((kind) => kind === 'DEDICATED_TOOL').length,
+    /** 按域名计的工具页数：同一个工具站占两格只算一家。 */
+    dedicatedToolPages: competitors.filter((c) => c.pageKind === 'DEDICATED_TOOL').length,
+    weakDomains: competitors.filter((c) => c.isWeak).length,
   };
 }
 

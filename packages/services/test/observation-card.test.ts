@@ -179,6 +179,58 @@ describe('观测卡', () => {
     assert.strictEqual(card.serp.distinctDomains, 4);
   });
 
+  it('同一域名占多个位置时，竞争面按域名去重', async (t) => {
+    if (!harness.available) return t.skip(harness.skipReason);
+    const { query } = harness.db;
+    await query(
+      `INSERT INTO opportunities (id, slug, title, status, first_observed_date, market_country, research_language)
+       VALUES ('opp_obs_dupe', 'obs-dupe', 'Dupe', 'CANDIDATE', CURRENT_DATE, 'US', 'en-US')`
+    );
+    await query(
+      `INSERT INTO queries (id, query_text, market_country, research_language, first_seen_date, tier)
+       VALUES ('qry_obs_dupe', 'podcast transcript seo dupe', 'US', 'en-US', CURRENT_DATE, 'A')`
+    );
+    await query(
+      `INSERT INTO opportunity_queries (opportunity_id, query_id, role) VALUES ('opp_obs_dupe','qry_obs_dupe','PRIMARY')`
+    );
+    await query(
+      `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider)
+       VALUES ('srp_obs_dupe','qry_obs_dupe', CURRENT_DATE, 0.4, 10, 5, 'AISA_DATAFORSEO')`
+    );
+    // podsqeeze 占两格；quora 占两格；rss 一格。
+    const rows: Array<[number, string, string, boolean]> = [
+      [1, 'https://www.linkedin.com/posts/x', 'linkedin.com', true],
+      [2, 'https://podsqueeze.com/', 'podsqueeze.com', false],
+      [3, 'https://www.quora.com/a', 'quora.com', true],
+      [4, 'https://podsqueeze.com/features', 'podsqueeze.com', false],
+      [5, 'https://www.quora.com/b', 'quora.com', true],
+    ];
+    for (const [rank, url, domain, weak] of rows) {
+      await query(
+        `INSERT INTO serp_results (serp_snapshot_id, rank, url, domain, title, snippet, result_type, domain_authority_class, is_weak)
+         VALUES ('srp_obs_dupe',$1,$2,$3,'t','s','SPECIALIST','SPECIALIST',$4)`,
+        [rank, url, domain, weak]
+      );
+    }
+
+    const card = await harness.services.loadObservationCard(
+      'opp_obs_dupe',
+      'qry_obs_dupe',
+      'podcast transcript seo dupe',
+      'US',
+      'en-US'
+    );
+    assert.strictEqual(card.serp.positions, 5);
+    assert.strictEqual(card.serp.distinctDomains, 3, '三个域名，不是五个位置');
+    assert.strictEqual(card.serp.duplicatePositions, 2);
+    assert.strictEqual(card.serp.competitors.length, 3);
+
+    const podsqueeze = card.serp.competitors.find((c) => c.domain === 'podsqueeze.com');
+    assert.strictEqual(podsqueeze?.bestRank, 2, '去重后保留最好名次');
+    assert.deepStrictEqual(podsqueeze?.ranks, [2, 4]);
+    assert.strictEqual(card.serp.weakDomains, 2, 'LinkedIn + Quora 各算一个弱站');
+  });
+
   it('内容指纹随事实变化而变', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { observationFingerprint } = harness.services;

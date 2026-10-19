@@ -78,6 +78,8 @@ function emptyObservation(query: string, market: string, language: string): Obse
       weakRatio: 0,
       weaknessScore: null,
       pageKindCounts: {},
+      competitors: [],
+      weakDomains: 0,
       dedicatedToolPages: 0,
       note: 'No organic SERP observation stored yet. Competition is unknown, not weak.',
     },

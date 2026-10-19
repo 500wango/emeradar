@@ -146,14 +146,14 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h4 className="text-xs font-bold text-fg">
             {isZh
-              ? `Google Top ${serp.items.length || 10} 竞争面`
-              : `Google Top ${serp.items.length || 10} competition`}
+              ? `Google Top ${serp.positions || 10} 竞争面`
+              : `Google Top ${serp.positions || 10} competition`}
           </h4>
           {serp.available ? (
             <span className="font-mono text-[11px] text-fg-subtle">
               {isZh
-                ? `${serp.positions} 个位置 · ${serp.distinctDomains} 个域名 · ${serp.dedicatedToolPages} 个工具页 · ${serp.weakCount} 个弱页`
-                : `${serp.positions} positions · ${serp.distinctDomains} domains · ${serp.dedicatedToolPages} tool pages · ${serp.weakCount} weak`}
+                ? `${serp.distinctDomains} 个竞争者 · ${serp.positions} 个位置 · ${serp.dedicatedToolPages} 个工具页 · ${serp.weakDomains} 个弱站`
+                : `${serp.distinctDomains} competitors · ${serp.positions} positions · ${serp.dedicatedToolPages} tool pages · ${serp.weakDomains} weak`}
               {serp.provider ? ` · ${serp.provider}` : ''}
             </span>
           ) : (
@@ -167,9 +167,9 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
           <p className="mt-1 text-[11px] text-fg-subtle">{serp.note}</p>
         ) : (
           <ul className="mt-2 space-y-1">
-            {serp.items.map((item) => (
-              <li key={`${item.rank}-${item.url}`} className="flex items-start gap-2 text-[11px]">
-                <span className="w-5 shrink-0 font-mono text-fg-subtle">{item.rank}</span>
+            {serp.competitors.map((item) => (
+              <li key={item.domain} className="flex items-start gap-2 text-[11px]">
+                <span className="w-5 shrink-0 font-mono text-fg-subtle">{item.bestRank}</span>
                 <span className="min-w-0 flex-1">
                   <a
                     href={item.url}
@@ -188,6 +188,14 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
                       </Badge>
                     );
                   })()}
+                  {item.ranks.length > 1 && (
+                    <span
+                      className="ml-2 font-mono text-[10px] text-fg-subtle"
+                      title={isZh ? `占用名次：${item.ranks.join(', ')}` : `ranks: ${item.ranks.join(', ')}`}
+                    >
+                      {isZh ? `占 ${item.ranks.length} 位` : `${item.ranks.length} slots`}
+                    </span>
+                  )}
                   {item.isWeak && (
                     <Badge tone="warn" size="sm" className="ml-2">
                       {item.weaknessType === 'FORUM_OR_QA'
