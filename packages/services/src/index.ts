@@ -46,6 +46,7 @@ export * from './rejection.service';
 export * from './canonical-query.service';
 export * from './shadow-pool.service';
 export * from './outcome-label.service';
+export * from './sampling-policy.service';
 export * from './custom-query-radar.service';
 export * from './external-demand.service';
 export * from './query-intent';

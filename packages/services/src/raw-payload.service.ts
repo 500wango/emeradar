@@ -50,6 +50,41 @@ export async function storeRawPayload(input: RawPayloadInput): Promise<StoredRaw
   }
 
   const contentHash = createHash('sha256').update(input.content).digest('hex');
+
+  // 内容寻址去重（CAS）：同一份内容只上传一次。昨天和今天的 Autocomplete JSON
+  // 有很高概率完全一样，竞品定价 DOM 连续多天不变——重复上传只是在为同一份字节付钱。
+  const existing = await query<{ id: string; storage_url: string }>(
+    `SELECT id::text, storage_url FROM raw_payloads
+      WHERE content_hash = $1 AND source_id = $2
+      ORDER BY fetched_at DESC LIMIT 1`,
+    [contentHash, input.sourceId]
+  );
+  if (existing.rows[0]) {
+    const id = randomUUID();
+    // 仍然写一行记录：时序指针必须存在，否则“那天采集过”无法回答。
+    await query(
+      `INSERT INTO raw_payloads
+         (id, collector_run_id, source_id, provider, storage_url, content_hash,
+          request_params, http_status, locale, fetched_at, mime_type, byte_size)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12`,
+      [
+        id,
+        input.collectorRunId,
+        input.sourceId,
+        input.provider,
+        existing.rows[0].storage_url,
+        contentHash,
+        JSON.stringify(input.requestParams ?? {}),
+        input.httpStatus ?? null,
+        input.locale ?? null,
+        input.fetchedAt ?? new Date(),
+        input.mimeType,
+        Buffer.byteLength(input.content, 'utf8'),
+      ]
+    );
+    return { id, storageUrl: existing.rows[0].storage_url, contentHash };
+  }
+
   const extension = input.mimeType.includes('html') ? 'html' : 'json';
   const key = `raw/${input.obsDate}/${contentHash}.${extension}.gz`;
   const endpoint = process.env.R2_ENDPOINT || `https://${accountId}.r2.cloudflarestorage.com`;

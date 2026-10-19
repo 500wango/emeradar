@@ -44,7 +44,17 @@ export async function loadStaleAutocomplete(
   return { observedDate: row.observed_date, suggestions: row.suggestions ?? [], depth: row.depth };
 }
 
-export async function loadStaleSerp(queryId: string, obsDate: string): Promise<StaleSerp | null> {
+/**
+ * 取最近一次成功 SERP 快照。
+ *
+ * `windowHours` 默认 72（故障降级）；**分层轮询的“计划复用”传更长的窗口**——
+ * 那是主动不抓，不是采集失败，两者必须能区分，否则抽样会被记成一次故障。
+ */
+export async function loadStaleSerp(
+  queryId: string,
+  obsDate: string,
+  windowHours = STALE_WINDOW_HOURS
+): Promise<StaleSerp | null> {
   const res = await query<{
     id: string;
     observed_date: string;
@@ -61,7 +71,7 @@ export async function loadStaleSerp(queryId: string, obsDate: string): Promise<S
         AND created_at >= NOW() - ($3 || ' hours')::interval
       ORDER BY obs_date DESC
       LIMIT 1`,
-    [queryId, obsDate, String(STALE_WINDOW_HOURS)]
+    [queryId, obsDate, String(windowHours)]
   );
   const row = res.rows[0];
   if (!row) return null;

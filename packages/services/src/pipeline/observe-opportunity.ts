@@ -34,6 +34,7 @@ import { runCollector } from '../collector-run.service';
 import { storeRawPayload } from '../raw-payload.service';
 import { extractorVersionForSourceType } from '../evidence-version';
 import { recordRejections, rejectionsFromFlags, type RejectionInput } from '../rejection.service';
+import { decideSerpSampling, THINNED_INTERVAL_DAYS } from '../sampling-policy.service';
 import {
   loadStaleCommercialEvidence,
   loadStaleAutocomplete,
@@ -261,19 +262,40 @@ export async function observeOpportunity(
   const wantsDeepSerp = (trackedRes.rows[0]?.n ?? 0) > 0 && (weeklyDepthRes.rows[0]?.n ?? 0) === 0;
   const serpDepth = wantsDeepSerp ? 100 : undefined;
 
-  const serpOutcome = await runCollector('src_serp', primary.id, () =>
-    collectors.serp.collect(ctx, {
-      queryId: primary.id,
-      queryText: primary.query_text,
-      opportunityId: opp.id,
-      marketCountry: opp.market_country,
-      researchLanguage: opp.research_language,
-      depth: serpDepth,
-    })
-  );
+  // Phase 4 分层轮询：基线期每天抓（否则任何机会都攒不够 14 天，门槛变成永动机）；
+  // 基线之后按周抽稀，Autocomplete 顺位跳变时额外触发一次。
+  // 抽稀是**计划复用**，不是采集失败——两者在账本里必须能区分。
+  const sampling = await decideSerpSampling(primary.id, obsDate).catch(() => null);
+  const planCollect = sampling?.collect ?? true;
 
-  const serpStale = serpOutcome.status === 'OK' ? null : await loadStaleSerp(primary.id, obsDate);
-  if (serpStale) {
+  const serpOutcome = planCollect
+    ? await runCollector('src_serp', primary.id, () =>
+        collectors.serp.collect(ctx, {
+          queryId: primary.id,
+          queryText: primary.query_text,
+          opportunityId: opp.id,
+          marketCountry: opp.market_country,
+          researchLanguage: opp.research_language,
+          depth: serpDepth,
+        })
+      )
+    : ({
+        status: 'SKIPPED',
+        reason: 'SAMPLING_THINNED',
+        cost: undefined,
+      } as unknown as Awaited<ReturnType<SerpCollector['collect']>>);
+
+  const plannedReuse = !planCollect;
+  const serpStale =
+    serpOutcome.status === 'OK'
+      ? null
+      : await loadStaleSerp(
+          primary.id,
+          obsDate,
+          // 计划复用要覆盖整个抽稀间隔；故障降级仍用 72h。
+          plannedReuse ? (THINNED_INTERVAL_DAYS + 1) * 24 : undefined
+        );
+  if (serpStale && !plannedReuse) {
     staleSources.push('SERP');
     await recordStaleDataEvent({
       obsDate,
@@ -316,6 +338,12 @@ export async function observeOpportunity(
     }
   }
 
+  if (plannedReuse && serpStale) {
+    console.log(
+      `[pipeline:collector] SERP planned reuse for "${primary.query_text}" (${sampling?.reason}) using ${serpStale.observedDate} snapshot`
+    );
+  }
+
   if (serpOutcome.status !== 'OK' && !serpStale) {
     const outcomeDetails = 'message' in serpOutcome ? (serpOutcome as any).message : (serpOutcome as any).reason;
     console.warn(
@@ -343,9 +371,10 @@ export async function observeOpportunity(
       organicItems = serpSnap.data.items || [];
       rankIndex = serpSnap.data.rankIndex;
       const snapRes = await query<{ id: string }>(
-        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider, raw_payload_id, weakness_score)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO serp_snapshots (id, query_id, obs_date, weak_result_ratio, depth, result_count, provider, raw_payload_id, weakness_score, sampling_reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (query_id, obs_date) DO UPDATE SET
+           sampling_reason = EXCLUDED.sampling_reason,
            weak_result_ratio = EXCLUDED.weak_result_ratio,
            depth = EXCLUDED.depth,
            result_count = EXCLUDED.result_count,
@@ -367,6 +396,8 @@ export async function observeOpportunity(
           serpSnap.data.provider ?? 'UNKNOWN',
           serpRawPayloadId,
           serpSnap.data.weaknessScore ?? null,
+          // 回测必须知道这天是“计划抓的”还是“事件触发的”，否则会把抽样当成随机缺失。
+          sampling?.reason ?? null,
         ]
       );
       const snapshotId = snapRes.rows[0]?.id || serpSnap.key;
