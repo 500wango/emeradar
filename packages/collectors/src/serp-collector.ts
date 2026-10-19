@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { calculateSerpWeakness, ResultType, SerpItemInput } from '@emeradar/scoring';
+import {
+  calculateSerpWeakness,
+  classifyAuthority,
+  classifyPage,
+  ResultType,
+  SerpItemInput,
+  PAGE_CLASSIFIER_VERSION,
+} from '@emeradar/scoring';
 import {
   Collector,
   CollectOutcome,
@@ -26,6 +33,9 @@ export interface SerpCollectedItem {
   title: string;
   snippet: string;
   resultType: ResultType;
+  /** 页面种类（确定性分类器），落库后可按版本重算。 */
+  pageKind?: string;
+  classifierVersion?: string;
   domainAuthorityClass: string;
   isWeak: boolean;
   weaknessType?: string;
@@ -213,6 +223,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           title: raw.title,
           snippet: raw.snippet,
           resultType: raw.resultType,
+          pageKind: this.classifyItem(raw.url, raw.title, raw.snippet).kind,
+          classifierVersion: PAGE_CLASSIFIER_VERSION,
           domainAuthorityClass: this.classifyDomainAuthority(raw.domain),
           isWeak: scored ? scored.isWeak : false,
           weaknessType: scored ? scored.weaknessType : undefined,
@@ -319,43 +331,11 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   }
 
   private classifyDomainAuthority(domain: string): string {
-    const d = domain.toLowerCase();
-    if (
-      d.includes('wikipedia.org') ||
-      d.includes('amazon.') ||
-      d.includes('nytimes.com') ||
-      d.includes('forbes.com') ||
-      d.includes('microsoft.com')
-    ) {
-      return 'HIGH_AUTHORITY_GENERIC';
-    }
-    if (
-      d.includes('reddit.com') ||
-      d.includes('quora.com') ||
-      d.includes('stackoverflow.com') ||
-      d.includes('news.ycombinator.com')
-    ) {
-      return 'COMMUNITY_FORUM';
-    }
-    if (
-      d.includes('capterra.com') ||
-      d.includes('g2.com') ||
-      d.includes('softwareadvice.com') ||
-      d.includes('trustpilot.com')
-    ) {
-      return 'AGGREGATOR';
-    }
-    if (
-      d.includes('github.io') ||
-      d.includes('vercel.app') ||
-      d.includes('.dev') ||
-      d.includes('.tools') ||
-      d.includes('tool')
-    ) {
-      return 'INDEPENDENT_MICRO';
-    }
-    return 'SPECIALIST';
+    // 与页面分类共用同一份注册表：两处各判各的正是 LinkedIn 一边 SPECIALIST
+    // 一边 COMMUNITY_FORUM 的原因。
+    return classifyAuthority(`https://${domain}/`, domain);
   }
+
 
   private async fetchSerp(
     query: string,
@@ -465,26 +445,16 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
   }
 
   private inferResultType(url: string, title: string, snippet: string): ResultType {
-    const text = `${url} ${title} ${snippet}`.toLowerCase();
-    if (text.includes('reddit.com') || text.includes('quora.com') || text.includes('forum')) {
-      return 'UGC_THREAD';
-    }
-    if (text.includes('best ') && (text.includes('2025') || text.includes('2026') || text.includes('reviews'))) {
-      return 'LISTICLE_AFFILIATE';
-    }
-    if (text.includes('quora.com') || text.includes('answers') || text.includes('q&a')) {
-      return 'QA';
-    }
-    if (text.includes('youtube.com') || text.includes('vimeo.com')) {
-      return 'VIDEO';
-    }
-    if (text.includes('docs.') || text.includes('documentation') || text.includes('/wiki/')) {
-      return 'DOC';
-    }
-    if (text.includes('official site') || text.includes('home page') || text.includes('login')) {
-      return 'OFFICIAL';
-    }
-    return 'SPECIALIST';
+    // 分类只有一处实现（`@emeradar/scoring/page-classifier`）：确定性注册表 +
+    // 路径/标题证据，未知即 UNCLASSIFIED。旧的 substring 匹配（`includes('login')`）
+    // 与 SPECIALIST 默认值会把 wix.com、LinkedIn 判成正面竞争。
+    return classifyPage(url, title, snippet).resultType;
   }
+
+  /** 页面种类与分类器版本一起返回，落库后历史可按版本分组重算。 */
+  private classifyItem(url: string, title: string, snippet: string) {
+    return classifyPage(url, title, snippet);
+  }
+
 
 }

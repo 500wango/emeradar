@@ -15,6 +15,10 @@ export type AxisBand = Band;
 
 export type ResultType =
   | 'SPECIALIST'
+  /** 泛平台落地页（wix/squarespace）：占位，但不是同类竞品。 */
+  | 'GENERIC_PLATFORM'
+  /** 托管/基础设施服务商：同上。 */
+  | 'HOSTING_SERVICE'
   | 'OFFICIAL'
   | 'EDITORIAL_MEDIA'
   | 'LISTICLE_AFFILIATE'

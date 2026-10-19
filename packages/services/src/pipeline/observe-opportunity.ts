@@ -410,8 +410,9 @@ export async function observeOpportunity(
           await client.query(
             `INSERT INTO serp_results (
               serp_snapshot_id, rank, url, domain, title, snippet,
-              result_type, domain_authority_class, is_weak, weakness_type
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              result_type, domain_authority_class, is_weak, weakness_type,
+              page_kind, classifier_version
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
               snapshotId,
               item.rank,
@@ -423,6 +424,8 @@ export async function observeOpportunity(
               item.domainAuthorityClass,
               item.isWeak,
               item.weaknessType || null,
+              item.pageKind ?? null,
+              item.classifierVersion ?? null,
             ]
           );
         }

@@ -10,6 +10,10 @@ const RANK_WEIGHTS = [0.20, 0.15, 0.12, 0.10, 0.09, 0.08, 0.07, 0.07, 0.06, 0.06
 const BASE_WEAKNESS_MAP: Record<ResultType, number> = {
   SPECIALIST: 0.0,
   OFFICIAL: 0.0,
+  // 泛平台页与托管商页占着一个位置，却没有为这个需求做产品：这是可穿透的弱点，
+  // 但不该和 UGC 一样高——它至少是个正经商业站点。
+  GENERIC_PLATFORM: 0.7,
+  HOSTING_SERVICE: 0.55,
   EDITORIAL_MEDIA: 0.2,
   LISTICLE_AFFILIATE: 0.3,
   DIRECTORY: 0.3,
@@ -91,6 +95,8 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
     let weaknessType: string | undefined;
     if (item.resultType === 'UGC_THREAD' || item.resultType === 'QA') {
       weaknessType = 'FORUM_OR_QA';
+    } else if (item.resultType === 'GENERIC_PLATFORM' || item.resultType === 'HOSTING_SERVICE') {
+      weaknessType = 'GENERIC_PLATFORM';
     } else if (item.resultType === 'THIN_PAGE') {
       weaknessType = 'THIN_PAGE';
     } else if (item.resultType === 'OFF_TOPIC') {

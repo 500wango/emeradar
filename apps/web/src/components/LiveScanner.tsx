@@ -74,6 +74,59 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
           : `What is observable right now, not a build recommendation. ${card.verdictEta.reason}`}
       </p>
 
+      {/* 意图：这个词到底是不是“想买工具”。信息型 SERP 是最容易被误读成机会的情况。 */}
+      <div
+        className={cn(
+          'mt-3 rounded-sm border p-3',
+          card.intent.intentFit === 'TOOL_INTENT'
+            ? 'border-signal/30 bg-signal/5'
+            : card.intent.intentFit === 'INFORMATIONAL'
+            ? 'border-warn/40 bg-warn/10'
+            : 'border-line bg-surface'
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-fg-subtle">
+            {isZh ? '意图判断' : 'INTENT'}
+          </span>
+          <Badge
+            tone={
+              card.intent.intentFit === 'TOOL_INTENT'
+                ? 'signal'
+                : card.intent.intentFit === 'INFORMATIONAL'
+                ? 'warn'
+                : 'neutral'
+            }
+            size="sm"
+          >
+            {card.intent.intentFit}
+          </Badge>
+          <span className="font-mono text-[11px] text-fg-subtle">
+            {isZh
+              ? `工具页 ${card.intent.signals.dedicatedToolPages}/${card.intent.signals.distinctDomains}`
+              : `${card.intent.signals.dedicatedToolPages}/${card.intent.signals.distinctDomains} tool pages`}
+            {card.intent.signals.pricedDomains > 0
+              ? isZh
+                ? ` · ${card.intent.signals.pricedDomains} 家在收费`
+                : ` · ${card.intent.signals.pricedDomains} charging`
+              : ''}
+          </span>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-fg-muted">
+          {card.intent.intentFit === 'INFORMATIONAL'
+            ? isZh
+              ? '这个词的 SERP 主要被社区帖、内容页和泛平台占据，几乎没有专属工具页——用户更可能在找“怎么做”，而不是找工具。做工具前先确认购买意图。'
+              : 'This SERP is mostly UGC, content and generic platform pages with almost no dedicated tool pages — the user is likely looking for how, not for a tool. Confirm purchase intent before building.'
+            : card.intent.intentFit === 'TOOL_INTENT'
+            ? isZh
+              ? 'SERP 里有明确的专属工具页，且通常有人在收费——这与“工具需求”一致。'
+              : 'Dedicated tool pages rank here and some charge money — consistent with tool demand.'
+            : isZh
+              ? '证据不足以判断这是购买意图还是信息意图，继续观察。'
+              : 'Not enough evidence to call this purchase or informational intent. Keep observing.'}
+        </p>
+      </div>
+
       {/* SERP 弱点 */}
       <div className="mt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -85,8 +138,8 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
           {serp.available ? (
             <span className="font-mono text-[11px] text-fg-subtle">
               {isZh
-                ? `${serp.weakCount}/${serp.items.length} 个弱页 · 弱点率 ${Math.round(serp.weakRatio * 100)}%`
-                : `${serp.weakCount}/${serp.items.length} weak · ${Math.round(serp.weakRatio * 100)}%`}
+                ? `${serp.positions} 个位置 · ${serp.distinctDomains} 个域名 · ${serp.dedicatedToolPages} 个工具页 · ${serp.weakCount} 个弱页`
+                : `${serp.positions} positions · ${serp.distinctDomains} domains · ${serp.dedicatedToolPages} tool pages · ${serp.weakCount} weak`}
               {serp.provider ? ` · ${serp.provider}` : ''}
             </span>
           ) : (

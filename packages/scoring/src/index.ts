@@ -1,6 +1,7 @@
 export * from './types';
 export * from './version';
 export * from './serp';
+export * from './page-classifier';
 export * from './demand';
 export * from './window';
 export * from './commercial';

@@ -10,6 +10,7 @@ import {
 import type { CommercialStage } from '@emeradar/core';
 import type { ResultType } from '@emeradar/scoring';
 import { EXTRACTOR_VERSIONS } from './evidence-version';
+import { evaluateIntentFit, type IntentDecision } from './intent-fit.service';
 import { storeRawPayload } from './raw-payload.service';
 import { storeHtmlDerivative } from './html-derivative.service';
 
@@ -56,6 +57,8 @@ export interface ObservationSerpItem {
   domain: string;
   title: string;
   resultType: ResultType;
+  /** 确定性分类器给出的页面种类。 */
+  pageKind?: string;
   domainAuthorityClass: string;
   isWeak: boolean;
   weaknessType?: string;
@@ -90,11 +93,23 @@ export interface ObservationCard {
     provider: string | null;
     depth: number;
     items: ObservationSerpItem[];
+    /** 位置数（可能同一域名占多个位）。 */
+    positions: number;
+    /** 去重后的竞争者数：弱点率必须用它做分母。 */
+    distinctDomains: number;
+    /** 每个位置都被同域重复占用时，位置数会夸大竞争面。 */
+    duplicatePositions: number;
     weakCount: number;
     weakRatio: number;
     weaknessScore: number | null;
+    /** 页面种类分布（确定性分类器）。 */
+    pageKindCounts: Record<string, number>;
+    /** Top10 里“为这个需求做的产品页”数量。 */
+    dedicatedToolPages: number;
     note: string;
   };
+  /** 意图适配：这个词到底是不是工具需求。 */
+  intent: IntentDecision;
   pricing: {
     probed: number;
     priced: number;
@@ -126,6 +141,21 @@ function domainOf(url: string): string {
   } catch {
     return '';
   }
+}
+
+/** 位置 vs 去重竞争者：同一个域名占两个位置时，竞争面被夸大了。 */
+function serpStats(items: ObservationSerpItem[], rawKinds: string[]) {
+  const domains = items.map((item) => item.domain || domainOf(item.url)).filter(Boolean);
+  const distinctDomains = new Set(domains).size;
+  const pageKindCounts: Record<string, number> = {};
+  for (const kind of rawKinds) pageKindCounts[kind] = (pageKindCounts[kind] ?? 0) + 1;
+  return {
+    positions: items.length,
+    distinctDomains,
+    duplicatePositions: Math.max(0, items.length - distinctDomains),
+    pageKindCounts,
+    dedicatedToolPages: rawKinds.filter((kind) => kind === 'DEDICATED_TOOL').length,
+  };
 }
 
 function isSkipped(domain: string): boolean {
@@ -204,8 +234,8 @@ async function persistSerpObservation(
   await query(`DELETE FROM serp_results WHERE serp_snapshot_id = $1`, [snapshotId]);
   for (const item of (snap.data.items ?? []) as any[]) {
     await query(
-      `INSERT INTO serp_results (serp_snapshot_id, rank, url, domain, title, snippet, result_type, domain_authority_class, is_weak, weakness_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `INSERT INTO serp_results (serp_snapshot_id, rank, url, domain, title, snippet, result_type, domain_authority_class, is_weak, weakness_type, page_kind, classifier_version)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         snapshotId,
         item.rank,
@@ -217,6 +247,8 @@ async function persistSerpObservation(
         item.domainAuthorityClass,
         item.isWeak,
         item.weaknessType || null,
+        item.pageKind ?? null,
+        item.classifierVersion ?? null,
       ]
     );
   }
@@ -403,6 +435,17 @@ export async function collectObservationCard(
   const infraOnly = pricing.filter((row) => row.plans.length === 0 && row.gateways.length > 0).length;
   const blocked = pricing.filter((row) => row.status === 'BLOCKED' || row.status === 'ROBOTS').length;
 
+  const rawKinds = ((snap?.data?.items ?? []) as any[]).map(
+    (item) => item.pageKind ?? item.resultType ?? 'UNCLASSIFIED'
+  );
+  const stats = serpStats(items, rawKinds);
+  const intent = evaluateIntentFit({
+    query: input.query,
+    pageKinds: rawKinds,
+    pricedDomains: priced,
+    blockedDomains: blocked,
+  });
+
   return {
     kind: 'OBSERVATION',
     observedAt: new Date().toISOString(),
@@ -421,6 +464,7 @@ export async function collectObservationCard(
       provider: persisted.provider,
       depth: (snap?.data?.depth ?? 10) as number,
       items,
+      ...stats,
       weakCount: items.filter((item) => item.isWeak).length,
       weakRatio: (snap?.data?.weakResultRatio ?? 0) as number,
       weaknessScore: persisted.weaknessScore,
@@ -429,6 +473,7 @@ export async function collectObservationCard(
           ? 'Google organic Top 10 as returned by the configured provider.'
           : 'No organic SERP provider returned results. Competition is unknown, not weak.',
     },
+    intent,
     pricing: {
       probed: pricing.length,
       priced,
@@ -459,7 +504,8 @@ export async function loadObservationCard(
 ): Promise<ObservationCard> {
   const itemsRes = queryId
     ? await query<any>(
-        `SELECT sr.rank, sr.url, sr.domain, sr.title, sr.result_type, sr.domain_authority_class, sr.is_weak, sr.weakness_type
+        `SELECT sr.rank, sr.url, sr.domain, sr.title, sr.result_type, sr.page_kind,
+                sr.domain_authority_class, sr.is_weak, sr.weakness_type
            FROM serp_results sr
            JOIN serp_snapshots ss ON ss.id = sr.serp_snapshot_id
           WHERE ss.query_id = $1
@@ -504,6 +550,7 @@ export async function loadObservationCard(
     domain: row.domain,
     title: row.title,
     resultType: row.result_type,
+    pageKind: row.page_kind ?? undefined,
     domainAuthorityClass: row.domain_authority_class,
     isWeak: row.is_weak,
     weaknessType: row.weakness_type ?? undefined,
@@ -539,6 +586,15 @@ export async function loadObservationCard(
     };
   });
 
+  const rawKinds = itemsRes.rows.map((row) => row.page_kind ?? row.result_type ?? 'UNCLASSIFIED');
+  const stats = serpStats(items, rawKinds);
+  const intent = evaluateIntentFit({
+    query: queryText,
+    pageKinds: rawKinds,
+    pricedDomains: pricing.filter((row) => row.plans.length > 0).length,
+    blockedDomains: pricing.filter((row) => row.status === 'BLOCKED' || row.status === 'ROBOTS').length,
+  });
+
   const snapshot = snapshotRes.rows[0];
   return {
     kind: 'OBSERVATION',
@@ -558,6 +614,7 @@ export async function loadObservationCard(
       provider: snapshot?.provider ?? null,
       depth: snapshot?.depth ?? 10,
       items,
+      ...stats,
       weakCount: items.filter((item) => item.isWeak).length,
       weakRatio: Number(snapshot?.weak_result_ratio ?? 0),
       weaknessScore: snapshot?.weakness_score !== null && snapshot?.weakness_score !== undefined
@@ -576,6 +633,7 @@ export async function loadObservationCard(
       domains: pricing,
       note: 'Public pricing observation only. Absence of pricing is not proof of no willingness to pay.',
     },
+    intent,
     verdictEta: {
       needsAutocompleteDays: 14,
       needsSerpDays: 14,
