@@ -1,4 +1,4 @@
-import { closePool } from '@emeradar/db';
+import { closePool, query } from '@emeradar/db';
 import { TASKS, findTask } from './tasks';
 import { checkWorkerHealth, startScheduler } from './queue';
 
@@ -58,8 +58,26 @@ async function main() {
  * 常驻模式。**不走**上面那个 `finally`：连接池在常驻进程里是长期资源，任务还会
  * 一直用它，关掉它等于让调度器活着但什么也干不了。
  */
+async function seedIfCandidatePoolEmpty(): Promise<void> {
+  try {
+    const res = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM opportunities
+        WHERE status = 'CANDIDATE' AND COALESCE(is_demo, false) = false`
+    );
+    if ((res.rows[0]?.n ?? 0) > 0) return;
+    const task = findTask('seed-keywords');
+    if (!task) return;
+    console.log('[cli] 候选池为空，启动时补一次 seed-keywords...');
+    await task.run([], { trigger: 'cli' });
+  } catch (error) {
+    // 补种失败不能阻止 worker 起服务；排期任务仍会按 cron 重试。
+    console.warn('[cli] 启动补种失败：', error instanceof Error ? error.message : error);
+  }
+}
+
 async function runResident() {
   const scheduler = await startScheduler();
+  await seedIfCandidatePoolEmpty();
   let stopping = false;
   const shutdown = async (signal: string) => {
     if (stopping) return;
