@@ -502,13 +502,49 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
       'Business', 'Team', 'Scale', 'Plus', 'Premium', 'Enterprise', 'Agency',
     ];
 
+    // 金额解析。
+    //  - "8,99"（欧陆写法）是 8.99，不是 899；
+    //  - "1,299"（英语写法）是 1299，不是 1.299；
+    //  - "8.99" 原样。
+    // 判据只看小数点后是否恰好两位。
+    const parseAmount = (raw: string): number => {
+      const cleaned = raw.trim();
+      if (/,\d{2}$/.test(cleaned)) return Number(cleaned.replace(/\./g, '').replace(',', '.'));
+      return Number(cleaned.replace(/,/g, ''));
+    };
+
     const readPrice = (windowText: string): { price: number; currency: string; period: string } | null => {
-      const pricePattern = /(?:US)?\$\s*(\d{1,5}(?:[.,]\d{1,2})?)|€\s*(\d{1,5}(?:[.,]\d{1,2})?)|£\s*(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s*(?:USD|EUR|GBP|\$|€|£)/i;
+      // 四个分支：$金额 / €金额 / £金额 / 金额+货币词。
+      // **货币必须由「命中了哪个分支」决定**，不能从捕获的金额里取——这里曾经写成
+      // `currency = match[1]`，而 match[1] 是金额，于是界面渲染出 "8.998.99"。
+      // 金额 token 必须容纳千分位（1,299）与两位小数（8.99 / 8,99）：
+      // 旧写法 `\d{1,5}(?:[.,]\d{1,2})?` 会把 "1,299" 截成 "1,29"。
+      const AMOUNT = '(\\d{1,3}(?:[.,]\\d{3})*(?:[.,]\\d{1,2})?)';
+      const pricePattern = new RegExp(
+        `(?:US)?\\$\\s*${AMOUNT}|€\\s*${AMOUNT}|£\\s*${AMOUNT}|${AMOUNT}\\s*(USD|EUR|GBP|\\$|€|£)`,
+        'i'
+      );
       const match = pricePattern.exec(windowText);
       if (!match) return null;
-      const currency = match[1] || (match[2] ? '€' : match[3] ? '£' : '$');
-      const raw = match[1] || match[2] || match[3] || match[4];
-      const price = Number(raw.replace(',', '.'));
+
+      let currency: string;
+      let raw: string;
+      if (match[1]) {
+        currency = '$';
+        raw = match[1];
+      } else if (match[2]) {
+        currency = '€';
+        raw = match[2];
+      } else if (match[3]) {
+        currency = '£';
+        raw = match[3];
+      } else {
+        raw = match[4];
+        const token = (match[5] ?? '').toUpperCase();
+        currency = token === 'EUR' || token === '€' ? '€' : token === 'GBP' || token === '£' ? '£' : '$';
+      }
+
+      const price = parseAmount(raw);
       if (!Number.isFinite(price) || price <= 0) return null;
       const after = windowText.slice(match.index, match.index + 80);
       const periodMatch = /(\/\s*(?:mo|month)|per\s+month|monthly|\/\s*(?:yr|year)|per\s+year|annual|yearly)/i.exec(after);

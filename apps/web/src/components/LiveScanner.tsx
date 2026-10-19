@@ -29,6 +29,15 @@ type RadarState =
  * 它**不是裁决**。界面必须把这句话写在最显眼的位置——否则用户会把“Top10 有 4 个弱页”
  * 读成“建议现在做”，而后者需要 14 天历史。
  */
+/** 价格展示：货币符号与金额必须分开，金额缺失时明确显示 ?，不拼接。 */
+function formatPrice(plan: { currency?: string; priceMonthly?: number }): string {
+  const symbol = typeof plan.currency === 'string' && plan.currency.length <= 3 ? plan.currency : '';
+  const amount = typeof plan.priceMonthly === 'number' && Number.isFinite(plan.priceMonthly)
+    ? plan.priceMonthly
+    : null;
+  return amount === null ? `${symbol}?` : `${symbol}${amount}`;
+}
+
 function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean }) {
   const serp = card.serp;
   const pricing = card.pricing;
@@ -69,7 +78,9 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
       <div className="mt-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h4 className="text-xs font-bold text-fg">
-            {isZh ? 'Google Top 10 竞争面' : 'Google Top 10 competition'}
+            {isZh
+              ? `Google Top ${serp.items.length || 10} 竞争面`
+              : `Google Top ${serp.items.length || 10} competition`}
           </h4>
           {serp.available ? (
             <span className="font-mono text-[11px] text-fg-subtle">
@@ -148,7 +159,7 @@ function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean
                   <span className="text-fg-muted">
                     {row.plans
                       .slice(0, 3)
-                      .map((plan) => `${plan.name} ${plan.currency}${plan.priceMonthly ?? '?'}`)
+                      .map((plan) => `${plan.name} ${formatPrice(plan)}`)
                       .join(' · ')}
                   </span>
                 )}
