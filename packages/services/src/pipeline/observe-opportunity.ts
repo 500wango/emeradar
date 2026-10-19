@@ -23,6 +23,8 @@ import {
   emitNegativesFromDiff,
   factsFromCrawl,
   hasFreshCommercialSnapshot,
+  getCommercialTargetUrl,
+  hasRecentBlockedCommercialSnapshot,
   writeCommercialSnapshot,
   writeFailedCommercialSnapshot,
 } from './commercial-assembly';
@@ -836,10 +838,17 @@ async function crawlCommercialDomains(
     }
     if (considered.size >= COMMERCIAL_MAX_TARGETS_PER_OPP) break;
     considered.add(domain);
-    const targetUrl = `https://${domain}/pricing`;
 
     // 07 §7 validates persistence weekly; re-fetching the same domains daily buys nothing.
     if (await hasFreshCommercialSnapshot(domain, obsDate, COMMERCIAL_STALENESS_DAYS)) continue;
+    // 404 是目标站点事实，不是采集源故障；7 天内不重复打同一个死链接。
+    if (await hasRecentBlockedCommercialSnapshot(domain, obsDate, 7)) continue;
+
+    const knownTargetUrl = await getCommercialTargetUrl(domain);
+    const targetUrl =
+      knownTargetUrl && !/^https?:\/\/[^/]+\/pricing\/?$/i.test(knownTargetUrl)
+        ? knownTargetUrl
+        : await crawl.discoverPricingUrl(domain);
 
     attempted += 1;
     const outcome = await runCollector(

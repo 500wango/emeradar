@@ -172,6 +172,35 @@ export async function writeFailedCommercialSnapshot(
 }
 
 /** A target with a successful read inside the window does not need to be re-crawled today. */
+/** 已发现过的目标 URL（例如从首页找到的 /plans），避免每天重新猜 /pricing。 */
+export async function getCommercialTargetUrl(domain: string): Promise<string | null> {
+  const res = await query<{ target_url: string }>(
+    `SELECT target_url FROM commercial_targets WHERE lower(domain) = lower($1) LIMIT 1`,
+    [domain]
+  );
+  return res.rows[0]?.target_url ?? null;
+}
+
+/** 最近 N 天内已确认 404 的目标不再每天重试，避免重复烧请求。 */
+export async function hasRecentBlockedCommercialSnapshot(
+  domain: string,
+  obsDate: string,
+  withinDays: number
+): Promise<boolean> {
+  const res = await query<{ one: number }>(
+    `SELECT 1 AS one
+       FROM commercial_snapshots cs
+       JOIN commercial_targets ct ON ct.id = cs.commercial_target_id
+      WHERE lower(ct.domain) = lower($1)
+        AND cs.fetch_status = 'BLOCKED_404'
+        AND cs.obs_date <= $2::date
+        AND cs.obs_date > $2::date - $3::int
+      LIMIT 1`,
+    [domain, obsDate, withinDays]
+  );
+  return res.rows.length > 0;
+}
+
 export async function hasFreshCommercialSnapshot(
   domain: string,
   obsDate: string,

@@ -83,6 +83,41 @@ export class CrawlCollector implements Collector<CrawlTarget[], CrawlTarget> {
     };
   }
 
+  /**
+   * 从首页找 pricing/plans/billing 链接，减少盲猜 `/pricing` 造成的 404。
+   * 找不到或首页不可读时回退 `/pricing`；这里只做一次静态首页读取，不递归爬站。
+   */
+  async discoverPricingUrl(domain: string): Promise<string> {
+    const fallback = `https://${domain}/pricing`;
+    try {
+      const html = await this.fetchPublicHtml(`https://${domain}/`);
+      const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+      let best: { url: string; score: number } | null = null;
+      for (const match of links) {
+        const href = match[1];
+        const text = match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        let url: URL;
+        try {
+          url = new URL(href, `https://${domain}/`);
+        } catch {
+          continue;
+        }
+        if (url.hostname !== domain && !url.hostname.endsWith(`.${domain}`)) continue;
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+        const path = url.pathname.toLowerCase();
+        let score = 0;
+        if (/pricing|price/.test(path)) score += 4;
+        if (/plans?|billing|upgrade|subscribe/.test(path)) score += 2;
+        if (/pricing|price|plan|billing|upgrade/.test(text)) score += 2;
+        if (score <= 0) continue;
+        if (!best || score > best.score) best = { url: url.toString(), score };
+      }
+      return best?.url ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async collect(ctx: RunContext, item: CrawlTarget): Promise<CollectOutcome> {
     // 1. Budget Guard Check
     if (!ctx.budget.canSpend(this.costTier1Usd)) {
