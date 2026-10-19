@@ -972,6 +972,9 @@ export interface TranslationDictionary {
     readyDesc: string;
     createProject: string;
     decisionBasisTitle: string;
+    conclusionLabel: string;
+    conclusionNoVerdict: string;
+    conclusionNoBasis: string;
     staleDataTitle: string;
     staleDataDesc: string;
     staleDataSources: string;

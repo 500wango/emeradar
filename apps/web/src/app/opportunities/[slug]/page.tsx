@@ -152,6 +152,20 @@ export default async function OpportunityWorkspacePage({
 
   const weakCount = serpResults.filter((r: any) => r.is_weak).length;
 
+  /**
+   * 一句话结论。
+   *
+   * 只从账本已有的字段拼：裁决 + 依据是否留存 + 为什么是现在。
+   * 没有留存依据时不假装有结论——那正是这个产品最不能犯的错。
+   */
+  const conclusionSentence = !latestVerdict
+    ? t('opportunityWorkspace.conclusionNoVerdict')
+    : !basisRetained
+    ? t('opportunityWorkspace.conclusionNoBasis')
+    : `${verdictLabel(latestVerdict.verdict)}${
+        opportunity.why_now_summary ? ` —— ${opportunity.why_now_summary.split(/(?<=[.。！？])\s/)[0]}` : ''
+      }`;
+
   return (
     <PageFrame width="full">
       {/* Back to Feed Link */}
@@ -218,6 +232,17 @@ export default async function OpportunityWorkspacePage({
             </code>
           </div>
           <OpportunityFeedback opportunityId={opportunity.id} />
+        </div>
+
+        {/* 结论优先：先一句话说清“该不该做”，再给依据。
+            没有已留存依据时如实说明，不假装有结论。 */}
+        <div className="pt-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fg-subtle">
+            {t('opportunityWorkspace.conclusionLabel')}
+          </p>
+          <p className="mt-1.5 text-base font-semibold leading-relaxed text-fg">
+            {conclusionSentence}
+          </p>
         </div>
 
         {/* D-M-W Metric Cards */}
