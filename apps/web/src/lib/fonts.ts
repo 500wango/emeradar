@@ -1,34 +1,35 @@
-import { Inter, JetBrains_Mono, Syne } from 'next/font/google';
+import localFont from 'next/font/local';
 
 /**
- * Only Latin-script webfonts are self-hosted here (~130 KB total).
+ * Self-hosted Latin webfonts.
  *
- * CJK stays on system fonts on purpose: `next/font/google` has no
- * `chinese-simplified` subset for Noto Sans/Serif SC, so it downloads all 101
- * unicode-range slices at build time (~4.3 MB and ~5.75 MB respectively) and
- * makes the browser fetch several MB for a Chinese landing page — which blows
- * the FCP budget in docs/16 §5. The CJK fallback stacks live in globals.css.
+ * These used to come from `next/font/google`, which fetches fonts from
+ * fonts.gstatic.com **at build time**. That made every Docker build depend on
+ * Google's availability: a transient font response failed the entire deploy
+ * (`TypeError: Cannot read properties of null (reading '1')` in next/font's
+ * loader) even though no application code had changed.
  *
- * These variables are consumed by `fontFamily` in tailwind.config.ts and must
- * be mounted on <html> so they resolve at the `:root` level.
+ * The `.woff2` files in `./fonts/` are the Latin subsets of the same OFL
+ * families. CJK still uses system fonts; see globals.css for the fallback stack.
  */
 
-export const fontSans = Inter({
-  subsets: ['latin'],
+export const fontSans = localFont({
+  src: './fonts/inter-latin.woff2',
+  weight: '100 900',
   display: 'swap',
   variable: '--font-sans',
 });
 
-export const fontDisplay = Syne({
-  subsets: ['latin'],
-  weight: ['600', '700', '800'],
+export const fontDisplay = localFont({
+  src: './fonts/syne-latin.woff2',
+  weight: '600 800',
   display: 'swap',
   variable: '--font-display',
 });
 
-export const fontMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
+export const fontMono = localFont({
+  src: './fonts/mono-latin.woff2',
+  weight: '400 700',
   display: 'swap',
   variable: '--font-mono',
 });
