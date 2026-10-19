@@ -50,6 +50,7 @@ export * from './sampling-policy.service';
 export * from './html-derivative.service';
 export * from './observation-card.service';
 export * from './intent-fit.service';
+export * from './scan-verdict.service';
 export * from './custom-query-radar.service';
 export * from './external-demand.service';
 export * from './query-intent';

@@ -14,6 +14,11 @@ import {
   loadObservationCard,
   type ObservationCard,
 } from './observation-card.service';
+import {
+  evaluateScanVerdict,
+  findKnownNeighbors,
+  type ScanVerdictResult,
+} from './scan-verdict.service';
 
 export interface LiveScanResult {
   opportunityId: string;
@@ -41,6 +46,13 @@ export interface LiveScanResult {
    * 它**不是裁决**，也永远不会被当成裁决——裁决仍需要 14 天历史。
    */
   observation: ObservationCard;
+  /**
+   * 三态判断：做 / 不做 / 还不行。
+   *
+   * 这是扫码的**唯一主输出**。`observation` 只是它的依据之一，
+   * 不再作为给用户看的信息面板存在。
+   */
+  verdictFit: ScanVerdictResult;
 }
 
 /** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
@@ -54,6 +66,55 @@ import { classifyQueryIntent } from './query-intent';
  * 刻意把 `available=false` 与“观测到没有竞争”区分开：前者是“不知道”，
  * 如果渲染成“Top10 干净”，就等于把采集失败说成了机会。
  */
+/**
+ * 给“不做 / 还不行”补上库里真实观测过的同族词。
+ *
+ * 优先用已有观测的词（可在库里核对），没有才保留启发式建议——并且照样标注来源。
+ */
+async function attachRealAlternatives(
+  result: ScanVerdictResult,
+  query: string
+): Promise<ScanVerdictResult> {
+  if (result.verdict === 'BUILD') return result;
+  try {
+    const known = await findKnownNeighbors(query);
+    if (known.length === 0) return result;
+    const real = known.slice(0, 3).map((text) => ({ query: text, why: '库里已有观测的同族词' }));
+    const seen = new Set(real.map((row) => row.query));
+    const merged = [...real, ...result.alternatives.filter((row) => !seen.has(row.query))].slice(0, 3);
+    return { ...result, alternatives: merged };
+  } catch {
+    return result;
+  }
+}
+
+/** 从观测卡抽出三态判断所需的信号；替代词由调用方补。 */
+function verdictFromCard(card: ObservationCard, query: string): ScanVerdictResult {
+  const priced = card.pricing.domains
+    .filter((row) => row.plans.length > 0)
+    .map((row) => {
+      const prices = row.plans
+        .map((plan) => plan.priceMonthly)
+        .filter((price): price is number => typeof price === 'number' && Number.isFinite(price));
+      return {
+        domain: row.domain,
+        minPrice: prices.length > 0 ? Math.min(...prices) : null,
+        currency: row.plans[0]?.currency ?? '$',
+      };
+    });
+
+  return evaluateScanVerdict({
+    query,
+    intent: card.intent,
+    priced,
+    probedDomains: card.pricing.probed,
+    blockedDomains: card.pricing.blocked,
+    competitors: card.serp.distinctDomains,
+    weakDomains: card.serp.weakDomains,
+    dedicatedToolPages: card.serp.dedicatedToolPages,
+  });
+}
+
 function emptyObservation(query: string, market: string, language: string): ObservationCard {
   return {
     kind: 'OBSERVATION',
@@ -163,6 +224,13 @@ export class LiveScanService {
 
     if (existing.rows.length > 0) {
       const r = existing.rows[0];
+      const observation = await loadObservationCard(
+        r.opportunity_id,
+        r.primary_query_id ?? null,
+        r.primary_query,
+        r.market_country,
+        r.research_language
+      ).catch(() => emptyObservation(r.primary_query, r.market_country, r.research_language));
       // 长尾词与报告、点火包同源：只读 opportunity_queries 里已入库的簇内词。
       const clusterWords = (
         await query<{ query_text: string }>(
@@ -195,13 +263,11 @@ export class LiveScanService {
         suggestions: clusterWords,
         isNew: false,
         status: r.status,
-        observation: await loadObservationCard(
-          r.opportunity_id,
-          r.primary_query_id ?? null,
-          r.primary_query,
-          r.market_country,
-          r.research_language
-        ).catch(() => emptyObservation(r.primary_query, r.market_country, r.research_language)),
+        observation,
+        verdictFit: await attachRealAlternatives(
+          verdictFromCard(observation, r.primary_query),
+          r.primary_query
+        ),
       };
     }
 
@@ -439,6 +505,7 @@ export class LiveScanService {
       isNew: true,
       status: 'CANDIDATE',
       observation,
+      verdictFit: await attachRealAlternatives(verdictFromCard(observation, rawQuery), rawQuery),
     };
   }
 

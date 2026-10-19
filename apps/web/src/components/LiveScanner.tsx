@@ -8,7 +8,7 @@ import { Panel } from '@/components/ui/Panel';
 import { VerdictBadge, Badge, type Verdict } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
-import type { ObservationCard } from '@emeradar/services';
+import type { ScanVerdictResult } from '@emeradar/services';
 
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
@@ -29,276 +29,79 @@ type RadarState =
  * 它**不是裁决**。界面必须把这句话写在最显眼的位置——否则用户会把“Top10 有 4 个弱页”
  * 读成“建议现在做”，而后者需要 14 天历史。
  */
-/** 页面种类的人类可读名。裸枚举（UNCLASSIFIED）对用户没有信息量。 */
-const PAGE_KIND_LABELS: Record<string, { zh: string; en: string; tone: 'neutral' | 'warn' | 'signal' | 'danger' }> = {
-  DEDICATED_TOOL: { zh: '专属工具页', en: 'tool page', tone: 'signal' },
-  GENERIC_PLATFORM: { zh: '泛平台页', en: 'platform page', tone: 'warn' },
-  HOSTING_SERVICE: { zh: '托管服务', en: 'hosting', tone: 'warn' },
-  DIRECTORY: { zh: '目录站', en: 'directory', tone: 'neutral' },
-  UGC: { zh: '社区帖', en: 'UGC', tone: 'warn' },
-  DOC: { zh: '文档', en: 'docs', tone: 'warn' },
-  CONTENT: { zh: '内容页', en: 'content', tone: 'neutral' },
-  VIDEO: { zh: '视频', en: 'video', tone: 'neutral' },
-  OFFICIAL_BRAND: { zh: '品牌官网', en: 'brand site', tone: 'neutral' },
-  UNCLASSIFIED: { zh: '未分类', en: 'unclassified', tone: 'neutral' },
+/** 三态判断的视觉权重：做 = 绿，不做 = 红，还不行 = 灰。 */
+const VERDICT_STYLE: Record<string, { border: string; badge: 'signal' | 'danger' | 'neutral'; icon: string }> = {
+  BUILD: { border: 'border-signal/40 bg-signal/5', badge: 'signal', icon: '✓' },
+  DO_NOT_BUILD: { border: 'border-danger/30 bg-danger/5', badge: 'danger', icon: '✕' },
+  NOT_YET: { border: 'border-line bg-surface', badge: 'neutral', icon: '·' },
 };
 
-/** 价格展示：货币符号与金额必须分开，金额缺失时明确显示 ?，不拼接。 */
-function formatPrice(plan: { currency?: string; priceMonthly?: number }): string {
-  const symbol = typeof plan.currency === 'string' && plan.currency.length <= 3 ? plan.currency : '';
-  const amount = typeof plan.priceMonthly === 'number' && Number.isFinite(plan.priceMonthly)
-    ? plan.priceMonthly
-    : null;
-  return amount === null ? `${symbol}?` : `${symbol}${amount}`;
-}
-
-function ObservationPanel({ card, isZh }: { card: ObservationCard; isZh: boolean }) {
-  const serp = card.serp;
-  const pricing = card.pricing;
-
-  const statusLabel = (status: string) => {
-    if (status === 'OK') return isZh ? '抓到公开定价' : 'Public pricing found';
-    if (status === 'NOT_FOUND') return isZh ? '看过了，没有公开定价' : 'Read, no public pricing';
-    if (status === 'ROBOTS') return isZh ? 'robots 拒绝抓取' : 'robots.txt disallowed';
-    return isZh ? '抓取被拦截，未知' : 'Blocked — unknown';
-  };
-
-  const statusTone = (status: string) =>
-    status === 'OK' ? 'signal' : status === 'NOT_FOUND' ? 'warn' : 'danger';
+/**
+ * 扫码主输出：**一个判断 + 最多三条依据 + 该做什么**。
+ *
+ * 刻意不展示 Top10 列表、页面种类、位置数、联想词——那些是依据的原料，
+ * 不是给用户看的内容。用户要的是“能不能做”。
+ */
+function ScanVerdictBlock({
+  result,
+  isZh,
+}: {
+  result: ScanVerdictResult;
+  isZh: boolean;
+}) {
+  const style = VERDICT_STYLE[result.verdict] ?? VERDICT_STYLE.NOT_YET;
 
   return (
-    <div className="mt-6 rounded-sm border border-line bg-surface-2/60 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="rounded-sm border border-info/40 bg-info/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-info">
-            {isZh ? '观测 · 非建议' : 'OBSERVATION · NOT A VERDICT'}
-          </span>
-          <span className="font-mono text-[11px] text-fg-subtle">
-            {card.market} · {card.language}
-          </span>
-        </div>
-        <span className="font-mono text-[11px] text-fg-subtle">
-          {isZh ? '数据来自' : 'observed'} {String(card.observedAt).slice(0, 10)}
+    <div className={`mt-5 rounded-sm border p-5 ${style.border}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={style.badge} size="sm">
+          {result.verdict}
+        </Badge>
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+          {isZh ? '判断' : 'VERDICT'}
         </span>
       </div>
 
-      <p className="mt-2 text-xs leading-relaxed text-fg-muted">
-        {isZh
-          ? `这是现在能看到的事实，不是构建建议。${card.verdictEta.reason}`
-          : `What is observable right now, not a build recommendation. ${card.verdictEta.reason}`}
-      </p>
+      <h3 className="mt-2 text-lg font-bold leading-snug text-fg">{result.headline}</h3>
 
-      {/* 意图：这个词到底是不是“想买工具”。信息型 SERP 是最容易被误读成机会的情况。 */}
-      <div
-        className={cn(
-          'mt-3 rounded-sm border p-3',
-          card.intent.intentFit === 'TOOL_INTENT'
-            ? 'border-signal/30 bg-signal/5'
-            : card.intent.intentFit === 'INFORMATIONAL'
-            ? 'border-warn/40 bg-warn/10'
-            : 'border-line bg-surface'
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-fg-subtle">
-            {isZh ? '意图判断' : 'INTENT'}
-          </span>
-          <Badge
-            tone={
-              card.intent.intentFit === 'TOOL_INTENT'
-                ? 'signal'
-                : card.intent.intentFit === 'INFORMATIONAL'
-                ? 'warn'
-                : 'neutral'
-            }
-            size="sm"
-          >
-            {card.intent.intentFit}
-          </Badge>
-          <span className="font-mono text-[11px] text-fg-subtle">
-            {isZh
-              ? `工具页 ${card.intent.signals.dedicatedToolPages}/${card.intent.signals.distinctDomains}`
-              : `${card.intent.signals.dedicatedToolPages}/${card.intent.signals.distinctDomains} tool pages`}
-            {card.intent.signals.pricedDomains > 0
-              ? isZh
-                ? ` · ${card.intent.signals.pricedDomains} 家在收费`
-                : ` · ${card.intent.signals.pricedDomains} charging`
-              : ''}
-          </span>
-        </div>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-fg-muted">
-          {card.intent.intentFit === 'INFORMATIONAL'
-            ? isZh
-              ? '这个词的 SERP 主要被社区帖、内容页和泛平台占据，几乎没有专属工具页——用户更可能在找“怎么做”，而不是找工具。做工具前先确认购买意图。'
-              : 'This SERP is mostly UGC, content and generic platform pages with almost no dedicated tool pages — the user is likely looking for how, not for a tool. Confirm purchase intent before building.'
-            : card.intent.intentFit === 'TOOL_INTENT'
-            ? isZh
-              ? 'SERP 里有明确的专属工具页，且通常有人在收费——这与“工具需求”一致。'
-              : 'Dedicated tool pages rank here and some charge money — consistent with tool demand.'
-            : isZh
-              ? '证据不足以判断这是购买意图还是信息意图，继续观察。'
-              : 'Not enough evidence to call this purchase or informational intent. Keep observing.'}
+      <ul className="mt-3 space-y-1.5">
+        {result.reasons.slice(0, 3).map((reason, index) => (
+          <li key={`${reason.kind}-${index}`} className="flex items-start gap-2 text-xs leading-relaxed text-fg-muted">
+            <span className="mt-[2px] shrink-0 font-mono text-fg-subtle">—</span>
+            <span>{reason.text}</span>
+          </li>
+        ))}
+      </ul>
+
+      {result.angle && (
+        <p className="mt-3 text-xs leading-relaxed text-fg">
+          <span className="font-semibold">{isZh ? '怎么切：' : 'Angle: '}</span>
+          {result.angle}
         </p>
-      </div>
+      )}
 
-      {/* SERP 弱点 */}
-      <div className="mt-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h4 className="text-xs font-bold text-fg">
-            {isZh
-              ? `Google Top ${serp.positions || 10} 竞争面`
-              : `Google Top ${serp.positions || 10} competition`}
-          </h4>
-          {serp.available ? (
-            <span className="font-mono text-[11px] text-fg-subtle">
-              {isZh
-                ? `${serp.distinctDomains} 个竞争者 · ${serp.positions} 个位置 · ${serp.dedicatedToolPages} 个工具页 · ${serp.weakDomains} 个弱站`
-                : `${serp.distinctDomains} competitors · ${serp.positions} positions · ${serp.dedicatedToolPages} tool pages · ${serp.weakDomains} weak`}
-              {serp.provider ? ` · ${serp.provider}` : ''}
-            </span>
-          ) : (
-            <span className="font-mono text-[11px] text-danger">
-              {isZh ? '未知（未取到 SERP）' : 'unknown (no SERP)'}
-            </span>
-          )}
-        </div>
+      {result.needs && (
+        <p className="mt-3 text-xs leading-relaxed text-fg-muted">
+          <span className="font-semibold text-fg">{isZh ? '还缺什么：' : 'Still missing: '}</span>
+          {result.needs}
+        </p>
+      )}
 
-        {!serp.available ? (
-          <p className="mt-1 text-[11px] text-fg-subtle">{serp.note}</p>
-        ) : (
-          <ul className="mt-2 space-y-1">
-            {serp.competitors.map((item) => (
-              <li key={item.domain} className="flex items-start gap-2 text-[11px]">
-                <span className="w-5 shrink-0 font-mono text-fg-subtle">{item.bestRank}</span>
-                <span className="min-w-0 flex-1">
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all font-mono text-accent hover:underline"
-                  >
-                    {item.domain}
-                  </a>
-                  {(() => {
-                    const kind = item.pageKind ?? 'UNCLASSIFIED';
-                    const label = PAGE_KIND_LABELS[kind] ?? PAGE_KIND_LABELS.UNCLASSIFIED;
-                    return (
-                      <Badge tone={label.tone} size="sm" className="ml-2">
-                        {isZh ? label.zh : label.en}
-                      </Badge>
-                    );
-                  })()}
-                  {item.ranks.length > 1 && (
-                    <span
-                      className="ml-2 font-mono text-[10px] text-fg-subtle"
-                      title={isZh ? `占用名次：${item.ranks.join(', ')}` : `ranks: ${item.ranks.join(', ')}`}
-                    >
-                      {isZh ? `占 ${item.ranks.length} 位` : `${item.ranks.length} slots`}
-                    </span>
-                  )}
-                  {item.isWeak && (
-                    <Badge tone="warn" size="sm" className="ml-2">
-                      {item.weaknessType === 'FORUM_OR_QA'
-                        ? isZh ? '论坛/问答' : 'forum/QA'
-                        : item.weaknessType === 'GENERIC_PLATFORM'
-                        ? isZh ? '泛平台占位' : 'platform page'
-                        : item.weaknessType ?? (isZh ? '弱页' : 'weak')}
-                    </Badge>
-                  )}
-                </span>
+      {result.alternatives.length > 0 && (
+        <div className="mt-4 border-t border-line pt-3">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+            {isZh ? '换个方向看这些词' : 'Look at these instead'}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {result.alternatives.map((alt) => (
+              <li key={alt.query} className="flex flex-wrap items-baseline gap-2 text-xs">
+                <span className="font-mono text-accent">{alt.query}</span>
+                <span className="text-fg-subtle">{alt.why}</span>
               </li>
             ))}
           </ul>
-        )}
-      </div>
-
-      {/* 定价 */}
-      <div className="mt-5 border-t border-line pt-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h4 className="text-xs font-bold text-fg">
-            {isZh ? '前排站点公开定价' : 'Public pricing on competitors'}
-          </h4>
-          <span className="font-mono text-[11px] text-fg-subtle">
-            {isZh
-              ? `探查 ${pricing.probed} · 有价 ${pricing.priced} · 仅网关 ${pricing.infraOnly} · 未知 ${pricing.blocked}`
-              : `${pricing.probed} probed · ${pricing.priced} priced · ${pricing.infraOnly} gateway-only · ${pricing.blocked} unknown`}
-          </span>
         </div>
-
-        {pricing.domains.length === 0 ? (
-          <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">
-            {isZh
-              ? '还没有对前排站点做过定价探测。这会让意图判断停在“证据不足”——重新扫一次，或等每日管线抓过这些域名后可补上。'
-              : 'No competitor pricing has been probed yet, which keeps intent at “insufficient”. Re-scan, or wait for the daily crawl to cover these domains.'}
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-1.5">
-            {pricing.domains.map((row) => (
-              <li key={row.domain} className="flex flex-wrap items-center gap-2 text-[11px]">
-                <a
-                  href={row.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-mono text-accent hover:underline"
-                >
-                  {row.domain}
-                </a>
-                <Badge tone={statusTone(row.status)} size="sm">
-                  {statusLabel(row.status)}
-                </Badge>
-                {row.plans.length > 0 && (
-                  <span className="text-fg-muted">
-                    {row.plans
-                      .slice(0, 3)
-                      .map((plan) => `${plan.name} ${formatPrice(plan)}`)
-                      .join(' · ')}
-                  </span>
-                )}
-                {row.plans.length === 0 && row.gateways.length > 0 && (
-                  <span className="text-fg-subtle">{row.gateways.join(', ')}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {pricing.domains.length > 0 && (
-          <p className="mt-2 text-[11px] text-fg-subtle">
-            {isZh
-              ? '只记录观测到的公开定价；没有定价不等于没有付费意愿。'
-              : 'Public pricing only; absence of pricing is not proof of no willingness to pay.'}
-          </p>
-        )}
-      </div>
-
-      {/* 联想词 */}
-      <div className="mt-5 border-t border-line pt-4">
-        <h4 className="text-xs font-bold text-fg">
-          {isZh ? '实时联想词' : 'Live autocomplete'}
-        </h4>
-        {card.autocomplete.observed ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {card.autocomplete.suggestions.slice(0, 12).map((suggestion) => (
-              <span
-                key={suggestion}
-                className="rounded-sm border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-fg-muted"
-              >
-                {suggestion}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-1 text-[11px] text-fg-subtle">{card.autocomplete.note}</p>
-        )}
-      </div>
-
-      {/* 还缺什么 */}
-      <div className="mt-5 rounded-sm border border-warn/30 bg-warn/5 p-3">
-        <p className="text-[11px] leading-relaxed text-fg-muted">
-          {isZh
-            ? `还差什么才能给裁决：联想词需 ${card.verdictEta.needsAutocompleteDays} 天历史，SERP 需 ${card.verdictEta.needsSerpDays} 天历史。现在这张卡是观测，不是推荐。`
-            : `What still gates a verdict: ${card.verdictEta.needsAutocompleteDays} days of autocomplete and ${card.verdictEta.needsSerpDays} days of SERP history. This card is observation, not recommendation.`}
-        </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -487,7 +290,7 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false, canTrackRad
           </p>
           <p className="mt-2 text-xs text-fg-muted">{scanResult.whyNowSummary}</p>
 
-          {scanResult.observation && <ObservationPanel card={scanResult.observation} isZh={isZh} />}
+          <ScanVerdictBlock result={scanResult.verdictFit} isZh={isZh} />
 
           <div className="mt-4 border-t border-line pt-4 text-xs">
             {actionable ? (
