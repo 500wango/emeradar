@@ -8,6 +8,12 @@ import {
   Confidence,
   Band,
 } from '@emeradar/core';
+import { AutocompleteCollector, CrawlCollector, SerpCollector } from '@emeradar/collectors';
+import {
+  collectObservationCard,
+  loadObservationCard,
+  type ObservationCard,
+} from './observation-card.service';
 
 export interface LiveScanResult {
   opportunityId: string;
@@ -30,12 +36,62 @@ export interface LiveScanResult {
   isNew: boolean;
   /** CANDIDATE 只有入雷达/等晋升；详情页只对 TRACKED 开放。 */
   status: string;
+  /**
+   * 观测卡：扫码当天的真实事实（联想词 / SERP Top10 弱点 / 前排定价）。
+   * 它**不是裁决**，也永远不会被当成裁决——裁决仍需要 14 天历史。
+   */
+  observation: ObservationCard;
 }
 
 /** 初筛展示的长尾词上限（10 §4.3）；入库与返回共用，保证两处是同一份词表。 */
 export const SCREENER_LONGTAIL_LIMIT = 15;
 
 import { classifyQueryIntent } from './query-intent';
+
+/**
+ * 读不到任何已存观测时的占位。
+ *
+ * 刻意把 `available=false` 与“观测到没有竞争”区分开：前者是“不知道”，
+ * 如果渲染成“Top10 干净”，就等于把采集失败说成了机会。
+ */
+function emptyObservation(query: string, market: string, language: string): ObservationCard {
+  return {
+    kind: 'OBSERVATION',
+    observedAt: new Date().toISOString(),
+    market,
+    language,
+    query,
+    autocomplete: {
+      observed: false,
+      suggestions: [],
+      note: 'No autocomplete observation stored yet.',
+    },
+    serp: {
+      available: false,
+      provider: null,
+      depth: 0,
+      items: [],
+      weakCount: 0,
+      weakRatio: 0,
+      weaknessScore: null,
+      note: 'No organic SERP observation stored yet. Competition is unknown, not weak.',
+    },
+    pricing: {
+      probed: 0,
+      priced: 0,
+      infraOnly: 0,
+      blocked: 0,
+      domains: [],
+      note: 'No competitor pricing observation stored yet.',
+    },
+    verdictEta: {
+      needsAutocompleteDays: 14,
+      needsSerpDays: 14,
+      reason:
+        'A published BUILD NOW / EARLY BET needs 14 days of autocomplete and 14 days of organic SERP history.',
+    },
+  };
+}
 
 export class LiveScanService {
   /**
@@ -55,6 +111,7 @@ export class LiveScanService {
 
     const marketCountry = input.marketCountry || 'US';
     const language = input.language || 'en-US';
+    const obsDate = new Date().toISOString().slice(0, 10);
 
     // Generate normalized slug
     const baseSlug = rawQuery
@@ -69,7 +126,11 @@ export class LiveScanService {
               c.d_basis_points, c.m_basis_points, c.w_basis_points,
               c.d_band, c.m_band, c.w_band, c.confidence,
               c.recommended_archetype, c.execution_class,
-              c.why_now_summary, c.top_idea, c.primary_query
+              c.why_now_summary, c.top_idea, c.primary_query,
+              o.market_country, o.research_language,
+              (SELECT oq.query_id FROM opportunity_queries oq
+                WHERE oq.opportunity_id = c.opportunity_id AND oq.role = 'PRIMARY'
+                LIMIT 1) AS primary_query_id
        FROM opportunity_cards c
        JOIN opportunities o ON o.id = c.opportunity_id
        WHERE c.slug = $1 OR LOWER(c.primary_query) = LOWER($2)
@@ -111,11 +172,19 @@ export class LiveScanService {
         suggestions: clusterWords,
         isNew: false,
         status: r.status,
+        observation: await loadObservationCard(
+          r.opportunity_id,
+          r.primary_query_id ?? null,
+          r.primary_query,
+          r.market_country,
+          r.research_language
+        ).catch(() => emptyObservation(r.primary_query, r.market_country, r.research_language)),
       };
     }
 
-    // 2. First autocomplete observation. A miss stores nothing rather than a canned cluster.
-    const autocomplete = await this.fetchGoogleAutocomplete(rawQuery);
+    // 2. First autocomplete observation。走与日常管线同一个采集器（AIsa/DataForSEO），
+    //    不再自采 suggestqueries：同一个事实只应有一个来源，否则两处会给出不同的词表。
+    const autocomplete = await this.fetchAutocomplete(rawQuery, marketCountry, language);
     const suggestions = autocomplete.suggestions;
     const autocompleteObserved = autocomplete.observed;
     const storedSuggestions = suggestions.slice(0, SCREENER_LONGTAIL_LIMIT);
@@ -288,6 +357,31 @@ export class LiveScanService {
 
     });
 
+    // 观测卡：把“现在就看得见的事实”立刻交给用户。裁决仍然要等 14 天，
+    // 但用户不必为了看到竞品长什么样而等 14 天。
+    const observation = await collectObservationCard(
+      {
+        opportunityId: oppId,
+        queryId: primaryQueryId,
+        query: rawQuery,
+        marketCountry,
+        language,
+        obsDate,
+      },
+      {
+        serp: new SerpCollector(),
+        crawl: new CrawlCollector(),
+        autocompleteObserved,
+        suggestions: storedSuggestions,
+      }
+    ).catch((error) => {
+      console.warn(
+        `[live-scan] observation collection failed for "${rawQuery}":`,
+        error instanceof Error ? error.message : error
+      );
+      return emptyObservation(rawQuery, marketCountry, language);
+    });
+
     return {
       opportunityId: oppId,
       slug,
@@ -308,42 +402,45 @@ export class LiveScanService {
       suggestions: storedSuggestions,
       isNew: true,
       status: 'CANDIDATE',
+      observation,
     };
   }
 
   /**
-   * Fetches real suggestions from Google Autocomplete API
+   * 真实联想词。走 `AutocompleteCollector`（AIsa → DataForSEO），与每日管线同源。
+   *
+   * 采集失败时返回 `observed: false` 且**不存任何词**——一次失败的抓取不是“没有需求”，
+   * 把空数组当成需求为零是最容易犯、也最难发现的错。
    */
-  private static async fetchGoogleAutocomplete(
-    query: string
+  private static async fetchAutocomplete(
+    query: string,
+    marketCountry: string,
+    language: string
   ): Promise<{ suggestions: string[]; observed: boolean }> {
     try {
-      const url = `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(
-        query
-      )}`;
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-        signal: AbortSignal.timeout(3500),
+      const obsDate = new Date().toISOString().slice(0, 10);
+      const collector = new AutocompleteCollector();
+      const ctx = {
+        runId: `scan_ac_${Date.now()}`,
+        obsDate,
+        clock: () => new Date(),
+        budget: { maxDailyBudgetUsd: 20, currentSpentUsd: 0, canSpend: () => true },
+      };
+      const outcome = await collector.collect(ctx as any, {
+        queryId: `qry_scan_${Date.now()}`,
+        queryText: query,
+        marketCountry,
+        language,
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && Array.isArray(data[1]) && data[1].length > 0) {
-          return {
-            observed: true,
-            suggestions: data[1]
-              .map((s: any) => String(s))
-              .filter((s: string) => s.toLowerCase() !== query.toLowerCase()),
-          };
-        }
-      }
+      if (outcome.status !== 'OK') return { suggestions: [], observed: false };
+      const suggestions = (outcome.snapshots[0]?.data?.suggestions ?? []) as string[];
+      if (suggestions.length === 0) return { suggestions: [], observed: false };
+      return {
+        suggestions: suggestions.filter((s) => s.toLowerCase() !== query.toLowerCase()),
+        observed: true,
+      };
     } catch {
-      // Unavailable. Do not invent suggestions.
+      return { suggestions: [], observed: false };
     }
-
-    return { suggestions: [], observed: false };
   }
 }
