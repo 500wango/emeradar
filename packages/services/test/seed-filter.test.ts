@@ -14,12 +14,16 @@ describe('种子候选过滤', () => {
     assert.strictEqual(isCandidateKeyword(item('2026 hell'), 'template'), false);
     assert.strictEqual(isCandidateKeyword(item('ai valuation'), 'software for'), false);
     assert.strictEqual(isCandidateKeyword(item('how to use invoice generator'), 'generator'), false);
+    assert.strictEqual(isCandidateKeyword(item('csv file definition'), 'csv'), false);
+    assert.strictEqual(isCandidateKeyword(item('csv 文件定义'), 'csv'), false);
+    assert.strictEqual(isCandidateKeyword(item('csv file', 'informational'), 'csv'), false);
   });
 
   it('接受真正的工具长尾', () => {
     assert.strictEqual(isCandidateKeyword(item('invoice generator'), 'generator'), true);
     assert.strictEqual(isCandidateKeyword(item('crm for agencies'), 'for agencies'), true);
     assert.strictEqual(isCandidateKeyword(item('ai valuation calculator'), 'calculator'), true);
+    assert.strictEqual(isCandidateKeyword(item('csv to json converter', 'informational'), 'csv'), true);
   });
 
   it('具体种子必须包含种子词，宽种子必须带工具名词', () => {

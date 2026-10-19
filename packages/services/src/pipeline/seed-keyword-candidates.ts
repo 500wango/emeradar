@@ -88,9 +88,10 @@ function slugFor(text: string): string {
  *   - 宽种子（software for / app for / for agencies）必须带工具/软件名词；
  *   - 新闻、金融、教程类短语在没有工具名词时直接拒绝。
  */
-const TOOL_SIGNAL = /\b(generator|calculator|converter|template|checker|maker|estimator|planner|tracker|alternative|extension|api|plugin|integration|dashboard|monitor|scheduler|scraper|extractor|summarizer|workflow|compliance|checklist|directory|tool|tools|software|app|apps|platform|automation|builder|editor|manager|assistant|crm|erp|saas|website|landing page|portfolio)\b/i;
+const TOOL_SIGNAL = /\b(generator|calculator|converter|convert|conversion|template|checker|maker|estimator|planner|tracker|alternative|extension|api|plugin|integration|dashboard|monitor|scheduler|scraper|extractor|extract|summarizer|workflow|compliance|checklist|directory|tool|tools|software|app|apps|platform|automation|builder|editor|manager|assistant|crm|erp|saas|website|landing page|portfolio|merge|split|compress|generate|validate|clean|dedupe)\b/i;
 const NEWS_SIGNAL = /\b(hell|news|report|trend|forecast|valuation|funding|salary|jobs?|course|tutorial|stock|price prediction|market size)\b/i;
 const INFORMATIONAL_PREFIX = /^(how to|what is|why |is there|best |top \d+)/i;
+const DEFINITIONAL = /\b(definition|meaning|what is|what are|full form|explained|examples?|wiki)\b/i;
 
 /** 这些种子的词面太宽，不能靠“包含种子”判断，必须出现工具/软件名词。 */
 const BROAD_SEEDS = new Set([
@@ -110,11 +111,16 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
   if (EXCLUDED.test(kw)) return false;
   if (s.mainIntent === 'navigational') return false;
   if (INFORMATIONAL_PREFIX.test(kw)) return false;
+  if (DEFINITIONAL.test(kw)) return false;
 
   const words = kw.split(/\s+/).length;
+  // 当前只做 US/EN；非 ASCII 词面（例如“CSV 文件定义”）不是工具长尾，直接拒绝。
   if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
 
   const toolSignal = TOOL_SIGNAL.test(kw);
+  // 信息性搜索只有在出现明确的工具/操作名词时才可能是可构建需求；
+  // “csv file”“csv file definition”这类定义词不是机会。
+  if (s.mainIntent === 'informational' && !toolSignal) return false;
   // 必须按词边界匹配：种子 "api" 不能因为 "capital gains" 里含有 api 就通过。
   const includesSeed = new RegExp(`\\b${seedLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(kw);
   if (BROAD_SEEDS.has(seedLower)) {
