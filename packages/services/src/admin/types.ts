@@ -97,6 +97,24 @@ export interface AdminPipelineOverview {
     finishedAt: string | null;
     errorMessage: string | null;
   }>;
+  tavily: {
+    configured: boolean;
+    active: boolean;
+    items24h: number;
+    items7d: number;
+    lastItemAt: string | null;
+    lastRunAt: string | null;
+    lastStatus: string | null;
+    lastError: string | null;
+    runs: Array<{
+      id: string;
+      status: string;
+      itemsCollected: number;
+      startedAt: string;
+      finishedAt: string | null;
+      errorMessage: string | null;
+    }>;
+  };
   recentStaleEvents: Array<{
     id: string;
     obsDate: string;

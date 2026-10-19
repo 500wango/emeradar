@@ -196,6 +196,39 @@ export class AdminPipelineService {
         LIMIT 20`
     ).catch(() => ({ rows: [] as any[] }));
 
+    // 4c. Tavily source status (discovery only; not W-axis)
+    const tavilySourceRes = await query<{
+      is_active: boolean;
+      items_24h: number;
+      items_7d: number;
+      last_item_at: string | null;
+    }>(
+      `SELECT s.is_active,
+              (SELECT COUNT(*)::int FROM discovery_items d
+                WHERE d.source_id = s.id AND d.first_collected_at > NOW() - INTERVAL '24 hours') AS items_24h,
+              (SELECT COUNT(*)::int FROM discovery_items d
+                WHERE d.source_id = s.id AND d.first_collected_at > NOW() - INTERVAL '7 days') AS items_7d,
+              (SELECT MAX(d.first_collected_at)::text FROM discovery_items d
+                WHERE d.source_id = s.id) AS last_item_at
+         FROM sources s WHERE s.id = 'src_tavily'`
+    );
+    const tavilyRunsRes = await query<{
+      id: string;
+      status: string;
+      items_collected: number;
+      started_at: string;
+      finished_at: string | null;
+      error_message: string | null;
+    }>(
+      `SELECT id, status, items_collected, started_at::text, finished_at::text, error_message
+         FROM collector_runs
+        WHERE source_id = 'src_tavily'
+        ORDER BY started_at DESC
+        LIMIT 5`
+    );
+    const tavilySource = tavilySourceRes.rows[0];
+    const tavilyLast = tavilyRunsRes.rows[0];
+
     // 5. Latest discovery signals
     const signalsRes = await query<{
       id: string;
@@ -265,6 +298,24 @@ export class AdminPipelineService {
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
       })),
+      tavily: {
+        configured: Boolean(tavilySource),
+        active: Boolean(tavilySource?.is_active),
+        items24h: tavilySource?.items_24h ?? 0,
+        items7d: tavilySource?.items_7d ?? 0,
+        lastItemAt: tavilySource?.last_item_at ?? null,
+        lastRunAt: tavilyLast?.started_at ?? null,
+        lastStatus: tavilyLast?.status ?? null,
+        lastError: tavilyLast?.error_message ?? null,
+        runs: tavilyRunsRes.rows.map((r) => ({
+          id: r.id,
+          status: r.status,
+          itemsCollected: r.items_collected,
+          startedAt: r.started_at,
+          finishedAt: r.finished_at,
+          errorMessage: r.error_message,
+        })),
+      },
       recentStaleEvents: staleRes.rows.map((r: any) => ({
         id: r.id,
         obsDate: r.obs_date,

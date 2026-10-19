@@ -273,6 +273,99 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
         </p>
       </Panel>
 
+      {/* Tavily discovery source status */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <Radio className="h-4 w-4 text-info" />
+              <span>Tavily 搜索状态</span>
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              只用于 discovery/Why Now，不进 W 轴。最近运行、条数与错误都在这里，不用跑 SQL。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge tone={overview.tavily.configured ? 'info' : 'neutral'}>
+              {overview.tavily.configured ? (overview.tavily.active ? '已注册' : '已停用') : '未注册'}
+            </Badge>
+            {overview.tavily.lastStatus && (
+              <Badge tone={overview.tavily.lastStatus === 'FAILED' ? 'danger' : 'signal'}>
+                {overview.tavily.lastStatus}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {!overview.tavily.configured ? (
+          <p className="mt-4 rounded-sm border border-warn/40 bg-warn/10 p-3 text-xs leading-relaxed text-fg-muted">
+            还没有 `src_tavily`。至少需要 `TAVILY_API_KEY` 或 `AISA_API_KEY`，然后运行一次「全网信号捕获」。
+          </p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <Stat value={overview.tavily.items24h} unit="条" label="24h 新增" tone="accent" />
+              <Stat value={overview.tavily.items7d} unit="条" label="7d 新增" />
+              <Stat
+                value={overview.tavily.lastItemAt ? new Date(overview.tavily.lastItemAt).toLocaleString('zh-CN') : '—'}
+                label="最近一条"
+                size="sm"
+              />
+              <Stat
+                value={overview.tavily.lastRunAt ? new Date(overview.tavily.lastRunAt).toLocaleString('zh-CN') : '—'}
+                label="最近运行"
+                size="sm"
+              />
+            </div>
+
+            {overview.tavily.lastError && (
+              <p className="mt-3 break-all rounded-sm border border-danger/30 bg-danger/5 p-3 font-mono text-[11px] text-danger">
+                {overview.tavily.lastError}
+              </p>
+            )}
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                    <th className="pb-3 font-semibold">STARTED</th>
+                    <th className="pb-3 font-semibold">STATUS</th>
+                    <th className="pb-3 font-semibold">ITEMS</th>
+                    <th className="pb-3 font-semibold">ERROR</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line font-mono">
+                  {overview.tavily.runs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-4 text-fg-subtle">
+                        还没有运行记录；触发一次 discover 后这里会出现。
+                      </td>
+                    </tr>
+                  ) : (
+                    overview.tavily.runs.map((run) => (
+                      <tr key={run.id}>
+                        <td className="py-3 text-fg-subtle">
+                          {new Date(run.startedAt).toLocaleString('zh-CN')}
+                        </td>
+                        <td className="py-3">
+                          <Badge tone={run.status === 'FAILED' ? 'danger' : run.status === 'SUCCESS' ? 'signal' : 'warn'}>
+                            {run.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3 text-fg-muted">{run.itemsCollected}</td>
+                        <td className="max-w-md truncate py-3 text-danger/80" title={run.errorMessage ?? undefined}>
+                          {run.errorMessage || '—'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
+
       {/* Interactive Trigger Hub */}
       <Panel tone="raised" className="p-6 sm:p-8">
         <div className="mb-6 max-w-2xl">
