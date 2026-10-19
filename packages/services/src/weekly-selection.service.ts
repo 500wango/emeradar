@@ -74,6 +74,7 @@ export class WeeklySelectionService {
          FROM opportunity_cards c
          JOIN opportunities o ON o.id = c.opportunity_id
         WHERE o.status = 'TRACKED'
+          AND COALESCE(o.is_demo, false) = false
           AND c.m_band <> 'INSUFFICIENT'
         ORDER BY c.first_observed_at DESC
         LIMIT 200`
@@ -162,6 +163,7 @@ export class WeeklySelectionService {
           -- 归档机会的公开页可能还留着（归档不会自动降级），但它已经不在 Feed 里：
           -- 选中它会让周案例面板指向一条 404 的详情。
           AND o.status = 'TRACKED'
+          AND COALESCE(o.is_demo, false) = false
         ORDER BY pg.published_at DESC NULLS LAST
         LIMIT 1`
     );

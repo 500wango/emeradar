@@ -282,16 +282,18 @@ export async function seedRadarOpportunities(): Promise<void> {
         `INSERT INTO opportunities (
            id, slug, title, status, market_country, research_language,
            first_observed_date, recommended_archetype, execution_class,
-           discovery_source, discovered_at, candidate_reason
+           discovery_source, discovered_at, candidate_reason, is_demo
          ) VALUES ($1, $2, $3, 'TRACKED', 'US', 'en-US',
                    $4::date - INTERVAL '45 days', $5, $6,
-                   'RADAR_DISCOVERY', NOW() - INTERVAL '45 days', 'High-confidence search cluster with confirmed commercial signals.')
+                   'RADAR_DISCOVERY', NOW() - INTERVAL '45 days', 'High-confidence search cluster with confirmed commercial signals.',
+                   true)
          ON CONFLICT (id) DO UPDATE SET
            status = 'TRACKED',
            title = EXCLUDED.title,
            slug = EXCLUDED.slug,
            recommended_archetype = EXCLUDED.recommended_archetype,
-           execution_class = EXCLUDED.execution_class`,
+           execution_class = EXCLUDED.execution_class,
+           is_demo = true`,
         [opp.id, opp.slug, opp.title, obsDate, opp.recommendedArchetype, opp.executionClass]
       );
 

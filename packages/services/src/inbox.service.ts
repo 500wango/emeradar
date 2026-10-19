@@ -62,6 +62,7 @@ export class InboxService {
       `SELECT COUNT(*)::text AS count
          FROM opportunities o
         WHERE o.status = 'CANDIDATE'
+          AND COALESCE(o.is_demo, false) = false
           AND NOT EXISTS (
             SELECT 1 FROM opportunity_feedback f
              WHERE f.user_id = $1
@@ -113,6 +114,7 @@ export class InboxService {
               AND e.domain IS NOT NULL
          ) priced ON true
         WHERE o.status = 'CANDIDATE'
+          AND COALESCE(o.is_demo, false) = false
           AND NOT EXISTS (
             SELECT 1 FROM opportunity_feedback f
              WHERE f.user_id = $1

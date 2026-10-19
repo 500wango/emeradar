@@ -102,7 +102,8 @@ export class PublicPublicationService {
               (SELECT COUNT(*)::int FROM serp_results sr JOIN serp_snapshots ss ON ss.id = sr.serp_snapshot_id
                JOIN opportunity_queries oq ON oq.query_id = ss.query_id
                WHERE oq.opportunity_id = o.id AND oq.role = 'PRIMARY' AND sr.is_weak = true) AS weak_result_count
-       FROM opportunities o JOIN opportunity_cards c ON c.opportunity_id = o.id WHERE o.id = $1`,
+       FROM opportunities o JOIN opportunity_cards c ON c.opportunity_id = o.id
+       WHERE o.id = $1 AND COALESCE(o.is_demo, false) = false`,
       [opportunityId]
     );
     if (!res.rows[0]) return { eligible: false, indexable: false, eligibility: { reason: 'NOT_FOUND' }, qualityReport: {} };

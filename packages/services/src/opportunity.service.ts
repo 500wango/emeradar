@@ -206,6 +206,8 @@ export class OpportunityService {
 
     const conditions: string[] = [
       `o.status = 'TRACKED'`,
+      // 演示种子不是市场观测：公开 Feed 永远不展示。
+      `COALESCE(o.is_demo, false) = false`,
     ];
     const params: any[] = [];
     let paramIdx = 1;
@@ -513,7 +515,11 @@ export class OpportunityService {
     // (or guesses) a slug could read a CANDIDATE record the feed deliberately
     // withholds, and a delayed-feed plan could read a fresh record ahead of its
     // feed boundary.
-    const conditions = [`(o.id = $1 OR o.slug = $1)`, `o.status = 'TRACKED'`];
+    const conditions = [
+      `(o.id = $1 OR o.slug = $1)`,
+      `o.status = 'TRACKED'`,
+      `COALESCE(o.is_demo, false) = false`,
+    ];
     const params: any[] = [idOrSlug];
     if (options.minAgeDays && options.minAgeDays > 0) {
       params.push(String(options.minAgeDays));
