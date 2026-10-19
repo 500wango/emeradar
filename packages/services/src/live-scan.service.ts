@@ -225,15 +225,27 @@ export class LiveScanService {
     const oppId = `opp_${slug.slice(0, 16)}_${randomBytes(3).toString('hex')}`;
     const primaryQueryId = `qry_${randomBytes(6).toString('hex')}`;
 
-    // 7. Store in PostgreSQL Transaction
+    // 7. Store in PostgreSQL Transaction。
+    //    真实主 query id 在事务内解析（碰撞时沿用已存在行的 id），但要带出事务给
+    //    观测卡用，所以声明在外部。
+    let primaryQueryRowId = primaryQueryId;
     await transaction(async (client) => {
-      // 1. Insert primary query
-      await client.query(
+      // 1. Insert primary query，并**取回真实 id**。
+      //
+      // 这里曾经只写 `ON CONFLICT (id) DO NOTHING`，但 `queries` 上还有
+      // `(query_text, market_country, research_language)` 的唯一约束：只要这个词
+      // 已经作为簇内词/种子词存在（很常见——联想词扩簇、种子长尾都会写 queries），
+      // 插入就会撞上文本唯一约束，整个扫描 500。冲突目标必须与真实约束一致，
+      // 并且后续关联要用返回的 id，而不是我们编出来的那个。
+      const insertedQuery = await client.query<{ id: string }>(
         `INSERT INTO queries (id, query_text, market_country, research_language, tier)
          VALUES ($1, $2, $3, $4, 'A')
-         ON CONFLICT (id) DO NOTHING`,
+         ON CONFLICT (query_text, market_country, research_language)
+         DO UPDATE SET tier = LEAST(queries.tier, 'A')
+         RETURNING id`,
         [primaryQueryId, rawQuery, marketCountry, language]
       );
+      primaryQueryRowId = insertedQuery.rows[0]?.id ?? primaryQueryId;
 
       // 2. Insert opportunity
       await client.query(
@@ -244,11 +256,12 @@ export class LiveScanService {
         [oppId, slug, title, marketCountry, language, recommendedArchetype, executionClass]
       );
 
-      // 3. Link opportunity query
+      // 3. Link opportunity query（用真实 id，不是生成的 id）
       await client.query(
         `INSERT INTO opportunity_queries (opportunity_id, query_id, role)
-         VALUES ($1, $2, 'PRIMARY')`,
-        [oppId, primaryQueryId]
+         VALUES ($1, $2, 'PRIMARY')
+         ON CONFLICT (opportunity_id, query_id) DO NOTHING`,
+        [oppId, primaryQueryRowId]
       );
 
       // 4. Insert cluster queries from autocomplete
@@ -334,7 +347,7 @@ export class LiveScanService {
            ON CONFLICT (query_id, observed_date) DO UPDATE SET
              suggestions = EXCLUDED.suggestions,
              depth = EXCLUDED.depth`,
-          [primaryQueryId, suggestions]
+          [primaryQueryRowId, suggestions]
         );
       }
 
@@ -362,7 +375,7 @@ export class LiveScanService {
     const observation = await collectObservationCard(
       {
         opportunityId: oppId,
-        queryId: primaryQueryId,
+        queryId: primaryQueryRowId,
         query: rawQuery,
         marketCountry,
         language,

@@ -44,13 +44,21 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return NextResponse.json(error.toRFC9457(), { status: error.status });
     }
-    console.error('[api] Unhandled error:', error);
+    console.error('[api] Unhandled error during scan:', error);
+    // 把真实原因带出去。此前这里只回一句 "An error occurred during real-time scan."，
+    // 结果是线上 500 只能在容器日志里翻——而用户看到的和运维看到的必须是同一句话，
+    // 否则每次都要靠猜。这里不泄露堆栈，只回错误消息与 SQLSTATE。
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'An error occurred during real-time scan.';
     return NextResponse.json(
       {
         type: 'about:blank',
         title: 'Scan Error',
         status: error.status || 500,
-        detail: 'An error occurred during real-time scan.',
+        detail: message,
+        code: error.code ?? undefined,
       },
       { status: error.status || 500 }
     );
