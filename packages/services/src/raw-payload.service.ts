@@ -4,17 +4,28 @@ import { AwsClient } from 'aws4fetch';
 import { query } from '@emeradar/db';
 
 /**
- * 原始采集载荷归档（04 §3「载荷」：gzip + sha256，快照可回放）。
+ * 原始采集载荷归档（04 §3：gzip + sha256，快照可回放）。
  *
- * R2 是 S3 兼容存储；用 aws4fetch 做 SigV4，不引入整套 AWS SDK。
- * 未配置 R2 时返回 null——采集继续，但 `serp_snapshots.raw_payload_id` 保持空，
- * Admin 的「可回放」标记会显示为否；不会伪造 storage_url。
+ * Phase 0 起补齐重放所需的全部事实：
+ *   - `provider` / `sourceId`：这次是谁给的（DataForSEO ≠ SerpAPI ≠ Brave）；
+ *   - `requestParams`：query、location_code、language_code、depth；
+ *   - `httpStatus` / `locale` / `fetchedAt`：什么时候、以什么状态拿到的。
+ *
+ * 没有这些字段，“可重算”只是口号：同一份归一化行无法区分是谁、用什么参数算出来的。
+ *
+ * R2 未配置时返回 null，调用方继续，但 `raw_payload_id` 为空——不伪造 storage_url。
  */
 export interface RawPayloadInput {
   collectorRunId: string;
+  sourceId: string;
+  provider: string;
   obsDate: string;
   content: string;
   mimeType: string;
+  requestParams?: Record<string, unknown>;
+  httpStatus?: number | null;
+  locale?: string | null;
+  fetchedAt?: Date;
 }
 
 export interface StoredRawPayload {
@@ -39,7 +50,8 @@ export async function storeRawPayload(input: RawPayloadInput): Promise<StoredRaw
   }
 
   const contentHash = createHash('sha256').update(input.content).digest('hex');
-  const key = `raw/${input.obsDate}/${contentHash}.json.gz`;
+  const extension = input.mimeType.includes('html') ? 'html' : 'json';
+  const key = `raw/${input.obsDate}/${contentHash}.${extension}.gz`;
   const endpoint = process.env.R2_ENDPOINT || `https://${accountId}.r2.cloudflarestorage.com`;
   const storageUrl = `r2://${bucket}/${key}`;
   const body = gzipSync(Buffer.from(input.content, 'utf8'));
@@ -61,9 +73,24 @@ export async function storeRawPayload(input: RawPayloadInput): Promise<StoredRaw
 
   const id = randomUUID();
   await query(
-    `INSERT INTO raw_payloads (id, collector_run_id, storage_url, content_hash)
-     VALUES ($1, $2, $3, $4)`,
-    [id, input.collectorRunId, storageUrl, contentHash]
+    `INSERT INTO raw_payloads
+       (id, collector_run_id, source_id, provider, storage_url, content_hash,
+        request_params, http_status, locale, fetched_at, mime_type, byte_size)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [
+      id,
+      input.collectorRunId,
+      input.sourceId,
+      input.provider,
+      storageUrl,
+      contentHash,
+      JSON.stringify(input.requestParams ?? {}),
+      input.httpStatus ?? null,
+      input.locale ?? null,
+      input.fetchedAt ?? new Date(),
+      input.mimeType,
+      Buffer.byteLength(input.content, 'utf8'),
+    ]
   );
   return { id, storageUrl, contentHash };
 }

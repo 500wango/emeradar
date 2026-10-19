@@ -7,6 +7,7 @@ import {
   CommercialSummary,
   DatedWBand,
   FullOpportunityScoreInput,
+  SCORING_CONFIG_VERSION,
 } from '@emeradar/scoring';
 import { Lifecycle, Verdict } from '@emeradar/core';
 import { RankingService } from '../ranking.service';
@@ -31,6 +32,8 @@ import {
 import { computeCrowding, storeCrowding } from '../crowding.service';
 import { runCollector } from '../collector-run.service';
 import { storeRawPayload } from '../raw-payload.service';
+import { extractorVersionForSourceType } from '../evidence-version';
+import { recordRejections, rejectionsFromFlags, type RejectionInput } from '../rejection.service';
 import {
   loadStaleCommercialEvidence,
   loadStaleAutocomplete,
@@ -129,9 +132,17 @@ export async function observeOpportunity(
     try {
       const stored = await storeRawPayload({
         collectorRunId: acRunId,
+        sourceId: 'src_ac',
+        provider: 'AISA_DATAFORSEO',
         obsDate,
         content: acOutcome.raw.content,
         mimeType: acOutcome.raw.mimeType,
+        requestParams: {
+          query: primary.query_text,
+          marketCountry: opp.market_country,
+          language: opp.research_language,
+        },
+        locale: opp.research_language ?? null,
       });
       acRawPayloadId = stored?.id ?? null;
     } catch (error) {
@@ -281,9 +292,20 @@ export async function observeOpportunity(
     try {
       const stored = await storeRawPayload({
         collectorRunId: serpRunId,
+        sourceId: 'src_serp',
+        // provider 是重放的关键：DataForSEO 与 SerpAPI 的结果不可互换。
+        provider:
+          (serpOutcome.snapshots[0]?.data as { provider?: string } | undefined)?.provider ?? 'UNKNOWN',
         obsDate,
         content: serpOutcome.raw.content,
         mimeType: serpOutcome.raw.mimeType,
+        requestParams: {
+          query: primary.query_text,
+          marketCountry: opp.market_country,
+          researchLanguage: opp.research_language,
+          depth: serpDepth ?? 10,
+        },
+        locale: opp.research_language ?? null,
       });
       serpRawPayloadId = stored?.id ?? null;
     } catch (error) {
@@ -739,6 +761,49 @@ export async function observeOpportunity(
     output.dBand = historyDays >= minHistoryReq ? output.dBand : 'INSUFFICIENT';
     output.wBand = serpHistoryDays >= minHistoryReq && recentSerp ? output.wBand : 'INSUFFICIENT';
     output.mBand = commercial.band;
+
+    // 死因留痕（Phase 0）：`WATCH` 本身不说明是哪条 Gate 拦下的。
+    // 没有这份记录，Shadow Pool 抽样和 Gate 收紧都无从谈起。
+    const rejectionEvidence = {
+      historyDays,
+      serpHistoryDays,
+      recentSerp,
+      serpAvailable,
+      acAvailable,
+      dBand: output.dBand,
+      wBand: output.wBand,
+      mBand: output.mBand,
+      confidence: output.confidence,
+      staleSources,
+      flags: output.flags,
+    };
+    const rows: RejectionInput[] = [];
+    if (historyDays < minHistoryReq || serpHistoryDays < minHistoryReq) {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'DATA', reasonCode: 'DATA_BASELINE_PERIOD', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    }
+    if (!acAvailable) {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'D', reasonCode: 'D_INSUFFICIENT', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    } else if (historyDays < minHistoryReq) {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'D', reasonCode: 'D_HISTORY_BELOW_BASELINE', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    }
+    if (!serpAvailable) {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'DATA', reasonCode: 'DATA_CRITICAL_SOURCE_FAILURE', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    } else if (!recentSerp || serpHistoryDays < minHistoryReq) {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'W', reasonCode: 'W_SERP_HISTORY_BELOW_BASELINE', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    }
+    if (output.mBand === 'INSUFFICIENT') {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'M', reasonCode: 'M_INSUFFICIENT', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    }
+    if (output.confidence === 'LOW') {
+      rows.push({ opportunityId: opp.id, obsDate, axis: 'PUBLICATION', reasonCode: 'CONFIDENCE_LOW', evidence: rejectionEvidence, ruleVersion: SCORING_CONFIG_VERSION });
+    }
+    rows.push(...rejectionsFromFlags(opp.id, obsDate, output.flags, SCORING_CONFIG_VERSION, rejectionEvidence));
+    try {
+      await recordRejections(rows);
+    } catch (error) {
+      // 拒绝记录失败不能影响观测本身：账本已经写下这一天的事实。
+      console.warn('[pipeline:rejections] failed to record rejection reasons:', error instanceof Error ? error.message : error);
+    }
   }
 
   // 封存特征快照。既写入 opportunity_snapshots.metrics，也作为账本 features_hash 的
@@ -897,9 +962,12 @@ async function crawlCommercialDomains(
       try {
         const stored = await storeRawPayload({
           collectorRunId: crawlRunId,
+          sourceId: 'src_crawl',
+          provider: 'DIRECT_HTTP',
           obsDate,
           content: outcome.raw.content,
           mimeType: outcome.raw.mimeType,
+          requestParams: { domain, url: targetUrl },
         });
         crawlRawPayloadId = stored?.id ?? null;
       } catch (error) {
@@ -916,8 +984,8 @@ async function crawlCommercialDomains(
 
     for (const ev of outcome.evidence) {
       await query(
-        `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at, raw_payload_id, extractor_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           opportunityId,
           ev.evidenceClass,
@@ -928,6 +996,9 @@ async function crawlCommercialDomains(
           ev.snippet,
           JSON.stringify(ev.payload),
           ev.observedAt,
+          // 解析结论指回原始载荷，保证“这条价格是从哪份 HTML 得来的”可回答。
+          crawlRawPayloadId,
+          extractorVersionForSourceType(ev.sourceType),
         ]
       );
     }

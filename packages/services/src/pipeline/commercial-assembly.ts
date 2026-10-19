@@ -1,4 +1,5 @@
 import { query } from '@emeradar/db';
+import { EXTRACTOR_VERSIONS } from '../evidence-version';
 import {
   COMMERCIAL_DEFAULTS,
   CommercialConfig,
@@ -288,8 +289,8 @@ export async function emitNegativesFromDiff(
 
   if (diff.negative) {
     await query(
-      `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at)
-       SELECT $1,'OBSERVED',$2,$3,$4,$5,$6,$7,NOW()
+      `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at, extractor_version)
+       SELECT $1,'OBSERVED',$2,$3,$4,$5,$6,$7,NOW(),$9
        WHERE NOT EXISTS (
          SELECT 1 FROM evidence
          WHERE opportunity_id = $1 AND source_type = $2
@@ -306,14 +307,15 @@ export async function emitNegativesFromDiff(
           : `Paid plans observed on ${prior.obsDate} are free or absent on ${obsDate}.`,
         JSON.stringify(payload),
         obsDate,
+        EXTRACTOR_VERSIONS.COMMERCIAL_DIFF,
       ]
     );
   }
 
   if (diff.priceChangeMajor) {
     await query(
-      `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at)
-       SELECT $1,'OBSERVED','PRICE_CHANGE_MAJOR',$2,$3,$4,$5,$6,NOW()
+      `INSERT INTO evidence (opportunity_id, evidence_class, source_type, source_id, domain, title, snippet, payload, observed_at, extractor_version)
+       SELECT $1,'OBSERVED','PRICE_CHANGE_MAJOR',$2,$3,$4,$5,$6,NOW(),$8
        WHERE NOT EXISTS (
          SELECT 1 FROM evidence
          WHERE opportunity_id = $1 AND source_type = 'PRICE_CHANGE_MAJOR'
@@ -327,6 +329,7 @@ export async function emitNegativesFromDiff(
         `Minimum paid price moved ${diff.priceChangePct}% between ${prior.obsDate} and ${obsDate}.`,
         JSON.stringify(payload),
         obsDate,
+        EXTRACTOR_VERSIONS.COMMERCIAL_DIFF,
       ]
     );
   }

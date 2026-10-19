@@ -41,6 +41,8 @@ export * from './crowding.service';
 export * from './collector-run.service';
 export * from './stale-data.service';
 export * from './raw-payload.service';
+export * from './evidence-version';
+export * from './rejection.service';
 export * from './custom-query-radar.service';
 export * from './external-demand.service';
 export * from './query-intent';
