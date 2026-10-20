@@ -112,7 +112,7 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
   };
 
   const handleTrigger = async (
-    task: 'discover' | 'generate-intents' | 'validate-intents' | 'run-daily',
+    task: 'discover' | 'seed-keywords' | 'generate-intents' | 'validate-intents' | 'run-daily',
     label: string
   ) => {
     setRunningTask(label);
@@ -238,6 +238,67 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
           <CheckpointVerdict checkpoint={overview.latestCheckpoint} />
         </Panel>
       </div>
+
+      {/* 候选池需求档位 */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <Layers className="h-4 w-4 text-accent" />
+              <span>候选池需求档位</span>
+            </h2>
+            <p className="mt-1 text-xs text-fg-muted">
+              回答“捞到的词到底有多大”。词量只用于入口筛选与排序，不参与评分。
+            </p>
+          </div>
+          <Badge tone={(overview.demand.bandedShare ?? 0) > 0.5 ? 'signal' : 'warn'}>
+            有词量信号 {(overview.demand.bandedShare * 100).toFixed(0)}%
+          </Badge>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {overview.demand.bands.length === 0 ? (
+            <p className="text-xs text-fg-subtle">候选池为空。</p>
+          ) : (
+            overview.demand.bands.map((row) => (
+              <span
+                key={row.band ?? 'none'}
+                className="rounded-sm border border-line bg-surface-2 px-3 py-1 font-mono text-[11px] text-fg-muted"
+              >
+                {row.band ?? '无信号'} · {row.count}
+              </span>
+            ))
+          )}
+        </div>
+
+        {overview.demand.topCandidates.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line font-mono text-[10px] uppercase tracking-[0.14em] text-fg-subtle">
+                  <th className="pb-3 font-semibold">QUERY</th>
+                  <th className="pb-3 font-semibold">VOLUME</th>
+                  <th className="pb-3 font-semibold">KD</th>
+                  <th className="pb-3 font-semibold">SOURCE</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line font-mono">
+                {overview.demand.topCandidates.map((row) => (
+                  <tr key={row.id}>
+                    <td className="py-2.5 text-fg">{row.title}</td>
+                    <td className="py-2.5 text-fg-muted">
+                      {row.searchVolume === null ? '—' : row.searchVolume.toLocaleString()}
+                      {row.volumeBand ? ` (${row.volumeBand})` : ''}
+                    </td>
+                    <td className="py-2.5 text-fg-muted">{row.keywordDifficulty ?? '—'}</td>
+                    <td className="py-2.5 text-fg-subtle">{row.discoverySource ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
 
       {/* Discovery quality */}
       <Panel tone="raised" className="p-6 sm:p-8">
@@ -535,6 +596,38 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                 <>
                   <Play className="h-3 w-3" />
                   <span>运行 Discover</span>
+                </>
+              )}
+            </Button>
+          </Panel>
+
+          {/* Step 1b: Seed keywords */}
+          <Panel tone="sunken" className="flex flex-col justify-between p-4">
+            <div>
+              <span className="mb-1 block font-mono text-[10px] font-black uppercase tracking-[0.14em] text-signal">
+                STEP 01b
+              </span>
+              <h3 className="text-sm font-bold text-fg">生成关键词候选</h3>
+              <p className="mt-1 text-[11px] text-fg-subtle">
+                工具种子 → keyword_suggestions + keyword_ideas → 新候选
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => handleTrigger('seed-keywords', '关键词候选生成 (seed-keywords)')}
+              disabled={!!runningTask}
+              className="mt-4 w-full"
+            >
+              {runningTask === '关键词候选生成 (seed-keywords)' ? (
+                <>
+                  <RotateCw className="h-3 w-3 animate-spin" />
+                  <span>执行中...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3 w-3" />
+                  <span>立即生成</span>
                 </>
               )}
             </Button>

@@ -3,6 +3,7 @@ import { AppError } from '@emeradar/core';
 import { AuditService } from '../audit.service';
 import { TrackRecordService } from '../track-record.service';
 import { rejectionSummary } from '../rejection.service';
+import { seedKeywordCandidates } from '../pipeline/seed-keyword-candidates';
 import { shadowPoolStats } from '../shadow-pool.service';
 import {
   discoverSources,
@@ -40,6 +41,11 @@ function withPipelineTimeout<T>(promise: Promise<T>, label: string): Promise<T> 
       }
     );
   });
+}
+
+/** 当日观测日（YYYY-MM-DD），与管线其它入口同口径。 */
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export class AdminPipelineService {
@@ -197,6 +203,35 @@ export class AdminPipelineService {
         ORDER BY e.obs_date DESC, e.created_at DESC
         LIMIT 20`
     ).catch(() => ({ rows: [] as any[] }));
+
+    // 4a. 候选池的需求档位分布：回答“我们捞到的词到底有多大”。
+    const bandRes = await query<{ band: string | null; count: number }>(
+      `SELECT volume_band AS band, COUNT(*)::int AS count
+         FROM opportunities
+        WHERE status = 'CANDIDATE'
+        GROUP BY 1
+        ORDER BY 1 NULLS LAST`
+    );
+    const bandedRes = await query<{ banded: number; total: number }>(
+      `SELECT COUNT(*) FILTER (WHERE volume_band IS NOT NULL)::int AS banded,
+              COUNT(*)::int AS total
+         FROM opportunities WHERE status = 'CANDIDATE'`
+    );
+    const topCandidatesRes = await query<{
+      id: string;
+      title: string;
+      volume_band: string | null;
+      entry_search_volume: number | null;
+      entry_keyword_difficulty: number | null;
+      discovery_source: string | null;
+    }>(
+      `SELECT id, title, volume_band, entry_search_volume, entry_keyword_difficulty, discovery_source
+         FROM opportunities
+        WHERE status = 'CANDIDATE'
+        ORDER BY entry_search_volume DESC NULLS LAST, created_at DESC
+        LIMIT 10`
+    );
+    const bandStats = bandedRes.rows[0] ?? { banded: 0, total: 0 };
 
     // 4b0. Phase 0/2 observability: rejection reasons + shadow-pool FNR
     const rejectionsRes = await rejectionSummary(new Date().toISOString().slice(0, 10)).catch(() => []);
@@ -358,6 +393,18 @@ export class AdminPipelineService {
         finishedAt: r.finished_at,
         errorMessage: r.error_message,
       })),
+      demand: {
+        bands: bandRes.rows.map((row) => ({ band: row.band, count: row.count })),
+        bandedShare: bandStats.total > 0 ? bandStats.banded / bandStats.total : 0,
+        topCandidates: topCandidatesRes.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          volumeBand: row.volume_band,
+          searchVolume: row.entry_search_volume,
+          keywordDifficulty: row.entry_keyword_difficulty,
+          discoverySource: row.discovery_source,
+        })),
+      },
       shadowPool,
       rejections: rejectionsRes.map((row) => ({
         reasonCode: row.reasonCode,
@@ -435,7 +482,7 @@ export class AdminPipelineService {
    * Triggers an automated worker task directly in-process
    */
   static async triggerTask(
-    task: 'discover' | 'generate-intents' | 'validate-intents' | 'run-daily',
+    task: 'discover' | 'seed-keywords' | 'generate-intents' | 'validate-intents' | 'run-daily',
     actorId: string | null = null
   ): Promise<{
     task: string;
@@ -456,6 +503,18 @@ export class AdminPipelineService {
     };
 
     try {
+      if (task === 'seed-keywords') {
+        log('[pipeline] Seeding keyword candidates from tool-intent seeds...');
+        const result = await withPipelineTimeout(seedKeywordCandidates(today()), 'Keyword seed');
+        log('[pipeline] Seed result:');
+        log(` - Seeds: ${result.seeds.join(', ') || '(none)'}`);
+        log(` - Suggestions fetched: ${result.fetched}`);
+        log(` - New candidates: ${result.created}`);
+        log(` - Failed seeds: ${result.failures}`);
+        if (result.skipped) log(` - Skipped: ${result.reason ?? 'unknown'}`);
+        return { task, output: logs.join('\n'), exitCode: 0 };
+      }
+
       if (task === 'discover') {
         log('[pipeline] Starting signal discovery across active sources and feeds...');
         const res = await withPipelineTimeout(discoverSources(), 'Signal discovery');

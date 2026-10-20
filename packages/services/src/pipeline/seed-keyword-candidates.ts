@@ -340,9 +340,21 @@ export async function seedKeywordCandidates(
         );
         if (opp.rows.length === 0) return false;
         // 词法指纹随候选落库：canonical 归并与重复观测拦截都依赖它。
+        // 同时记下入口需求信号（词量/难度/档位）——只用于排序与展示，不进评分。
         await client.query(
-          `UPDATE opportunities SET lexical_fingerprint = $2 WHERE id = $1`,
-          [opportunityId, dedupeKey(text)]
+          `UPDATE opportunities
+              SET lexical_fingerprint = $2,
+                  entry_search_volume = $3,
+                  entry_keyword_difficulty = $4,
+                  volume_band = $5
+            WHERE id = $1`,
+          [
+            opportunityId,
+            dedupeKey(text),
+            s.searchVolume,
+            s.keywordDifficulty ?? null,
+            volumeBand(s.searchVolume),
+          ]
         );
         await client.query(
           `INSERT INTO opportunity_queries (opportunity_id, query_id, role) VALUES ($1, $2, 'PRIMARY')

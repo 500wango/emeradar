@@ -97,6 +97,20 @@ export interface AdminPipelineOverview {
     finishedAt: string | null;
     errorMessage: string | null;
   }>;
+  demand: {
+    /** 候选池按需求档位的分布；`null` 档位表示入库时没有词量信号（旧数据或 LIVE_SCAN）。 */
+    bands: Array<{ band: string | null; count: number }>;
+    /** 候选池里有词量信号的占比 0–1。 */
+    bandedShare: number;
+    topCandidates: Array<{
+      id: string;
+      title: string;
+      volumeBand: string | null;
+      searchVolume: number | null;
+      keywordDifficulty: number | null;
+      discoverySource: string | null;
+    }>;
+  };
   shadowPool: {
     samples: number;
     captured: number;

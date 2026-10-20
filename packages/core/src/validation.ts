@@ -163,7 +163,7 @@ export const candidateModerateSchema = z.object({
 });
 
 export const pipelineTriggerSchema = z.object({
-  task: z.enum(['discover', 'generate-intents', 'validate-intents', 'run-daily']),
+  task: z.enum(['discover', 'seed-keywords', 'generate-intents', 'validate-intents', 'run-daily']),
 });
 
 export const adminSourceSchema = z.discriminatedUnion('action', [
