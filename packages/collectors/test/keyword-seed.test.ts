@@ -77,3 +77,84 @@ describe('KeywordSeedCollector', () => {
     assert.strictEqual(await new KeywordSeedCollector({ login: 'a', password: 'b' }, failing).suggest('x'), null);
   });
 });
+
+describe('批量需求端点', () => {
+  const ok = (items: any[]) => ({ tasks: [{ status_code: 20000, result: [{ items }] }] });
+
+  it('overview 解析词量/难度/CPC', async () => {
+    let seenUrl = '';
+    let seenBody: any;
+    const stub = (async (url: any, init: any) => {
+      seenUrl = String(url);
+      seenBody = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify(
+          ok([
+            {
+              keyword: 'invoice generator',
+              keyword_info: { search_volume: 12100, cpc: 3.2, competition: 0.8 },
+              keyword_properties: { keyword_difficulty: 5 },
+            },
+          ])
+        ),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+
+    const rows = await new KeywordSeedCollector({ aisaApiKey: 'k' }, stub).overview(['invoice generator']);
+    assert.match(seenUrl, /keyword_overview\/live$/);
+    assert.deepStrictEqual(seenBody[0].keywords, ['invoice generator']);
+    assert.strictEqual(rows?.[0].searchVolume, 12100);
+    assert.strictEqual(rows?.[0].keywordDifficulty, 5);
+    assert.strictEqual(rows?.[0].cpc, 3.2);
+  });
+
+  it('intent 解析标签与概率，入参只有 keywords', async () => {
+    let seenBody: any;
+    const stub = (async (_url: any, init: any) => {
+      seenBody = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify(
+          ok([
+            {
+              keyword: 'podcast transcript seo',
+              keyword_intent: { label: 'transactional', probability: 0.7 },
+              secondary_keyword_intents: [{ label: 'informational', probability: 0.3 }],
+            },
+          ])
+        ),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+
+    const rows = await new KeywordSeedCollector({ aisaApiKey: 'k' }, stub).intent(['podcast transcript seo']);
+    assert.deepStrictEqual(Object.keys(seenBody[0]), ['keywords'], '意图端点不接受 location/language');
+    assert.strictEqual(rows?.[0].label, 'transactional');
+    assert.strictEqual(rows?.[0].secondary[0].label, 'informational');
+  });
+
+  it('history 解析逐月序列', async () => {
+    const stub = (async () =>
+      new Response(
+        JSON.stringify(
+          ok([
+            {
+              keyword: 'invoice generator',
+              keyword_info: {
+                search_volume: 12100,
+                monthly_searches: [
+                  { year: 2026, month: 1, search_volume: 9000 },
+                  { year: 2026, month: 2, search_volume: 12000 },
+                ],
+              },
+            },
+          ])
+        ),
+        { status: 200 }
+      )) as typeof fetch;
+
+    const rows = await new KeywordSeedCollector({ aisaApiKey: 'k' }, stub).history(['invoice generator']);
+    assert.strictEqual(rows?.[0].monthlySearches.length, 2);
+    assert.strictEqual(rows?.[0].monthlySearches[1].searchVolume, 12000);
+  });
+});

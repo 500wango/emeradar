@@ -108,6 +108,8 @@ export interface AdminPipelineOverview {
       volumeBand: string | null;
       searchVolume: number | null;
       keywordDifficulty: number | null;
+      demandTrend: string | null;
+      vendorIntent: string | null;
       discoverySource: string | null;
     }>;
   };

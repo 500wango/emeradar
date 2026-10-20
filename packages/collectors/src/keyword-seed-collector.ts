@@ -64,6 +64,25 @@ export interface KeywordSuggestion {
   mainIntent: string | null;
 }
 
+/** 词量/难度/CPC 的批量核验结果（只用于入口与展示）。 */
+export interface KeywordDemandDetail {
+  keyword: string;
+  searchVolume: number | null;
+  keywordDifficulty: number | null;
+  cpc: number | null;
+  competition: number | null;
+  /** 逐月搜索量（historical_search_volume 才有；overview 通常为空）。 */
+  monthlySearches: Array<{ year: number; month: number; searchVolume: number }>;
+}
+
+/** DataForSEO 的意图分类（估计，不是事实）。 */
+export interface KeywordIntentDetail {
+  keyword: string;
+  label: string | null;
+  probability: number | null;
+  secondary: Array<{ label: string | null; probability: number | null }>;
+}
+
 export type KeywordSeedCredentials = { login: string; password: string } | { aisaApiKey: string };
 
 const DATAFORSEO_BASE = 'https://api.dataforseo.com/v3';
@@ -77,6 +96,12 @@ const PATH = '/dataforseo_labs/google/keyword_suggestions/live';
  * 商业词（月搜上万）。两者不是替代关系，是互补：一个给长尾覆盖，一个给需求上限。
  */
 const IDEAS_PATH = '/dataforseo_labs/google/keyword_ideas/live';
+/** 批量核验词量与难度（可用于验证供应商的估计是否自相矛盾）。 */
+const OVERVIEW_PATH = '/dataforseo_labs/google/keyword_overview/live';
+/** DataForSEO 自己的意图分类；只作交叉验证，不替代我们的 intent_fit。 */
+const INTENT_PATH = '/dataforseo_labs/google/search_intent/live';
+/** 12 个月逐月搜索量：唯一能替代“等 14 天”的需求趋势证据。 */
+const HISTORY_PATH = '/dataforseo_labs/google/historical_search_volume/live';
 
 /**
  * 解析 DataForSEO Labs 信封。拒绝也是 HTTP 200，结论在 `tasks[0].status_code`；
@@ -173,4 +198,139 @@ export class KeywordSeedCollector {
       return null;
     }
   }
+
+  /**
+   * 批量核验：词量、难度、CPC。
+   *
+   * 用途是**验证**而不是发现——同一批词在 suggestions / ideas / overview 里
+   * 出现不同搜索量时，至少能看出来供应商自己的估计不一致。
+   */
+  async overview(
+    keywords: string[],
+    market: { locationCode?: number; languageCode?: string } = {}
+  ): Promise<KeywordDemandDetail[] | null> {
+    return this.batch(OVERVIEW_PATH, keywords, market, (item) => ({
+      keyword: String(item?.keyword ?? ''),
+      searchVolume: numberOrNull(item?.keyword_info?.search_volume),
+      keywordDifficulty: numberOrNull(item?.keyword_properties?.keyword_difficulty),
+      cpc: numberOrNull(item?.keyword_info?.cpc),
+      competition: numberOrNull(item?.keyword_info?.competition),
+      monthlySearches: parseMonthly(item?.keyword_info?.monthly_searches),
+    }));
+  }
+
+  /**
+   * 12 个月逐月搜索量。
+   *
+   * 这是**需求侧最强的外部证据**，但只能用于入口排序与研报叙述：
+   * D 轴读它就会与 `external_demand_formed` 的事件判据自证（06 §7.1a）。
+   */
+  async history(
+    keywords: string[],
+    market: { locationCode?: number; languageCode?: string } = {}
+  ): Promise<KeywordDemandDetail[] | null> {
+    return this.batch(HISTORY_PATH, keywords, market, (item) => ({
+      keyword: String(item?.keyword ?? ''),
+      searchVolume: numberOrNull(item?.keyword_info?.search_volume),
+      keywordDifficulty: numberOrNull(item?.keyword_properties?.keyword_difficulty),
+      cpc: numberOrNull(item?.keyword_info?.cpc),
+      competition: numberOrNull(item?.keyword_info?.competition),
+      monthlySearches: parseMonthly(item?.keyword_info?.monthly_searches),
+    }));
+  }
+
+  /**
+   * DataForSEO 的意图分类。
+   *
+   * 它也是**估计**，不是事实：`podcast transcript seo` 被打成 transactional
+   * 不代表用户想买。所以我们只把它当交叉验证信号，判据仍以 SERP 形态为准。
+   */
+  async intent(keywords: string[]): Promise<KeywordIntentDetail[] | null> {
+    try {
+      const [base, authorization] = this.auth();
+      const res = await this.fetchImpl(`${base}${INTENT_PATH}`, {
+        method: 'POST',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ keywords }]),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) return null;
+      const rows = itemsOf(await res.json());
+      if (!rows) return null;
+      return rows.map((item: any) => ({
+        keyword: String(item?.keyword ?? ''),
+        label: typeof item?.keyword_intent?.label === 'string' ? item.keyword_intent.label : null,
+        probability: numberOrNull(item?.keyword_intent?.probability),
+        secondary: Array.isArray(item?.secondary_keyword_intents)
+          ? item.secondary_keyword_intents.map((row: any) => ({
+              label: typeof row?.label === 'string' ? row.label : null,
+              probability: numberOrNull(row?.probability),
+            }))
+          : [],
+      }));
+    } catch {
+      return null;
+    }
+  }
+
+  private auth(): [string, string] {
+    return 'aisaApiKey' in this.creds
+      ? [AISA_DATAFORSEO_BASE, `Bearer ${this.creds.aisaApiKey}`]
+      : [DATAFORSEO_BASE, `Basic ${Buffer.from(`${this.creds.login}:${this.creds.password}`).toString('base64')}`];
+  }
+
+  /** 批量端点的公共外壳：POST 数组 body，按 `itemsOf` 取条目。 */
+  private async batch<T>(
+    path: string,
+    keywords: string[],
+    market: { locationCode?: number; languageCode?: string },
+    map: (item: any) => T
+  ): Promise<T[] | null> {
+    if (keywords.length === 0) return [];
+    try {
+      const [base, authorization] = this.auth();
+      const res = await this.fetchImpl(`${base}${path}`, {
+        method: 'POST',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify([
+          {
+            keywords: keywords.slice(0, 1000),
+            location_code: market.locationCode ?? 2840,
+            language_code: market.languageCode ?? 'en',
+          },
+        ]),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) return null;
+      const rows = itemsOf(await res.json());
+      if (!rows) return null;
+      return rows.map(map);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function itemsOf(body: unknown): any[] | null {
+  const task = (body as any)?.tasks?.[0];
+  if (!task || task.status_code !== 20000) return null;
+  const result = task.result?.[0];
+  if (result === null || result === undefined) return [];
+  if (!Array.isArray(result.items)) return null;
+  return result.items;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseMonthly(value: unknown): Array<{ year: number; month: number; searchVolume: number }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row: any) => ({
+      year: Number(row?.year),
+      month: Number(row?.month),
+      searchVolume: Number(row?.search_volume),
+    }))
+    .filter((row) => Number.isFinite(row.year) && Number.isFinite(row.month) && Number.isFinite(row.searchVolume));
 }

@@ -112,7 +112,13 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
   };
 
   const handleTrigger = async (
-    task: 'discover' | 'seed-keywords' | 'generate-intents' | 'validate-intents' | 'run-daily',
+    task:
+      | 'discover'
+      | 'seed-keywords'
+      | 'enrich-demand'
+      | 'generate-intents'
+      | 'validate-intents'
+      | 'run-daily',
     label: string
   ) => {
     setRunningTask(label);
@@ -279,6 +285,7 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                   <th className="pb-3 font-semibold">QUERY</th>
                   <th className="pb-3 font-semibold">VOLUME</th>
                   <th className="pb-3 font-semibold">KD</th>
+                  <th className="pb-3 font-semibold">TREND</th>
                   <th className="pb-3 font-semibold">SOURCE</th>
                 </tr>
               </thead>
@@ -291,6 +298,15 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                       {row.volumeBand ? ` (${row.volumeBand})` : ''}
                     </td>
                     <td className="py-2.5 text-fg-muted">{row.keywordDifficulty ?? '—'}</td>
+                    <td className="py-2.5">
+                      {row.demandTrend ? (
+                        <Badge tone={row.demandTrend === 'GROWING' ? 'signal' : row.demandTrend === 'DECLINING' ? 'warn' : 'neutral'} size="sm">
+                          {row.demandTrend}
+                        </Badge>
+                      ) : (
+                        <span className="text-fg-subtle">—</span>
+                      )}
+                    </td>
                     <td className="py-2.5 text-fg-subtle">{row.discoverySource ?? '—'}</td>
                   </tr>
                 ))}
@@ -612,25 +628,48 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
                 工具种子 → keyword_suggestions + keyword_ideas → 新候选
               </p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => handleTrigger('seed-keywords', '关键词候选生成 (seed-keywords)')}
-              disabled={!!runningTask}
-              className="mt-4 w-full"
-            >
-              {runningTask === '关键词候选生成 (seed-keywords)' ? (
-                <>
-                  <RotateCw className="h-3 w-3 animate-spin" />
-                  <span>执行中...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-3 w-3" />
-                  <span>立即生成</span>
-                </>
-              )}
-            </Button>
+            <div className="mt-4 space-y-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                onClick={() => handleTrigger('seed-keywords', '关键词候选生成 (seed-keywords)')}
+                disabled={!!runningTask}
+                className="w-full"
+              >
+                {runningTask === '关键词候选生成 (seed-keywords)' ? (
+                  <>
+                    <RotateCw className="h-3 w-3 animate-spin" />
+                    <span>执行中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3 w-3" />
+                    <span>立即生成</span>
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => handleTrigger('enrich-demand', '需求补全 (enrich-demand)')}
+                disabled={!!runningTask}
+                className="w-full"
+              >
+                {runningTask === '需求补全 (enrich-demand)' ? (
+                  <>
+                    <RotateCw className="h-3 w-3 animate-spin" />
+                    <span>补全中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-3 w-3" />
+                    <span>补全词量与趋势</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </Panel>
 
           {/* Step 2: Generate Intents */}

@@ -4,6 +4,7 @@ import { AuditService } from '../audit.service';
 import { TrackRecordService } from '../track-record.service';
 import { rejectionSummary } from '../rejection.service';
 import { seedKeywordCandidates } from '../pipeline/seed-keyword-candidates';
+import { enrichDemand } from '../demand-enrichment.service';
 import { shadowPoolStats } from '../shadow-pool.service';
 import {
   discoverSources,
@@ -223,9 +224,12 @@ export class AdminPipelineService {
       volume_band: string | null;
       entry_search_volume: number | null;
       entry_keyword_difficulty: number | null;
+      demand_trend: string | null;
+      vendor_intent: string | null;
       discovery_source: string | null;
     }>(
-      `SELECT id, title, volume_band, entry_search_volume, entry_keyword_difficulty, discovery_source
+      `SELECT id, title, volume_band, entry_search_volume, entry_keyword_difficulty,
+              demand_trend, vendor_intent, discovery_source
          FROM opportunities
         WHERE status = 'CANDIDATE'
         ORDER BY entry_search_volume DESC NULLS LAST, created_at DESC
@@ -402,6 +406,8 @@ export class AdminPipelineService {
           volumeBand: row.volume_band,
           searchVolume: row.entry_search_volume,
           keywordDifficulty: row.entry_keyword_difficulty,
+          demandTrend: row.demand_trend,
+          vendorIntent: row.vendor_intent,
           discoverySource: row.discovery_source,
         })),
       },
@@ -482,7 +488,13 @@ export class AdminPipelineService {
    * Triggers an automated worker task directly in-process
    */
   static async triggerTask(
-    task: 'discover' | 'seed-keywords' | 'generate-intents' | 'validate-intents' | 'run-daily',
+    task:
+      | 'discover'
+      | 'seed-keywords'
+      | 'enrich-demand'
+      | 'generate-intents'
+      | 'validate-intents'
+      | 'run-daily',
     actorId: string | null = null
   ): Promise<{
     task: string;
@@ -511,6 +523,17 @@ export class AdminPipelineService {
         log(` - Suggestions fetched: ${result.fetched}`);
         log(` - New candidates: ${result.created}`);
         log(` - Failed seeds: ${result.failures}`);
+        if (result.skipped) log(` - Skipped: ${result.reason ?? 'unknown'}`);
+        return { task, output: logs.join('\n'), exitCode: 0 };
+      }
+
+      if (task === 'enrich-demand') {
+        log('[pipeline] Enriching demand (volume / intent / 12-month trend)...');
+        const result = await withPipelineTimeout(enrichDemand(), 'Demand enrichment');
+        log('[pipeline] Demand result:');
+        log(` - Scanned: ${result.scanned}`);
+        log(` - Updated: ${result.updated}`);
+        log(` - Failed: ${result.failed}`);
         if (result.skipped) log(` - Skipped: ${result.reason ?? 'unknown'}`);
         return { task, output: logs.join('\n'), exitCode: 0 };
       }
