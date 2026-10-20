@@ -7,6 +7,7 @@ import {
   KeywordSeedCollector,
   KeywordSeedCredentials,
   KeywordSuggestion,
+  volumeBand,
 } from '@emeradar/collectors';
 import { classifyQueryIntent } from '../query-intent';
 import { lexicalFingerprint } from '../canonical-query.service';
@@ -57,11 +58,11 @@ export const TOOL_INTENT_SEEDS: Array<{ seed: string; archetype: 'TOOL' | 'MICRO
 ];
 
 /** 每天展开的种子数。2 × $0.018 = $0.036/天。 */
-export const SEEDS_PER_RUN = 2;
+export const SEEDS_PER_RUN = Number(process.env.SEED_PER_RUN ?? 4);
 /** 每天最多新增的候选数。每个候选此后每天约 $0.005（autocomplete + SERP + 抓取）。 */
-export const MAX_NEW_CANDIDATES_PER_RUN = 8;
+export const MAX_NEW_CANDIDATES_PER_RUN = Number(process.env.SEED_MAX_NEW ?? 15);
 /** 活跃候选池上限。超过就不再新增，避免观测成本随时间线性上涨。 */
-export const MAX_ACTIVE_SEED_CANDIDATES = 150;
+export const MAX_ACTIVE_SEED_CANDIDATES = Number(process.env.SEED_MAX_ACTIVE ?? 300);
 
 /** 品牌 / 导航词与成人词：观测它们只会得到官方站霸榜（02 §7 品牌导航词判定）。 */
 const EXCLUDED = /\b(login|sign in|near me|porn|sex|nude|casino|bet|lottery|google|youtube|facebook|instagram|tiktok|amazon|chatgpt|openai|microsoft|apple|minecraft|roblox|fortnite|pokemon)\b/i;
@@ -266,9 +267,9 @@ export async function seedKeywordCandidates(
         const opportunityId = idFor('opp_kw', `${market.country}:${text}`);
         const slug = market.country === 'US' ? slugFor(text) : `${slugFor(text)}-${market.country.toLowerCase()}`;
         const reason =
-          `Long-tail of tool seed "${seed}" (Google ${market.country}, DataForSEO Labs, ${obsDate}): ` +
-          `~${s.searchVolume}/mo, difficulty ${s.keywordDifficulty ?? 'n/a'}, intent ${s.mainIntent ?? 'n/a'}. ` +
-          `Entry filter only — volume is not a scoring input.`;
+          `Tool seed "${seed}" (Google ${market.country}, DataForSEO Labs, ${obsDate}): ` +
+          `~${s.searchVolume}/mo (${volumeBand(s.searchVolume)}), difficulty ${s.keywordDifficulty ?? 'n/a'}, ` +
+          `intent ${s.mainIntent ?? 'n/a'}. Entry filter only — volume is not a scoring input.`;
 
       const created = await transaction(async (client) => {
         const q = await client.query<{ id: string }>(

@@ -10,6 +10,9 @@ import { makeDisposableDb } from './helpers/disposable-db';
  */
 const harness = makeDisposableDb('emeradar_shadow_pool_test');
 
+/** 用数据库的今天，避免夹具与断言各自算日期导致隔天翻车。 */
+let TODAY = '';
+
 async function seedRejected(id: string, reasonCode: string, axis: string, surface: string) {
   const { query } = harness.db;
   await query(
@@ -27,6 +30,8 @@ async function seedRejected(id: string, reasonCode: string, axis: string, surfac
 before(async () => {
   await harness.setup();
   if (!harness.available) return;
+  const todayRes = await harness.db.query<{ today: string }>(`SELECT CURRENT_DATE::text AS today`);
+  TODAY = todayRes.rows[0].today;
   for (let i = 0; i < 6; i++) {
     await seedRejected(`opp_shadow_m1_${i}`, 'M_INFRA_ONLY', 'M', `pdf tool ${i}`);
   }
@@ -44,7 +49,7 @@ describe('Phase 2 Shadow Pool', () => {
   it('按拒绝原因分层抽样，并排 T+30/60/90 三个回访', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { sampleShadowPool } = harness.services;
-    const result = await sampleShadowPool('2026-10-19');
+    const result = await sampleShadowPool(TODAY);
     assert.ok(result.sampled >= 2, '至少应抽到两种拒绝原因');
     assert.strictEqual(result.checkpointsScheduled, result.sampled * 3);
 
@@ -52,7 +57,7 @@ describe('Phase 2 Shadow Pool', () => {
     assert.deepStrictEqual(strata, ['D_INSUFFICIENT', 'M_BLOCKED_WAF', 'M_INFRA_ONLY']);
 
     // 幂等：同一天重跑不产生新样本。
-    const again = await sampleShadowPool('2026-10-19');
+    const again = await sampleShadowPool(TODAY);
     assert.strictEqual(again.sampled, 0);
   });
 
@@ -80,7 +85,7 @@ describe('Phase 2 Shadow Pool', () => {
 
     // 让 T+30 到期：把 due_date 提前到过去。
     await query(`UPDATE shadow_checkpoints SET due_date = CURRENT_DATE - 1 WHERE horizon_days = 30`);
-    const pending = await pendingCheckpoints('2026-10-19');
+    const pending = await pendingCheckpoints(TODAY);
     assert.ok(pending.length > 0);
 
     // 其中一条被拒的机会现在出现了两个公开付费档位 → 漏判。

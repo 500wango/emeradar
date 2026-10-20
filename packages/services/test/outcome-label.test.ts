@@ -8,6 +8,9 @@ import { makeDisposableDb } from './helpers/disposable-db';
  */
 const harness = makeDisposableDb('emeradar_outcome_label_test');
 
+/** 用数据库的今天：窗口判据以 CURRENT_DATE 为基准，硬编码日期会隔天失效。 */
+let TODAY = '';
+
 async function seedOpportunity(id: string, options: { observationDays?: number; pricedDomains?: number; verdict?: string } = {}) {
   const { query } = harness.db;
   await query(
@@ -56,6 +59,8 @@ async function seedOpportunity(id: string, options: { observationDays?: number; 
 before(async () => {
   await harness.setup();
   if (!harness.available) return;
+  const todayRes = await harness.db.query<{ today: string }>(`SELECT CURRENT_DATE::text AS today`);
+  TODAY = todayRes.rows[0].today;
   await seedOpportunity('opp_label_positive', { observationDays: 20, pricedDomains: 2 });
   await seedOpportunity('opp_label_negative', { observationDays: 20, pricedDomains: 0 });
   await seedOpportunity('opp_label_nodata', {});
@@ -69,7 +74,7 @@ describe('Phase 3 分层标签', () => {
   it('需求持续 + 供给进入 → MARKET_FORMED_PROXY / POSITIVE（置信度 MEDIUM）', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { deriveProxyLabel } = harness.services;
-    const row = await deriveProxyLabel('opp_label_positive', 60, '2026-10-19');
+    const row = await deriveProxyLabel('opp_label_positive', 60, TODAY);
     assert.strictEqual(row.labelType, 'MARKET_FORMED_PROXY');
     assert.strictEqual(row.label, 'POSITIVE');
     assert.strictEqual(row.confidence, 'MEDIUM');
@@ -77,13 +82,13 @@ describe('Phase 3 分层标签', () => {
 
   it('有观测但供给未进入 → NEGATIVE', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const row = await harness.services.deriveProxyLabel('opp_label_negative', 60, '2026-10-19');
+    const row = await harness.services.deriveProxyLabel('opp_label_negative', 60, TODAY);
     assert.strictEqual(row.label, 'NEGATIVE');
   });
 
   it('完全没有数据 → NO_LABEL，不是负样本', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const row = await harness.services.deriveProxyLabel('opp_label_nodata', 60, '2026-10-19');
+    const row = await harness.services.deriveProxyLabel('opp_label_nodata', 60, TODAY);
     assert.strictEqual(row.labelType, 'NO_LABEL');
     assert.strictEqual(row.label, 'UNKNOWN');
   });
@@ -92,7 +97,7 @@ describe('Phase 3 分层标签', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { deriveProxyLabel, upsertLabel, labelDataset } = harness.services;
     for (const id of ['opp_label_positive', 'opp_label_negative', 'opp_label_nodata']) {
-      await upsertLabel(await deriveProxyLabel(id, 30, '2026-10-19'));
+      await upsertLabel(await deriveProxyLabel(id, 30, TODAY));
     }
     await upsertLabel({
       opportunityId: 'opp_label_positive',

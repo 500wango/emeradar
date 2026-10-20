@@ -11,6 +11,15 @@ import { makeDisposableDb } from './helpers/disposable-db';
 const harness = makeDisposableDb('emeradar_sampling_policy_test');
 const QRY = 'qry_sampling';
 
+/**
+ * 用**数据库的今天**，不要硬编码日期。
+ *
+ * 夹具以 `CURRENT_DATE - n` 造快照，而断言曾经写死 `'2026-10-19'`：
+ * 到了 10-20，`obs_date < '2026-10-19'` 只剩 13 天，基线判据当场翻转，
+ * 测试红了但代码是对的。日期相关的期望必须和造数据用同一个时钟。
+ */
+let TODAY = '';
+
 async function seedSerpDays(count: number) {
   const { query } = harness.db;
   for (let i = 1; i <= count; i++) {
@@ -25,6 +34,8 @@ async function seedSerpDays(count: number) {
 before(async () => {
   await harness.setup();
   if (!harness.available) return;
+  const todayRes = await harness.db.query<{ today: string }>(`SELECT CURRENT_DATE::text AS today`);
+  TODAY = todayRes.rows[0].today;
   await harness.db.query(
     `INSERT INTO queries (id, query_text, market_country, research_language, first_seen_date, tier)
      VALUES ($1, 'cron monitor', 'US', 'en-US', CURRENT_DATE, 'A')`,
@@ -40,7 +51,7 @@ describe('Phase 4 分层轮询', () => {
   it('基线期（不足 14 天）每天抓，不抽稀', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
     await seedSerpDays(3);
-    const decision = await harness.services.decideSerpSampling(QRY, '2026-10-19');
+    const decision = await harness.services.decideSerpSampling(QRY, TODAY);
     assert.strictEqual(decision.collect, true);
     assert.strictEqual(decision.reason, 'BASELINE_DAILY');
   });
@@ -51,7 +62,7 @@ describe('Phase 4 分层轮询', () => {
     await query(`DELETE FROM serp_snapshots WHERE query_id = $1`, [QRY]);
     // 14 天基线，最后一次在 1 天前 → 不该再抓。
     await seedSerpDays(14);
-    const decision = await harness.services.decideSerpSampling(QRY, '2026-10-19');
+    const decision = await harness.services.decideSerpSampling(QRY, TODAY);
     assert.strictEqual(decision.collect, false);
     assert.strictEqual(decision.reason, 'WEEKLY');
     assert.ok(decision.serpHistoryDays >= 14);
@@ -70,7 +81,7 @@ describe('Phase 4 分层轮询', () => {
     const jumped = await harness.services.autocompleteJumped(QRY);
     assert.strictEqual(jumped, true);
 
-    const decision = await harness.services.decideSerpSampling(QRY, '2026-10-19');
+    const decision = await harness.services.decideSerpSampling(QRY, TODAY);
     assert.strictEqual(decision.collect, true);
     assert.strictEqual(decision.reason, 'EVENT_AUTOCOMPLETE_JUMP');
   });
@@ -85,7 +96,7 @@ describe('Phase 4 分层轮询', () => {
       `INSERT INTO commercial_snapshots (commercial_target_id, obs_date, fetch_status)
        VALUES ('cmt_cache', CURRENT_DATE - 2, 'OK')`
     );
-    const hit = await harness.services.decideCommercialSampling('cache.example', '2026-10-19');
+    const hit = await harness.services.decideCommercialSampling('cache.example', TODAY);
     assert.strictEqual(hit.collect, false);
     assert.strictEqual(hit.reason, 'DOMAIN_CACHE_HIT');
 
@@ -96,7 +107,7 @@ describe('Phase 4 分层轮询', () => {
       `INSERT INTO commercial_snapshots (commercial_target_id, obs_date, fetch_status)
        VALUES ('cmt_dead', CURRENT_DATE - 2, 'BLOCKED_404')`
     );
-    const dead = await harness.services.decideCommercialSampling('dead.example', '2026-10-19');
+    const dead = await harness.services.decideCommercialSampling('dead.example', TODAY);
     assert.strictEqual(dead.collect, false);
     assert.strictEqual(dead.reason, 'CONFIRMED_404');
   });

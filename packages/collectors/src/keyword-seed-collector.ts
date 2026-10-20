@@ -26,12 +26,35 @@ export interface KeywordSeedFilter {
   limit: number;
 }
 
+/**
+ * 入口阈值。
+ *
+ * 这里曾经是 `minVolume: 200 / maxDifficulty: 30`，结果是候选池里全是月搜几百的词。
+ * 原因是**把「我能不能赢」塞进了发现阶段**：难度与搜索量正相关，KD≤30 会系统性地
+ * 把高需求词筛掉，只留下没人搜的长尾。
+ *
+ * 现在的口径：
+ *   - 入口只按**需求**筛（`minVolume`），难度只作为记录信号，交给 W 轴判断；
+ *   - `maxDifficulty` 仍然保留，但放到 60——低于这个值才有观测价值，
+ *     不是"低于 30 才配被看见"；
+ *   - 头部词用词数与意图过滤（2–6 词、非导航、非定义），不用搜索量上限硬砍。
+ *
+ * 数值可用环境变量覆盖，便于在不动代码的情况下做样本外对比。
+ */
 export const DEFAULT_KEYWORD_SEED_FILTER: KeywordSeedFilter = {
-  minVolume: 200,
-  maxVolume: 20000,
-  maxDifficulty: 30,
-  limit: 50,
+  minVolume: Number(process.env.SEED_MIN_VOLUME ?? 1000),
+  maxVolume: Number(process.env.SEED_MAX_VOLUME ?? 100_000),
+  maxDifficulty: Number(process.env.SEED_MAX_DIFFICULTY ?? 60),
+  limit: Number(process.env.SEED_SUGGESTION_LIMIT ?? 100),
 };
+
+/** 需求分档：用于排序与展示，不参与评分（06 §7.1a）。 */
+export function volumeBand(volume: number): '1K' | '5K' | '20K' | '100K+' {
+  if (volume >= 100_000) return '100K+';
+  if (volume >= 20_000) return '20K';
+  if (volume >= 5_000) return '5K';
+  return '1K';
+}
 
 export interface KeywordSuggestion {
   keyword: string;
