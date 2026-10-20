@@ -49,13 +49,22 @@ describe('seedKeywordCandidates', () => {
     if (!harness.available) return t.skip(harness.skipReason);
     const { query } = harness.db;
     const fake = {
-      suggest: async () => [s('invoice generator'), s('invoices generator'), s('youtube intro generator'), s('fantasy name generator')],
+      suggest: async () => [
+        s('invoice generator'),
+        s('invoices generator'),
+        s('youtube intro generator'),
+        s('fantasy name generator'),
+        s('electric generator'),
+      ],
       // 夹具要镜像真实接口：入口同时取 suggestions 与 ideas 两路。
       ideas: async () => null,
     } as any;
+    const seeds = [{ seed: 'invoice', archetype: 'TOOL' as const }];
 
-    const first = await harness.services.seedKeywordCandidates('2026-10-18', fake);
-    assert.strictEqual(first.created, 2, 'the plural variant and the brand term are not new candidates');
+    const first = await harness.services.seedKeywordCandidates('2026-10-18', fake, { seeds });
+    // 只需一条：两个复数变体是同一需求；youtube/fantasy 不含载体；
+    // electric generator 是物理产品（旧实现会把它当工具词收进来）。
+    assert.strictEqual(first.created, 1, '只有 invoice generator 既是载体又带工具动词');
 
     const rows = await query<{ query_text: string; tier: string; status: string; discovery_source: string }>(
       `SELECT q.query_text, q.tier, o.status, o.discovery_source
@@ -65,7 +74,6 @@ describe('seedKeywordCandidates', () => {
         ORDER BY q.query_text`
     );
     assert.deepStrictEqual(rows.rows.map((r) => [r.query_text, r.tier, r.status, r.discovery_source]), [
-      ['fantasy name generator', 'A', 'CANDIDATE', 'KEYWORD_SEED'],
       ['invoice generator', 'A', 'CANDIDATE', 'KEYWORD_SEED'],
     ]);
     const snapshots = await query(`SELECT 1 FROM opportunity_snapshots`);
@@ -77,7 +85,7 @@ describe('seedKeywordCandidates', () => {
     assert.strictEqual(spend.rows[0].n, first.seeds.length);
 
     // 同一天重跑：同一组种子、已存在的需求，不再新增。
-    const again = await harness.services.seedKeywordCandidates('2026-10-18', fake);
+    const again = await harness.services.seedKeywordCandidates('2026-10-18', fake, { seeds });
     assert.strictEqual(again.created, 0);
   });
 

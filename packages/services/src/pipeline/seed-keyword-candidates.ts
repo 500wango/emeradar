@@ -16,46 +16,104 @@ import { lexicalFingerprint } from '../canonical-query.service';
  * 返回包含它的长尾词，例如 generator → "fantasy name generator"、"invoice generator"。
  * 顺序即轮转顺序：每天从游标处取 `SEEDS_PER_RUN` 个，约两周走完一轮。
  */
-export const TOOL_INTENT_SEEDS: Array<{ seed: string; archetype: 'TOOL' | 'MICRO_SAAS' | 'DIRECTORY' | 'CONTENT_SITE' }> = [
-  { seed: 'generator', archetype: 'TOOL' },
-  { seed: 'calculator', archetype: 'TOOL' },
-  { seed: 'converter', archetype: 'TOOL' },
-  { seed: 'template', archetype: 'TOOL' },
-  { seed: 'checker', archetype: 'TOOL' },
-  { seed: 'maker', archetype: 'TOOL' },
-  { seed: 'online tool', archetype: 'TOOL' },
-  { seed: 'estimator', archetype: 'TOOL' },
-  { seed: 'planner', archetype: 'TOOL' },
-  { seed: 'tracker', archetype: 'MICRO_SAAS' },
-  { seed: 'alternative', archetype: 'DIRECTORY' },
-  { seed: 'extension', archetype: 'TOOL' },
-  { seed: 'api', archetype: 'MICRO_SAAS' },
-  { seed: 'software for', archetype: 'MICRO_SAAS' },
-  { seed: 'app for', archetype: 'MICRO_SAAS' },
-  { seed: 'how to automate', archetype: 'MICRO_SAAS' },
-  { seed: 'free online', archetype: 'TOOL' },
-  { seed: 'pdf', archetype: 'TOOL' },
-  { seed: 'csv', archetype: 'TOOL' },
-  { seed: 'spreadsheet', archetype: 'TOOL' },
-  { seed: 'invoice', archetype: 'TOOL' },
-  { seed: 'resume', archetype: 'TOOL' },
-  { seed: 'checklist', archetype: 'CONTENT_SITE' },
-  { seed: 'directory', archetype: 'DIRECTORY' },
-  // 2026-10 扩展：从“单页工具”扩到插件/集成/工作流/垂直角色，避免候选池只覆盖
-  // generator/calculator 一类词。仍然只做入口，词量不进评分。
-  { seed: 'plugin', archetype: 'TOOL' },
-  { seed: 'integration', archetype: 'MICRO_SAAS' },
-  { seed: 'dashboard', archetype: 'MICRO_SAAS' },
-  { seed: 'monitor', archetype: 'MICRO_SAAS' },
-  { seed: 'scheduler', archetype: 'MICRO_SAAS' },
-  { seed: 'scraper', archetype: 'TOOL' },
-  { seed: 'extractor', archetype: 'TOOL' },
-  { seed: 'summarizer', archetype: 'TOOL' },
-  { seed: 'workflow', archetype: 'MICRO_SAAS' },
-  { seed: 'compliance', archetype: 'MICRO_SAAS' },
-  { seed: 'for freelancers', archetype: 'MICRO_SAAS' },
-  { seed: 'for agencies', archetype: 'MICRO_SAAS' },
+/**
+ * 载体名词（object side）。
+ *
+ * 这里曾经全是**功能词**（generator / calculator / api / template），只有 pdf/csv/invoice
+ * 少数几个名词。结果是「谁在用什么」这一侧完全不受控：
+ *   - `keyword_suggestions("generator")` 会返回 `electric generator`、`pokemon generator`；
+ *   - 过滤只要求“包含种子”，于是物理产品、随机玩具统统进池。
+ *
+ * 现在反过来：先定**业务载体**（发票、收据、播客、字幕……），只保留
+ * 「载体 + 工具动词」的交集。`electric generator` 没有载体，直接出局；
+ * `invoice generator` 同时命中两者，才是真的工具需求。
+ */
+export const CARRIER_NOUNS: Array<{
+  carrier: string;
+  archetype: 'TOOL' | 'MICRO_SAAS' | 'DIRECTORY' | 'CONTENT_SITE';
+}> = [
+  { carrier: 'invoice', archetype: 'TOOL' },
+  { carrier: 'receipt', archetype: 'TOOL' },
+  { carrier: 'quote', archetype: 'MICRO_SAAS' },
+  { carrier: 'estimate', archetype: 'MICRO_SAAS' },
+  { carrier: 'timesheet', archetype: 'MICRO_SAAS' },
+  { carrier: 'payroll', archetype: 'MICRO_SAAS' },
+  { carrier: 'expense', archetype: 'MICRO_SAAS' },
+  { carrier: 'budget', archetype: 'MICRO_SAAS' },
+  { carrier: 'tax', archetype: 'MICRO_SAAS' },
+  { carrier: 'contract', archetype: 'MICRO_SAAS' },
+  { carrier: 'nda', archetype: 'TOOL' },
+  { carrier: 'proposal', archetype: 'TOOL' },
+  { carrier: 'sow', archetype: 'TOOL' },
+  { carrier: 'resume', archetype: 'TOOL' },
+  { carrier: 'cover letter', archetype: 'TOOL' },
+  { carrier: 'portfolio', archetype: 'TOOL' },
+  { carrier: 'pdf', archetype: 'TOOL' },
+  { carrier: 'csv', archetype: 'TOOL' },
+  { carrier: 'excel', archetype: 'TOOL' },
+  { carrier: 'spreadsheet', archetype: 'TOOL' },
+  { carrier: 'json', archetype: 'TOOL' },
+  { carrier: 'markdown', archetype: 'TOOL' },
+  { carrier: 'image', archetype: 'TOOL' },
+  { carrier: 'photo', archetype: 'TOOL' },
+  { carrier: 'video', archetype: 'TOOL' },
+  { carrier: 'audio', archetype: 'TOOL' },
+  { carrier: 'subtitle', archetype: 'TOOL' },
+  { carrier: 'caption', archetype: 'TOOL' },
+  { carrier: 'transcript', archetype: 'TOOL' },
+  { carrier: 'podcast', archetype: 'TOOL' },
+  { carrier: 'podcast show notes', archetype: 'TOOL' },
+  { carrier: 'newsletter', archetype: 'MICRO_SAAS' },
+  { carrier: 'email', archetype: 'MICRO_SAAS' },
+  { carrier: 'calendar', archetype: 'MICRO_SAAS' },
+  { carrier: 'booking', archetype: 'MICRO_SAAS' },
+  { carrier: 'appointment', archetype: 'MICRO_SAAS' },
+  { carrier: 'survey', archetype: 'TOOL' },
+  { carrier: 'form', archetype: 'TOOL' },
+  { carrier: 'quiz', archetype: 'TOOL' },
+  { carrier: 'checklist', archetype: 'CONTENT_SITE' },
+  { carrier: 'sitemap', archetype: 'TOOL' },
+  { carrier: 'keyword', archetype: 'MICRO_SAAS' },
+  { carrier: 'backlink', archetype: 'MICRO_SAAS' },
+  { carrier: 'meta description', archetype: 'TOOL' },
+  { carrier: 'landing page', archetype: 'MICRO_SAAS' },
+  { carrier: 'schema markup', archetype: 'TOOL' },
+  { carrier: 'review', archetype: 'MICRO_SAAS' },
+  { carrier: 'testimonial', archetype: 'TOOL' },
+  { carrier: 'faq', archetype: 'TOOL' },
+  { carrier: 'chatbot', archetype: 'MICRO_SAAS' },
+  { carrier: 'inventory', archetype: 'MICRO_SAAS' },
+  { carrier: 'shipping', archetype: 'MICRO_SAAS' },
+  { carrier: 'barcode', archetype: 'TOOL' },
+  { carrier: 'qr code', archetype: 'TOOL' },
+  { carrier: 'label', archetype: 'TOOL' },
+  { carrier: 'password', archetype: 'TOOL' },
+  { carrier: 'logo', archetype: 'TOOL' },
+  { carrier: 'compliance', archetype: 'MICRO_SAAS' },
+  { carrier: 'screenshot', archetype: 'TOOL' },
+  { carrier: 'url', archetype: 'TOOL' },
 ];
+
+/**
+ * 工具动词（function side）。只有「载体 + 其中一个动词」才算需求词。
+ *
+ * 这一侧不单独做种子：`generator` 单独出海的必然是 `electric generator`
+ * 这类物理产品，不是软件需求。
+ */
+export const TOOL_MODIFIERS = [
+  'generator', 'calculator', 'converter', 'template', 'checker', 'maker', 'builder',
+  'tracker', 'planner', 'finder', 'remover', 'extractor', 'summarizer', 'editor',
+  'uploader', 'downloader', 'api', 'tool', 'software', 'app', 'alternative',
+  'dashboard', 'audit', 'scanner', 'validator', 'merger', 'splitter', 'compressor',
+];
+
+/**
+ * 物理世界/非软件意图：出现即出局。
+ *
+ * `electric generator`、`diesel generator`、`generator for sale` 都是真搜索，
+ * 但它们不是软件需求，观测它们只会浪费预算。
+ */
+const NON_SOFTWARE = /\b(electric|diesel|gas|petrol|portable|inverter|home|for sale|near me|repair|install|wiring|motor|engine|buy online|apk|crack|torrent|download free pdf|hardware|machine|generator set)\b/i;
 
 /** 每天展开的种子数。2 × $0.018 = $0.036/天。 */
 export const SEEDS_PER_RUN = Number(process.env.SEED_PER_RUN ?? 4);
@@ -89,56 +147,39 @@ function slugFor(text: string): string {
  *   - 宽种子（software for / app for / for agencies）必须带工具/软件名词；
  *   - 新闻、金融、教程类短语在没有工具名词时直接拒绝。
  */
-const TOOL_SIGNAL = /\b(generator|calculator|converter|convert|conversion|template|checker|maker|estimator|planner|tracker|alternative|extension|api|plugin|integration|dashboard|monitor|scheduler|scraper|extractor|extract|summarizer|workflow|compliance|checklist|directory|tool|tools|software|app|apps|platform|automation|builder|editor|manager|assistant|crm|erp|saas|website|landing page|portfolio|merge|split|compress|generate|validate|clean|dedupe)\b/i;
-const NEWS_SIGNAL = /\b(hell|news|report|trend|forecast|valuation|funding|salary|jobs?|course|tutorial|stock|price prediction|market size)\b/i;
 const INFORMATIONAL_PREFIX = /^(how to|what is|why |is there|best |top \d+)/i;
 const DEFINITIONAL = /\b(definition|meaning|what is|what are|full form|explained|examples?|wiki)\b/i;
-const PURCHASE_NOISE = /\b(buy|purchase|order)\b/i;
 
-/** 这些种子的词面太宽，不能靠“包含种子”判断，必须出现工具/软件名词。 */
-const BROAD_SEEDS = new Set([
-  'online tool',
-  'free online',
-  'software for',
-  'app for',
-  'how to automate',
-  'for freelancers',
-  'for agencies',
-]);
-
-export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean {
+export function isCandidateKeyword(s: KeywordSuggestion, carrier: string): boolean {
   const kw = s.keyword.toLowerCase();
-  const seedLower = seed.toLowerCase();
-  if (kw === seedLower) return false;
+  const carrierLower = carrier.toLowerCase();
+
+  if (kw === carrierLower) return false;
   if (EXCLUDED.test(kw)) return false;
+  if (NON_SOFTWARE.test(kw)) return false;
   if (s.mainIntent === 'navigational') return false;
   if (INFORMATIONAL_PREFIX.test(kw)) return false;
   if (DEFINITIONAL.test(kw)) return false;
 
   const words = kw.split(/\s+/).length;
-  // 当前只做 US/EN；非 ASCII 词面（例如“CSV 文件定义”）不是工具长尾，直接拒绝。
+  // 只做 US/EN：非 ASCII 词面（“CSV 文件定义”）不是工具长尾。
   if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
 
-  const toolSignal = TOOL_SIGNAL.test(kw);
-  // “buy”只有在没有工具/交付物名词时才是购买词噪音；"purchase order template" 保留。
-  if (PURCHASE_NOISE.test(kw) && !toolSignal) return false;
-  // 信息性搜索只有在出现明确的工具/操作名词时才可能是可构建需求；
-  // “csv file”“csv file definition”这类定义词不是机会。
-  if (s.mainIntent === 'informational' && !toolSignal) return false;
-  // 必须按词边界匹配：种子 "api" 不能因为 "capital gains" 里含有 api 就通过。
-  const includesSeed = new RegExp(`\\b${seedLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(kw);
-  if (BROAD_SEEDS.has(seedLower)) {
-    if (!toolSignal) return false;
-  } else if (!includesSeed) {
-    return false;
-  }
+  // 载体必须出现（整词匹配，避免 api ⊂ capital）。
+  if (!wordBoundary(carrierLower).test(kw)) return false;
+  // 并且必须出现一个工具动词——否则只是“关于这个载体”的内容词。
+  const hasModifier = TOOL_MODIFIERS.some((modifier) => wordBoundary(modifier).test(kw));
+  if (!hasModifier) return false;
 
-  // 有工具名词时，"valuation calculator" 可以是合法工具；没有工具名词时，
-  // "ai valuation"、"2026 hell" 只是新闻/事件。
-  if (NEWS_SIGNAL.test(kw) && !toolSignal) return false;
-  if (/\b20\d{2}\b/.test(kw) && !toolSignal) return false;
+  // 泛化到没有具体动作的“X for sale / X cost”这类词，命中物理/交易噪音已经在上面挡掉；
+  // 这里再挡一次纯价格询问。
+  if (/\b(cost|price|rate|salary|meaning|vs)\b/.test(kw)) return false;
 
   return true;
+}
+
+function wordBoundary(term: string): RegExp {
+  return new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
 }
 
 /**
@@ -234,7 +275,9 @@ export async function seedKeywordCandidates(
   collector: KeywordSeedCollector | null = (() => {
     const creds = credentialsFromEnv();
     return creds ? new KeywordSeedCollector(creds) : null;
-  })()
+  })(),
+  /** 测试用：显式指定本轮载体，避免依赖“今天是第几天”的轮换。 */
+  options: { seeds?: Array<{ seed: string; archetype: 'TOOL' | 'MICRO_SAAS' | 'DIRECTORY' | 'CONTENT_SITE' }> } = {}
 ): Promise<SeedKeywordResult> {
   const result: SeedKeywordResult = { skipped: false, seeds: [], fetched: 0, created: 0, failures: 0 };
   if (!collector) return { ...result, skipped: true, reason: 'neither DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD nor AISA_API_KEY is set' };
@@ -248,8 +291,14 @@ export async function seedKeywordCandidates(
 
   // 游标按日期推导而不是存状态：同一天重跑展开同一组种子（幂等），隔天自然前进。
   const day = Math.floor(Date.parse(`${obsDate}T00:00:00Z`) / 86_400_000);
-  const start = (day * SEEDS_PER_RUN) % TOOL_INTENT_SEEDS.length;
-  const seeds = Array.from({ length: SEEDS_PER_RUN }, (_, i) => TOOL_INTENT_SEEDS[(start + i) % TOOL_INTENT_SEEDS.length]);
+  const start = (day * SEEDS_PER_RUN) % CARRIER_NOUNS.length;
+  // 每天轮换载体名词：先定“做什么”，再要求“用工具做”。
+  const seeds =
+    options.seeds ??
+    Array.from({ length: SEEDS_PER_RUN }, (_, i) => {
+      const entry = CARRIER_NOUNS[(start + i) % CARRIER_NOUNS.length];
+      return { seed: entry.carrier, archetype: entry.archetype };
+    });
 
   const markets = parseSeedMarkets();
   const existing = await query<{ query_text: string; market_country: string }>(

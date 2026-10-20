@@ -32,34 +32,33 @@ describe('两路数据合并', () => {
   });
 });
 
-describe('种子候选过滤', () => {
-  it('拒绝语义漂移的新闻/事件短语', () => {
-    assert.strictEqual(isCandidateKeyword(item('2026 hell'), 'template'), false);
-    assert.strictEqual(isCandidateKeyword(item('ai valuation'), 'software for'), false);
-    assert.strictEqual(isCandidateKeyword(item('how to use invoice generator'), 'generator'), false);
-    assert.strictEqual(isCandidateKeyword(item('csv file definition'), 'csv'), false);
-    assert.strictEqual(isCandidateKeyword(item('ac buy spreadsheet'), 'spreadsheet'), false);
-    assert.strictEqual(isCandidateKeyword(item('purchase order template'), 'template'), true);
-    assert.strictEqual(isCandidateKeyword(item('csv 文件定义'), 'csv'), false);
-    assert.strictEqual(isCandidateKeyword(item('csv file', 'informational'), 'csv'), false);
+describe('种子候选过滤（载体 × 工具动词）', () => {
+  it('载体 + 工具动词才通过', () => {
+    assert.strictEqual(isCandidateKeyword(item('invoice generator'), 'invoice'), true);
+    assert.strictEqual(isCandidateKeyword(item('invoice template'), 'invoice'), true);
+    assert.strictEqual(isCandidateKeyword(item('pdf converter'), 'pdf'), true);
   });
 
-  it('接受真正的工具长尾', () => {
-    assert.strictEqual(isCandidateKeyword(item('invoice generator'), 'generator'), true);
-    assert.strictEqual(isCandidateKeyword(item('crm for agencies'), 'for agencies'), true);
-    assert.strictEqual(isCandidateKeyword(item('ai valuation calculator'), 'calculator'), true);
-    assert.strictEqual(isCandidateKeyword(item('csv to json converter', 'informational'), 'csv'), true);
-    assert.strictEqual(
-      dedupeKey('csv to excel conversion'),
-      dedupeKey('convert a csv file to excel')
-    );
-    assert.strictEqual(dedupeKey('template spreadsheet'), dedupeKey('template for spreadsheet'));
+  it('拒绝物理产品与不含载体的词', () => {
+    // 这是旧实现最大的漏洞：种子是 "generator"，于是 electric generator 也算“工具”。
+    assert.strictEqual(isCandidateKeyword(item('electric generator'), 'generator'), false);
+    assert.strictEqual(isCandidateKeyword(item('diesel generator for sale'), 'generator'), false);
+    assert.strictEqual(isCandidateKeyword(item('pokemon generator'), 'invoice'), false);
   });
 
-  it('具体种子必须包含种子词，宽种子必须带工具名词', () => {
-    assert.strictEqual(isCandidateKeyword(item('random business name'), 'generator'), false);
-    assert.strictEqual(isCandidateKeyword(item('capital gains calculator'), 'api'), false);
-    assert.strictEqual(isCandidateKeyword(item('automation for freelancers'), 'for freelancers'), true);
-    assert.strictEqual(isCandidateKeyword(item('market size for agencies'), 'for agencies'), false);
+  it('只有载体没有动作（内容型）不通过', () => {
+    assert.strictEqual(isCandidateKeyword(item('invoice'), 'invoice'), false);
+    assert.strictEqual(isCandidateKeyword(item('invoice format'), 'invoice'), false);
+  });
+
+  it('拒绝定义、信息型前缀、价格询问与中文', () => {
+    assert.strictEqual(isCandidateKeyword(item('invoice definition'), 'invoice'), false);
+    assert.strictEqual(isCandidateKeyword(item('how to make invoice generator'), 'invoice'), false);
+    assert.strictEqual(isCandidateKeyword(item('invoice cost'), 'invoice'), false);
+    assert.strictEqual(isCandidateKeyword(item('发票 生成器'), 'invoice'), false);
+  });
+
+  it('导航词直接出局', () => {
+    assert.strictEqual(isCandidateKeyword(item('invoice generator', 'navigational'), 'invoice'), false);
   });
 });
