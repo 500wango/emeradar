@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Radio,
   History,
+  Trash2,
 } from 'lucide-react';
 import { AdminPipelineOverview } from '@emeradar/services';
 import { safeExternalUrl } from '@/lib/format';
@@ -116,6 +117,8 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
       | 'discover'
       | 'seed-keywords'
       | 'enrich-demand'
+      | 'cleanup-candidates'
+      | 'cleanup-candidates-apply'
       | 'generate-intents'
       | 'validate-intents'
       | 'run-daily',
@@ -244,6 +247,70 @@ export function PipelineOpsClient({ initialOverview }: PipelineOpsClientProps) {
           <CheckpointVerdict checkpoint={overview.latestCheckpoint} />
         </Panel>
       </div>
+
+      {/* 旧候选清理 */}
+      <Panel tone="raised" className="p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-fg">
+              <XCircle className="h-4 w-4 text-warn" />
+              <span>旧候选清理</span>
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              入口规则改过两次，但迁移不会自动重筛——裸词（checker）、物理产品
+              （electric generator）、拼凑词（a &amp; b）还占着候选配额。
+              只处理关键词种子来源的候选，不碰你手动扫描的词，也不删数据。
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => handleTrigger('cleanup-candidates', '旧候选扫描 (dry run)')}
+            disabled={!!runningTask}
+          >
+            {runningTask === '旧候选扫描 (dry run)' ? (
+              <>
+                <RotateCw className="h-3 w-3 animate-spin" />
+                <span>扫描中...</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3 w-3" />
+                <span>扫描（不改数据）</span>
+              </>
+            )}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              if (!window.confirm('将归档所有不再符合当前入口规则的关键词种子候选。不会删除数据，只是改状态。继续？')) return;
+              handleTrigger('cleanup-candidates-apply', '归档不合格候选');
+            }}
+            disabled={!!runningTask}
+          >
+            {runningTask === '归档不合格候选' ? (
+              <>
+                <RotateCw className="h-3 w-3 animate-spin" />
+                <span>归档中...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3 w-3" />
+                <span>归档不合格候选</span>
+              </>
+            )}
+          </Button>
+        </div>
+        <p className="mt-3 font-mono text-[11px] text-fg-subtle">
+          先点「扫描」看清单，确认后再「归档」。归档后会自动补一轮新候选。
+        </p>
+      </Panel>
 
       {/* 候选池需求档位 */}
       <Panel tone="raised" className="p-6 sm:p-8">

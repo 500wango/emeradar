@@ -52,6 +52,7 @@ export * from './observation-card.service';
 export * from './intent-fit.service';
 export * from './scan-verdict.service';
 export * from './demand-enrichment.service';
+export * from './seed-candidate-cleanup.service';
 export * from './custom-query-radar.service';
 export * from './external-demand.service';
 export * from './query-intent';

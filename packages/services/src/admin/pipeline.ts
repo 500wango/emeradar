@@ -5,6 +5,7 @@ import { TrackRecordService } from '../track-record.service';
 import { rejectionSummary } from '../rejection.service';
 import { seedKeywordCandidates } from '../pipeline/seed-keyword-candidates';
 import { enrichDemand } from '../demand-enrichment.service';
+import { applySeedCandidateCleanup, scanSeedCandidates } from '../seed-candidate-cleanup.service';
 import { shadowPoolStats } from '../shadow-pool.service';
 import {
   discoverSources,
@@ -492,6 +493,8 @@ export class AdminPipelineService {
       | 'discover'
       | 'seed-keywords'
       | 'enrich-demand'
+      | 'cleanup-candidates'
+      | 'cleanup-candidates-apply'
       | 'generate-intents'
       | 'validate-intents'
       | 'run-daily',
@@ -524,6 +527,42 @@ export class AdminPipelineService {
         log(` - New candidates: ${result.created}`);
         log(` - Failed seeds: ${result.failures}`);
         if (result.skipped) log(` - Skipped: ${result.reason ?? 'unknown'}`);
+        return { task, output: logs.join('\n'), exitCode: 0 };
+      }
+
+      if (task === 'cleanup-candidates') {
+        // 只报告，不写库。归档要走显式的 `cleanup-candidates-apply`，
+        // 因为“看一眼清单”和“删掉它们”必须是两个动作。
+        log('[pipeline] Scanning legacy KEYWORD_SEED candidates against current rules...');
+        const report = await scanSeedCandidates();
+        log(` - Scanned: ${report.scanned}`);
+        log(` - Would archive: ${report.rejected.length}`);
+        for (const row of report.rejected.slice(0, 30)) {
+          log(`   · ${row.title}  [${row.reason}]`);
+        }
+        if (report.rejected.length > 30) log(`   ... and ${report.rejected.length - 30} more`);
+        log('');
+        log('Nothing was changed. Use “归档不合格候选” to actually archive them.');
+        return { task, output: logs.join('\n'), exitCode: 0 };
+      }
+
+      if (task === 'cleanup-candidates-apply') {
+        log('[pipeline] Archiving legacy candidates that fail current entry rules...');
+        const report = await scanSeedCandidates();
+        const archived = await applySeedCandidateCleanup(report, actorId);
+        log(` - Scanned: ${report.scanned}`);
+        log(` - Archived: ${archived}`);
+        for (const row of report.rejected.slice(0, 30)) {
+          log(`   · ${row.title}  [${row.reason}]`);
+        }
+        // 配额腾出来了，顺手补一轮新候选——否则池子会空着等明天。
+        if (archived > 0) {
+          log('');
+          log('[pipeline] Refilling candidates under the new rules...');
+          const seeded = await withPipelineTimeout(seedKeywordCandidates(today()), 'Keyword seed');
+          log(` - Seeds: ${seeded.seeds.join(', ') || '(none)'}`);
+          log(` - New candidates: ${seeded.created}`);
+        }
         return { task, output: logs.join('\n'), exitCode: 0 };
       }
 
