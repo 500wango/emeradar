@@ -49,13 +49,27 @@ describe('KeywordSeedCollector', () => {
     assert.strictEqual(seenBody[0].keyword, 'generator');
     assert.strictEqual(seenBody[0].location_code, 2840);
     assert.strictEqual(seenBody[0].limit, DEFAULT_KEYWORD_SEED_FILTER.limit);
+    // 入口只按需求筛。难度曾经在这里硬砍（KD≤30），而搜索量与难度正相关，
+    // 结果是候选池只剩月搜几百的长尾；难度交给 W 轴判断。
     assert.deepStrictEqual(seenBody[0].filters, [
       ['keyword_info.search_volume', '>=', DEFAULT_KEYWORD_SEED_FILTER.minVolume],
       'and',
       ['keyword_info.search_volume', '<=', DEFAULT_KEYWORD_SEED_FILTER.maxVolume],
-      'and',
-      ['keyword_properties.keyword_difficulty', '<=', DEFAULT_KEYWORD_SEED_FILTER.maxDifficulty],
     ]);
+  });
+
+  it('ideas 走 keyword_ideas 端点并传复数 keywords', async () => {
+    let seenUrl = '';
+    let seenBody: any;
+    const stub = (async (url: any, init: any) => {
+      seenUrl = String(url);
+      seenBody = JSON.parse(init.body);
+      return new Response(JSON.stringify(ok([item('invoice generator', 12100)])), { status: 200 });
+    }) as typeof fetch;
+    const rows = await new KeywordSeedCollector({ aisaApiKey: 'k' }, stub).ideas('invoice');
+    assert.strictEqual(rows?.[0].keyword, 'invoice generator');
+    assert.match(seenUrl, /keyword_ideas\/live$/);
+    assert.deepStrictEqual(seenBody[0].keywords, ['invoice']);
   });
 
   it('returns null on HTTP failure instead of throwing', async () => {

@@ -50,6 +50,8 @@ describe('seedKeywordCandidates', () => {
     const { query } = harness.db;
     const fake = {
       suggest: async () => [s('invoice generator'), s('invoices generator'), s('youtube intro generator'), s('fantasy name generator')],
+      // 夹具要镜像真实接口：入口同时取 suggestions 与 ideas 两路。
+      ideas: async () => null,
     } as any;
 
     const first = await harness.services.seedKeywordCandidates('2026-10-18', fake);
@@ -81,7 +83,7 @@ describe('seedKeywordCandidates', () => {
 
   it('counts a failed seed request as a failure, not as zero suggestions', async (t) => {
     if (!harness.available) return t.skip(harness.skipReason);
-    const result = await harness.services.seedKeywordCandidates('2026-10-19', { suggest: async () => null } as any);
+    const result = await harness.services.seedKeywordCandidates('2026-10-19', { suggest: async () => null, ideas: async () => null } as any);
     assert.strictEqual(result.failures, result.seeds.length);
     assert.strictEqual(result.created, 0);
   });

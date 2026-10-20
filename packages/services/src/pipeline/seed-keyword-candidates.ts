@@ -145,6 +145,29 @@ export function isCandidateKeyword(s: KeywordSuggestion, seed: string): boolean 
  * 「同一个需求」的粗去重键：DataForSEO 会返回 "barcode generator" / "barcodes generator" /
  * "barcode-generator" 这类拼写变体，各开一个候选只会重复观测同一个 SERP。
  */
+/**
+ * 合并两路口径的结果，同一个词只留一条。
+ *
+ * 词量取较大值：两个接口对同一词的估算可能不同（采样窗口/网络口径不同），
+ * 取大值是为了让“需求上限”这一侧不被低估——它只用于入口筛选与展示。
+ */
+export function mergeByKeyword(
+  left: KeywordSuggestion[] | null,
+  right: KeywordSuggestion[] | null
+): KeywordSuggestion[] | null {
+  if (left === null && right === null) return null;
+  const byKeyword = new Map<string, KeywordSuggestion>();
+  for (const list of [left ?? [], right ?? []]) {
+    for (const item of list) {
+      const existing = byKeyword.get(item.keyword);
+      if (!existing || item.searchVolume > existing.searchVolume) {
+        byKeyword.set(item.keyword, item);
+      }
+    }
+  }
+  return [...byKeyword.values()].sort((a, b) => b.searchVolume - a.searchVolume);
+}
+
 export function dedupeKey(keyword: string): string {
   // 与 canonical-query.service 的 lexicalFingerprint 同一口径：种子层与
   // canonical 层必须得到同一个键，否则同一个需求会被合并两次、各算一套观测。
@@ -239,16 +262,23 @@ export async function seedKeywordCandidates(
   for (const { seed, archetype } of seeds) {
     result.seeds.push(seed);
     for (const market of markets) {
-      const suggestions = await collector.suggest(seed, DEFAULT_KEYWORD_SEED_FILTER, {
+      const marketArg = {
         locationCode: market.locationCode,
         languageCode: market.language.slice(0, 2).toLowerCase(),
-      });
-      // 失败的请求同样计费（服务端已执行），所以无论成败都记账。
+      };
+      // 两路一起取：suggestions 给“包含种子的长尾”（覆盖广、量小），
+      // ideas 给“相关词”（覆盖窄、量大）。只取一路必然偏向某一端。
+      const fromSuggestions = await collector.suggest(seed, DEFAULT_KEYWORD_SEED_FILTER, marketArg);
+      const fromIdeas = await collector.ideas(seed, DEFAULT_KEYWORD_SEED_FILTER, marketArg);
+      const suggestions = mergeByKeyword(fromSuggestions, fromIdeas);
+      // 两路各一次请求；失败同样计费（服务端已执行），所以无论成败都记账。
+      // 一路失败时仍记两次：那次请求确实发出去了，不记等于把成本藏起来。
+      const requested = (fromSuggestions === null ? 1 : 1) + (fromIdeas === null ? 1 : 1);
       await CostLedgerService.recordCost({
         sourceId: 'src_keyword_seed',
-        costUsd: KEYWORD_SEED_COST_USD,
+        costUsd: KEYWORD_SEED_COST_USD * requested,
         category: 'SERP',
-        units: 1,
+        units: requested,
       });
       if (!suggestions) {
         result.failures++;

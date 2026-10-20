@@ -69,6 +69,14 @@ export type KeywordSeedCredentials = { login: string; password: string } | { ais
 const DATAFORSEO_BASE = 'https://api.dataforseo.com/v3';
 const AISA_DATAFORSEO_BASE = 'https://api.aisa.one/apis/v1/dataforseo';
 const PATH = '/dataforseo_labs/google/keyword_suggestions/live';
+/**
+ * `keyword_ideas` 返回**相关词**，而不是“包含种子”的词。
+ *
+ * 这是量级差异的根源：`keyword_suggestions` 只能给 "invoice generator excel template"
+ * 这类长尾（月搜几百），而 `keyword_ideas` 能给出 "invoice generator" 这种真正的
+ * 商业词（月搜上万）。两者不是替代关系，是互补：一个给长尾覆盖，一个给需求上限。
+ */
+const IDEAS_PATH = '/dataforseo_labs/google/keyword_ideas/live';
 
 /**
  * 解析 DataForSEO Labs 信封。拒绝也是 HTTP 200，结论在 `tasks[0].status_code`；
@@ -104,31 +112,55 @@ export class KeywordSeedCollector {
     private readonly fetchImpl: typeof fetch = fetch
   ) {}
 
+  /** 一个种子的相关词（更高需求上限）。失败返回 null，语义与 suggest 一致。 */
+  async ideas(
+    seed: string,
+    filter: KeywordSeedFilter = DEFAULT_KEYWORD_SEED_FILTER,
+    market: { locationCode?: number; languageCode?: string } = {}
+  ): Promise<KeywordSuggestion[] | null> {
+    return this.request(IDEAS_PATH, [seed], filter, market);
+  }
+
   /** 一个种子的长尾词。网络错误、HTTP 非 2xx、任务被拒都返回 null。 */
   async suggest(
     seed: string,
     filter: KeywordSeedFilter = DEFAULT_KEYWORD_SEED_FILTER,
     market: { locationCode?: number; languageCode?: string } = {}
   ): Promise<KeywordSuggestion[] | null> {
+    return this.request(PATH, [seed], filter, market);
+  }
+
+  /**
+   * 共用请求体。两个端点（suggestions / ideas）的信封与条目形状一致，
+   * 差异只在 `keywords` 的语义与返回集合，所以只保留一份实现。
+   */
+  private async request(
+    path: string,
+    keywords: string[],
+    filter: KeywordSeedFilter,
+    market: { locationCode?: number; languageCode?: string }
+  ): Promise<KeywordSuggestion[] | null> {
+    // 两个端点的入参字段不同：suggestions 收单数 `keyword`，ideas 收复数 `keywords`。
+    // 传错字段 API 不报错，只是返回空集合——那会把“没取到”伪装成“没这个词”。
+    const seedField = path === PATH ? { keyword: keywords[0] } : { keywords };
     const [base, authorization] = 'aisaApiKey' in this.creds
       ? [AISA_DATAFORSEO_BASE, `Bearer ${this.creds.aisaApiKey}`]
       : [DATAFORSEO_BASE, `Basic ${Buffer.from(`${this.creds.login}:${this.creds.password}`).toString('base64')}`];
     try {
-      const res = await this.fetchImpl(`${base}${PATH}`, {
+      const res = await this.fetchImpl(`${base}${path}`, {
         method: 'POST',
         headers: { Authorization: authorization, 'Content-Type': 'application/json' },
         body: JSON.stringify([
           {
-            keyword: seed,
+            ...seedField,
             location_code: market.locationCode ?? 2840,
             language_code: market.languageCode ?? 'en',
             limit: filter.limit,
+            // 相关性筛选只在入口用；词量绝不进评分（06 §7.1a）。
             filters: [
               ['keyword_info.search_volume', '>=', filter.minVolume],
               'and',
               ['keyword_info.search_volume', '<=', filter.maxVolume],
-              'and',
-              ['keyword_properties.keyword_difficulty', '<=', filter.maxDifficulty],
             ],
             order_by: ['keyword_info.search_volume,desc'],
           },

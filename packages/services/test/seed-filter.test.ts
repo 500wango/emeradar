@@ -1,12 +1,35 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { dedupeKey, isCandidateKeyword } from '../src/pipeline/seed-keyword-candidates';
+import { dedupeKey, isCandidateKeyword, mergeByKeyword } from '../src/pipeline/seed-keyword-candidates';
 
 const item = (keyword: string, mainIntent = 'commercial') => ({
   keyword,
   searchVolume: 1000,
   keywordDifficulty: 10,
   mainIntent,
+});
+
+describe('两路数据合并', () => {
+  it('同词取较大搜索量，并按量降序', () => {
+    const merged = mergeByKeyword(
+      [{ keyword: 'invoice generator', searchVolume: 1200, keywordDifficulty: 5, mainIntent: 'transactional' }],
+      [
+        { keyword: 'invoice generator', searchVolume: 12000, keywordDifficulty: 5, mainIntent: 'transactional' },
+        { keyword: 'invoice template', searchVolume: 4000, keywordDifficulty: 10, mainIntent: 'commercial' },
+      ]
+    );
+    assert.strictEqual(merged?.length, 2);
+    assert.strictEqual(merged?.[0].keyword, 'invoice generator');
+    assert.strictEqual(merged?.[0].searchVolume, 12000);
+  });
+
+  it('一路失败时用另一路，不把失败当空集', () => {
+    assert.strictEqual(mergeByKeyword(null, null), null);
+    const merged = mergeByKeyword(null, [
+      { keyword: 'a b', searchVolume: 1500, keywordDifficulty: 5, mainIntent: null },
+    ]);
+    assert.strictEqual(merged?.length, 1);
+  });
 });
 
 describe('种子候选过滤', () => {
