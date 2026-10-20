@@ -24,6 +24,9 @@ export const LEXICAL_RULE_VERSION = 'lexical-v1';
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'for', 'to', 'of', 'in', 'on', 'file',
   'free', 'online', 'best', 'top',
+  // 连接词/介词：`timesheet calculator with lunch` 与 `timesheet calculator lunch`
+  // 是同一个需求，漏掉 with 就会各占一条候选。
+  'with', 'without', 'and', 'or', 'by', 'using', 'via', 'vs', 'per',
 ]);
 
 /**

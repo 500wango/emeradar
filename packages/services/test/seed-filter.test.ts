@@ -62,3 +62,26 @@ describe('种子候选过滤（载体 × 工具动词）', () => {
     assert.strictEqual(isCandidateKeyword(item('invoice generator', 'navigational'), 'invoice'), false);
   });
 });
+
+describe('同义变体合并（截图里的三个 lunch 变体）', () => {
+  it('with 之类的连接词不影响指纹', () => {
+    assert.strictEqual(
+      dedupeKey('timesheet calculator lunch'),
+      dedupeKey('timesheet calculator with lunch')
+    );
+  });
+
+  it('多一个实词（break）就是不同的词，不强行合并', () => {
+    assert.notStrictEqual(
+      dedupeKey('timesheet calculator lunch'),
+      dedupeKey('timesheet with lunch break calculator')
+    );
+  });
+
+  it('带 & 的组合词被拒绝（关键词工具拼出来的，不是真实搜索词）', () => {
+    assert.strictEqual(
+      isCandidateKeyword(item('time tracker & employee timesheet software'), 'timesheet'),
+      false
+    );
+  });
+});

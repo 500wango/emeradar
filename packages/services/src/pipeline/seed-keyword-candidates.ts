@@ -119,6 +119,13 @@ const NON_SOFTWARE = /\b(electric|diesel|gas|petrol|portable|inverter|home|for s
 export const SEEDS_PER_RUN = Number(process.env.SEED_PER_RUN ?? 4);
 /** 每天最多新增的候选数。每个候选此后每天约 $0.005（autocomplete + SERP + 抓取）。 */
 export const MAX_NEW_CANDIDATES_PER_RUN = Number(process.env.SEED_MAX_NEW ?? 15);
+/**
+ * 单个载体每天最多贡献几条候选。
+ *
+ * 没有这个上限时，先返回的载体可能把当天 15 个名额全部吃光（截图上 6 条候选
+ * 全来自 `timesheet`）。候选池的多样性比条数重要。
+ */
+export const MAX_CANDIDATES_PER_CARRIER = Number(process.env.SEED_MAX_PER_CARRIER ?? 4);
 /** 活跃候选池上限。超过就不再新增，避免观测成本随时间线性上涨。 */
 export const MAX_ACTIVE_SEED_CANDIDATES = Number(process.env.SEED_MAX_ACTIVE ?? 300);
 
@@ -164,6 +171,9 @@ export function isCandidateKeyword(s: KeywordSuggestion, carrier: string): boole
   const words = kw.split(/\s+/).length;
   // 只做 US/EN：非 ASCII 词面（“CSV 文件定义”）不是工具长尾。
   if (words < 2 || words > 6 || !/^[a-z0-9 .,'&+-]+$/.test(kw)) return false;
+  // `&` / `/` / `+` / `,` 出现在词面里，通常是关键词工具把两个查询拼起来的产物
+  // （`time tracker & employee timesheet software`），不是真实搜索词。
+  if (/[&/+.,]/.test(kw)) return false;
 
   // 载体必须出现（整词匹配，避免 api ⊂ capital）。
   if (!wordBoundary(carrierLower).test(kw)) return false;
@@ -335,8 +345,10 @@ export async function seedKeywordCandidates(
       }
       result.fetched += suggestions.length;
 
+      let createdForCarrier = 0;
       for (const s of suggestions) {
         if (result.created >= room) break;
+        if (createdForCarrier >= MAX_CANDIDATES_PER_CARRIER) break;
         if (!isCandidateKeyword(s, seed)) continue;
         const key = `${market.country}:${dedupeKey(s.keyword)}`;
         if (seen.has(key)) continue;
@@ -432,7 +444,10 @@ export async function seedKeywordCandidates(
         );
         return true;
       });
-      if (created) result.created++;
+      if (created) {
+        result.created++;
+        createdForCarrier++;
+      }
       }
     }
   }
