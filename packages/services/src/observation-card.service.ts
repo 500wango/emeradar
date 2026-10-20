@@ -16,6 +16,7 @@ import {
   writeFailedCommercialSnapshot,
 } from './pipeline/commercial-assembly';
 import { classifyPage } from '@emeradar/scoring';
+import { GoogleTrendsCollector, type TrendsResult } from '@emeradar/collectors';
 import { evaluateIntentFit, type IntentDecision } from './intent-fit.service';
 import { storeRawPayload } from './raw-payload.service';
 import { storeHtmlDerivative } from './html-derivative.service';
@@ -140,6 +141,13 @@ export interface ObservationCard {
   };
   /** 意图适配：这个词到底是不是工具需求。 */
   intent: IntentDecision;
+  /**
+   * Google Trends 90 天 / 12 个月相对热度。
+   *
+   * 只用于展示与排序，**不进评分**：D 轴读第三方热度会与 external_demand_formed
+   * 的事件判据自证（06 §7.1a）。相对热度只能跟自己比方向，不能跨词比大小。
+   */
+  trends?: TrendsResult | null;
   pricing: {
     probed: number;
     priced: number;
@@ -525,6 +533,11 @@ export async function collectObservationCard(
     pricing.push(await probePricing(input, domain, options.crawl, ctx));
   }
 
+  // Google Trends 与定价探测并行不冲突，但它依赖 AISA key；失败不影响观测卡。
+  const trends = await new GoogleTrendsCollector()
+    .collectBoth(input.query, { locationCode: undefined, languageCode: input.language.slice(0, 2).toLowerCase() })
+    .catch(() => null);
+
   const priced = pricing.filter((row) => row.plans.length > 0).length;
   const infraOnly = pricing.filter((row) => row.plans.length === 0 && row.gateways.length > 0).length;
   const blocked = pricing.filter((row) => row.status === 'BLOCKED' || row.status === 'ROBOTS').length;
@@ -573,6 +586,7 @@ export async function collectObservationCard(
           : 'No organic SERP provider returned results. Competition is unknown, not weak.',
     },
     intent,
+    trends,
     pricing: {
       probed: pricing.length,
       priced,
@@ -750,6 +764,8 @@ export async function loadObservationCard(
       note: 'Public pricing observation only. Absence of pricing is not proof of no willingness to pay.',
     },
     intent,
+    // 趋势是实时抓的，不落库：重开页面时宁可不显示，也不显示一条过期曲线。
+    trends: null,
     verdictEta: {
       needsAutocompleteDays: 14,
       needsSerpDays: 14,

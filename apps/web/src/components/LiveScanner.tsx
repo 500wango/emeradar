@@ -8,7 +8,7 @@ import { Panel } from '@/components/ui/Panel';
 import { VerdictBadge, Badge, type Verdict } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
-import type { ScanVerdictResult } from '@emeradar/services';
+import type { ScanVerdictResult, TrendsResult } from '@emeradar/services';
 
 interface LiveScanModalProps {
   onScanSuccess?: (slug: string) => void;
@@ -44,9 +44,11 @@ const VERDICT_STYLE: Record<string, { border: string; badge: 'signal' | 'danger'
  */
 function ScanVerdictBlock({
   result,
+  trends,
   isZh,
 }: {
   result: ScanVerdictResult;
+  trends: TrendsResult | null;
   isZh: boolean;
 }) {
   const style = VERDICT_STYLE[result.verdict] ?? VERDICT_STYLE.NOT_YET;
@@ -72,6 +74,26 @@ function ScanVerdictBlock({
           </li>
         ))}
       </ul>
+
+      {trends && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-muted">
+          <span className="text-fg-subtle">{isZh ? 'Google Trends' : 'Google Trends'}</span>
+          {(['ninetyDays', 'twelveMonths'] as const).map((key) => {
+            const series = trends[key];
+            const label = key === 'ninetyDays' ? (isZh ? '90 天' : '90d') : isZh ? '12 个月' : '12m';
+            if (!series || series.average === null) {
+              return <span key={key}>{label} 无数据</span>;
+            }
+            const dir = series.change === null ? '·' : series.change > 0.1 ? '↑' : series.change < -0.1 ? '↓' : '→';
+            return (
+              <span key={key} className={series.change && series.change > 0.1 ? 'text-signal' : series.change && series.change < -0.1 ? 'text-warn' : ''}>
+                {label} {series.average} {dir}
+                {series.change === null ? '' : ` ${(series.change * 100).toFixed(0)}%`}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {result.angle && (
         <p className="mt-3 text-xs leading-relaxed text-fg">
@@ -290,7 +312,11 @@ export function LiveScanner({ onScanSuccess, showQuickChips = false, canTrackRad
           </p>
           <p className="mt-2 text-xs text-fg-muted">{scanResult.whyNowSummary}</p>
 
-          <ScanVerdictBlock result={scanResult.verdictFit} isZh={isZh} />
+          <ScanVerdictBlock
+            result={scanResult.verdictFit}
+            trends={scanResult.observation?.trends ?? null}
+            isZh={isZh}
+          />
 
           <div className="mt-4 border-t border-line pt-4 text-xs">
             {actionable ? (

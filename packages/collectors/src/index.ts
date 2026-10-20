@@ -7,4 +7,5 @@ export * from './discovery';
 export * from './checkout-referrals-collector';
 export * from './external-demand-collector';
 export * from './keyword-seed-collector';
+export * from './google-trends-collector';
 export * from './cost-model';
