@@ -79,7 +79,6 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
     }
 
     const pageDiscount = isHome ? 1.0 : (item.isDedicatedLandingPage ? 0.65 : 0.45);
-
     // Weak site detection: DR < 25 or young domain (< 18 months)
     const isWeakSite = (item.domainDr !== undefined && item.domainDr < 25) || (ageDays > 0 && ageDays < 540 && isHome);
     if (isWeakSite) {
@@ -88,6 +87,11 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
 
     const rawTotal = baseWeakness + ageAdj + relevanceAdj;
     const totalWeakness = Math.min(1.0, Math.max(0.0, Math.round(rawTotal * 100) / 100));
+
+    // 审计 05 修复：折算口径必须与结论文案一致。「权重享受 45% 折算」说的是
+    // 该条对窗口开放度的贡献——首页是正面防御（全额），专属落地页 65%，
+    // 大站无意内页 45%。逐条 totalWeakness 回答「这个位置本身有多弱」，保持未折算。
+    const discountedWeakness = Math.round(totalWeakness * pageDiscount * 100) / 100;
 
     const isWeak = totalWeakness >= 0.5;
     if (isWeak) weakCount++;
@@ -122,13 +126,14 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
       relevanceAdj,
       pageDiscount,
       totalWeakness,
+      discountedWeakness,
       isWeak,
       weaknessType,
       isHomepage: isHome,
       domainDr: item.domainDr,
     });
 
-    weightedWeaknessSum += rankWeight * totalWeakness;
+    weightedWeaknessSum += rankWeight * discountedWeakness;
     totalWeight += rankWeight;
   }
 

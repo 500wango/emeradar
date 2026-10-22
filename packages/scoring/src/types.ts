@@ -56,6 +56,8 @@ export interface SerpItemWeaknessOutput {
   relevanceAdj: number;
   pageDiscount: number; // 0.45 for inner page, 0.65 for dedicated, 1.0 for homepage
   totalWeakness: number; // 0.0 - 1.0
+  /** totalWeakness × pageDiscount：进入加总的口径（审计 05）。 */
+  discountedWeakness: number; // 0.0 - 1.0
   isWeak: boolean;
   weaknessType?: string;
   isHomepage: boolean;
