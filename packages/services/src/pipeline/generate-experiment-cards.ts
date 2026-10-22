@@ -1,11 +1,28 @@
 import { query } from '@emeradar/db';
 import { createHash } from 'node:crypto';
 
+/**
+ * 审计 01（P0）：实验卡只认 TASK_VERIFIED 的 intent。
+ *
+ * 旧实现把「status = OBSERVED」直接当需求：OBSERVED 只说明检索证据存在
+ * （Autocomplete 或 SERP 非空），新闻标题拼出来的查询也能过。现在要求最近一次
+ * 验证的 task_status = TASK_VERIFIED（独立需求信号存在），REFUTED 的 intent 已被
+ * validate 阶段置为 REJECTED，天然不会进到这里。
+ */
 export async function generateExperimentCards(limit = 20): Promise<number> {
   const rows = await query<{ item_id: string; intent_id: string; title: string; query_hypothesis: string }>(
     `SELECT d.id item_id, i.id intent_id, d.title, i.query_hypothesis
-     FROM discovery_items d JOIN discovery_intents i ON i.discovery_item_id = d.id
+     FROM discovery_items d
+     JOIN discovery_intents i ON i.discovery_item_id = d.id
+     JOIN LATERAL (
+       SELECT v.task_status
+       FROM discovery_validations v
+       WHERE v.discovery_intent_id = i.id
+       ORDER BY v.observed_date DESC
+       LIMIT 1
+     ) lv ON TRUE
      WHERE i.status = 'OBSERVED'
+       AND lv.task_status = 'TASK_VERIFIED'
        AND NOT EXISTS (SELECT 1 FROM experiment_cards e WHERE e.discovery_intent_id = i.id)
      ORDER BY i.created_at DESC LIMIT $1`, [limit]);
   let created = 0;

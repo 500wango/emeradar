@@ -40,6 +40,11 @@ export interface SerpItemInput {
   resultType: ResultType;
   ageDays?: number;
   relevance?: number; // 0.0 - 1.0
+  /**
+   * 查询级任务满足度（审计 02）。只有确证的 NOT_SATISFIED 参与 W 调整
+   * （按低相关处理）；UNKNOWN 与缺省不改变分数——不可靠证据不提高缺口分。
+   */
+  queryRelevance?: 'SATISFIES' | 'NOT_SATISFIED' | 'UNKNOWN';
   isHomepage?: boolean;
   isDedicatedLandingPage?: boolean;
   domainDr?: number;

@@ -431,8 +431,8 @@ export async function observeOpportunity(
             `INSERT INTO serp_results (
               serp_snapshot_id, rank, url, domain, title, snippet,
               result_type, domain_authority_class, is_weak, weakness_type,
-              page_kind, classifier_version
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              page_kind, query_relevance, classifier_version
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
               snapshotId,
               item.rank,
@@ -445,6 +445,7 @@ export async function observeOpportunity(
               item.isWeak,
               item.weaknessType || null,
               item.pageKind ?? null,
+              item.queryRelevance ?? 'UNKNOWN',
               item.classifierVersion ?? null,
             ]
           );

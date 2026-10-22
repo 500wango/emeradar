@@ -70,6 +70,11 @@ export function calculateSerpWeakness(items: SerpItemInput[]): SerpWeaknessResul
     if (item.relevance !== undefined && item.relevance < 0.5) {
       relevanceAdj = 0.2;
     }
+    // 审计 02：确证「不是这个任务的工具页」按低相关处理。UNKNOWN 与缺省
+    // 不做任何调整——证据不足时既不当竞争强，也不自动当缺口。
+    if (item.queryRelevance === 'NOT_SATISFIED') {
+      relevanceAdj = 0.2;
+    }
 
     const isHome = checkIsHomepage(item.url, item.isHomepage);
     if (isHome) {
