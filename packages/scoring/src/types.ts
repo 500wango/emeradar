@@ -78,6 +78,17 @@ export interface SerpWeaknessResult {
 export interface DemandFeatures {
   clusterSize: number;
   newQueries7d: number;
+  /**
+   * 近 7 天「新出现且在 ≥2 个观测日重复出现」的联想词数（审计 04）。
+   * 评分优先吃它而非 raw `newQueries7d`：后者把补齐旧词、加深采集都算成新需求。
+   * 未提供时退回 `newQueries7d`（历史调用方兼容）。
+   */
+  newQueriesPersistent7d?: number;
+  /**
+   * 可比时间序列的长度（天）。≥ 30（`GROWTH_BASELINE_MIN_DAYS`）才允许宣称增长；
+   * 未提供时不启用门槛（历史调用方兼容）。
+   */
+  growthBaselineDays?: number;
   clusterGrowth30d: number; // e.g. 0.5 for +50%
   expansionSlope30d: number;
   attentionSourcesActive14d: number; // 0 - 4
