@@ -2,10 +2,19 @@ import { query } from '@emeradar/db';
 import { EmeradarError, ErrorCode, Verdict, BuildArchetype, ExecutionClass } from '@emeradar/core';
 import { deriveBasisState } from '@emeradar/report';
 
+/**
+ * Feed 分栏（审计 03）。默认 BUILDABLE：首屏只出可构建机会
+ * （BUILD_NOW / EARLY_BET 且置信度非 LOW），WATCH 走观察名单、
+ * PASS / WINDOW_CLOSING 走已排除案例——高 D 不等于可构建。
+ */
+export type FeedTrack = 'BUILDABLE' | 'WATCHLIST' | 'EXCLUDED' | 'ALL';
+
 export interface FeedCardFilterOptions {
   verdict?: Verdict;
   /** Match any of these verdicts. Takes precedence over `verdict` when set. */
   verdicts?: Verdict[];
+  /** 展示分栏；与 verdict/verdicts/opportunityIds 同给时以后者为准（老调用方不变）。 */
+  track?: FeedTrack;
   archetype?: BuildArchetype;
   executionClass?: ExecutionClass;
   minD?: number;
@@ -220,6 +229,21 @@ export class OpportunityService {
       params.push(opportunityIds);
     }
 
+    // 审计 03：分栏。显式 verdict/verdicts/opportunityIds 的调用方（每周精选、
+    // 遥测、审查台）保持原语义，分栏只在「没有给裁决限定」时生效。
+    const hasVerdictScope = Boolean(verdict || (verdicts && verdicts.length > 0) || opportunityIds);
+    const track: FeedTrack = hasVerdictScope ? 'ALL' : options.track ?? 'BUILDABLE';
+    if (!hasVerdictScope) {
+      if (track === 'BUILDABLE') {
+        conditions.push(`c.verdict IN ('BUILD_NOW', 'EARLY_BET')`);
+        conditions.push(`c.confidence <> 'LOW'`);
+      } else if (track === 'WATCHLIST') {
+        conditions.push(`c.verdict = 'WATCH'`);
+      } else if (track === 'EXCLUDED') {
+        conditions.push(`c.verdict IN ('PASS', 'WINDOW_CLOSING')`);
+      }
+    }
+
     if (verdicts && verdicts.length > 0) {
       conditions.push(`c.verdict = ANY($${paramIdx++})`);
       params.push(verdicts);
@@ -303,7 +327,23 @@ export class OpportunityService {
          LIMIT 1
        ) lv ON TRUE
        WHERE ${whereClause}
-       ORDER BY c.d_basis_points DESC
+       ORDER BY
+         -- 审计 03：排序按决策质量而非单一 D 分——先裁决、再置信度、
+         -- 然后才是 D 分与观测时间。高 D 的 WATCH 不该压过可构建的 BUILD_NOW。
+         CASE c.verdict
+           WHEN 'BUILD_NOW' THEN 0
+           WHEN 'EARLY_BET' THEN 1
+           WHEN 'WATCH' THEN 2
+           WHEN 'WINDOW_CLOSING' THEN 3
+           ELSE 4
+         END ASC,
+         CASE c.confidence
+           WHEN 'HIGH' THEN 0
+           WHEN 'MEDIUM' THEN 1
+           ELSE 2
+         END ASC,
+         c.d_basis_points DESC,
+         c.first_observed_at DESC
        LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
       [...params, limit, offset]
     );

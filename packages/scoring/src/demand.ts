@@ -5,7 +5,16 @@ export interface DemandScoreResult {
   band: AxisBand;
   coverage: number; // 0.0 - 1.0
   reason: string;
+  /**
+   * 增长是否可测（审计 04）。基线不足 30 天时为 false：增长分量清零、
+   * 非 fast-track 路径封顶 MEDIUM，理由声明「仅新发现」。调用方未传
+   * `growthBaselineDays` 时视为可测（历史调用方兼容）。
+   */
+  growthMeasurable: boolean;
 }
+
+/** 可比时间序列的最短长度（审计 04：没有基线不得宣称增长）。 */
+export const GROWTH_BASELINE_MIN_DAYS = 30;
 
 export function calculateDemandScore(
   features: DemandFeatures,
@@ -26,8 +35,19 @@ export function calculateDemandScore(
       band: 'INSUFFICIENT',
       coverage: 0,
       reason: `History of ${features.historyDays} days is below baseline threshold (14 days).`,
+      growthMeasurable: false,
     };
   }
+
+  // 审计 04：newQueries7d 记录的是「观察窗口内第一次被采到」，采集加深、补齐旧词
+  // 或供应商波动都会推高它。评分只吃持久新词（近 7 天 ≥2 个观测日重复出现）；
+  // 未提供持久口径时退回原值，保持历史调用方兼容。
+  const effectiveNewQueries = features.newQueriesPersistent7d ?? features.newQueries7d;
+
+  // 审计 04：可比基线不足时不得宣称增长。调用方显式传入基线天数才启用该门槛。
+  const growthMeasurable =
+    features.growthBaselineDays === undefined ||
+    features.growthBaselineDays >= GROWTH_BASELINE_MIN_DAYS;
 
   // Every percentile input is clamped to 0-100 before weighting. Callers may
   // supply pre-computed percentiles, and the heuristic fallbacks are unbounded
@@ -36,9 +56,13 @@ export function calculateDemandScore(
   const clampPct = (value: number | undefined, fallback: number): number =>
     Math.min(100, Math.max(0, Number.isFinite(value as number) ? (value as number) : fallback));
 
-  const pctNewQueries = clampPct(percentiles?.newQueries, Math.min(100, features.newQueries7d * 15));
-  const pctGrowth = clampPct(percentiles?.growth, Math.min(100, Math.max(0, (features.clusterGrowth30d + 0.2) * 50)));
-  const pctExpansion = clampPct(percentiles?.expansion, Math.min(100, Math.max(0, features.expansionSlope30d * 100)));
+  const pctNewQueries = clampPct(percentiles?.newQueries, Math.min(100, effectiveNewQueries * 15));
+  const pctGrowth = growthMeasurable
+    ? clampPct(percentiles?.growth, Math.min(100, Math.max(0, (features.clusterGrowth30d + 0.2) * 50)))
+    : 0;
+  const pctExpansion = growthMeasurable
+    ? clampPct(percentiles?.expansion, Math.min(100, Math.max(0, features.expansionSlope30d * 100)))
+    : 0;
   const pctAttention = clampPct(
     percentiles?.attention,
     Math.min(100, features.attentionSourcesActive14d * 25 + features.attentionGrowth14d * 20)
@@ -77,6 +101,7 @@ export function calculateDemandScore(
       band: 'INSUFFICIENT',
       coverage,
       reason: `Feature coverage (${Math.round(coverage * 100)}%) is below 60%.`,
+      growthMeasurable,
     };
   }
 
@@ -88,11 +113,11 @@ export function calculateDemandScore(
   let band: AxisBand = 'LOW';
   let reason = 'Demand signals are currently low.';
 
-  if (basisPoints >= 7500 && features.newQueries7d >= 3 && features.clusterSize >= 8) {
+  if (basisPoints >= 7500 && effectiveNewQueries >= 3 && features.clusterSize >= 8) {
     band = 'HIGH';
     reason = isFastTrack
-      ? `[FAST-TRACK] Strong demand velocity: ${features.newQueries7d} new queries in 7d, cluster size ${features.clusterSize}.`
-      : `Strong demand velocity: ${features.newQueries7d} new queries in 7d, cluster size ${features.clusterSize}.`;
+      ? `[FAST-TRACK] Strong demand velocity: ${effectiveNewQueries} persistent new queries in 7d, cluster size ${features.clusterSize}.`
+      : `Strong demand velocity: ${effectiveNewQueries} persistent new queries in 7d, cluster size ${features.clusterSize}.`;
   } else if (basisPoints >= 5000 && features.clusterSize >= 5) {
     band = 'MEDIUM';
     reason = isFastTrack
@@ -100,10 +125,21 @@ export function calculateDemandScore(
       : `Moderate demand growth across ${features.clusterSize} clustered queries.`;
   }
 
+  // 审计 04：没有可比基线时，HIGH 不成立——那只是「新发现」，不是「在增长」。
+  // fast-track 是显式标记的产品例外（自带 FAST_TRACK 标志），不受此封顶。
+  // 无论落哪个档，理由都必须声明「仅新发现」，避免展示层把 LOW 读成增长结论。
+  if (band === 'HIGH' && !growthMeasurable && !isFastTrack) {
+    band = 'MEDIUM';
+  }
+  if (!growthMeasurable) {
+    reason = `${reason} Growth not yet measurable (baseline ${features.growthBaselineDays}d < ${GROWTH_BASELINE_MIN_DAYS}d): new-discovery signals only.`;
+  }
+
   return {
     basisPoints,
     band,
     coverage,
     reason,
+    growthMeasurable,
   };
 }

@@ -40,6 +40,11 @@ export interface SerpItemInput {
   resultType: ResultType;
   ageDays?: number;
   relevance?: number; // 0.0 - 1.0
+  /**
+   * 查询级任务满足度（审计 02）。只有确证的 NOT_SATISFIED 参与 W 调整
+   * （按低相关处理）；UNKNOWN 与缺省不改变分数——不可靠证据不提高缺口分。
+   */
+  queryRelevance?: 'SATISFIES' | 'NOT_SATISFIED' | 'UNKNOWN';
   isHomepage?: boolean;
   isDedicatedLandingPage?: boolean;
   domainDr?: number;
@@ -56,6 +61,8 @@ export interface SerpItemWeaknessOutput {
   relevanceAdj: number;
   pageDiscount: number; // 0.45 for inner page, 0.65 for dedicated, 1.0 for homepage
   totalWeakness: number; // 0.0 - 1.0
+  /** totalWeakness × pageDiscount：进入加总的口径（审计 05）。 */
+  discountedWeakness: number; // 0.0 - 1.0
   isWeak: boolean;
   weaknessType?: string;
   isHomepage: boolean;
@@ -76,6 +83,17 @@ export interface SerpWeaknessResult {
 export interface DemandFeatures {
   clusterSize: number;
   newQueries7d: number;
+  /**
+   * 近 7 天「新出现且在 ≥2 个观测日重复出现」的联想词数（审计 04）。
+   * 评分优先吃它而非 raw `newQueries7d`：后者把补齐旧词、加深采集都算成新需求。
+   * 未提供时退回 `newQueries7d`（历史调用方兼容）。
+   */
+  newQueriesPersistent7d?: number;
+  /**
+   * 可比时间序列的长度（天）。≥ 30（`GROWTH_BASELINE_MIN_DAYS`）才允许宣称增长；
+   * 未提供时不启用门槛（历史调用方兼容）。
+   */
+  growthBaselineDays?: number;
   clusterGrowth30d: number; // e.g. 0.5 for +50%
   expansionSlope30d: number;
   attentionSourcesActive14d: number; // 0 - 4

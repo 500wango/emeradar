@@ -30,6 +30,8 @@ interface FeedClientProps {
   pageSize: number;
   activeFilters: {
     verdict?: string;
+    /** 审计 03：'ALL' 表示跨分栏看全部裁决。 */
+    track?: string;
     archetype?: string;
     executionClass?: string;
     search?: string;
@@ -40,17 +42,20 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
   const { t, isZh } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
-  const [selectedVerdict, setSelectedVerdict] = useState<string>(activeFilters.verdict || 'ALL');
+  // 审计 03：默认分栏是「可构建」（BUILD_NOW / EARLY_BET），不是无过滤的全部。
+  const [selectedVerdict, setSelectedVerdict] = useState<string>(
+    activeFilters.verdict || (activeFilters.track === 'ALL' ? 'ALL' : 'BUILDABLE')
+  );
   const [selectedArchetype, setSelectedArchetype] = useState<string>(activeFilters.archetype || 'ALL');
   const [selectedClass, setSelectedClass] = useState<string>(activeFilters.executionClass || 'ALL');
   const [searchQuery, setSearchQuery] = useState<string>(activeFilters.search || '');
 
   useEffect(() => {
-    setSelectedVerdict(activeFilters.verdict || 'ALL');
+    setSelectedVerdict(activeFilters.verdict || (activeFilters.track === 'ALL' ? 'ALL' : 'BUILDABLE'));
     setSelectedArchetype(activeFilters.archetype || 'ALL');
     setSelectedClass(activeFilters.executionClass || 'ALL');
     setSearchQuery(activeFilters.search || '');
-  }, [activeFilters.verdict, activeFilters.archetype, activeFilters.executionClass, activeFilters.search]);
+  }, [activeFilters.verdict, activeFilters.track, activeFilters.archetype, activeFilters.executionClass, activeFilters.search]);
 
   function navigate(next: Record<string, string | undefined>, mode: 'push' | 'replace' = 'replace') {
     const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
@@ -69,8 +74,8 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
   }
 
   const resetFilters = () => {
-    setSelectedVerdict('ALL'); setSelectedArchetype('ALL'); setSelectedClass('ALL'); setSearchQuery('');
-    navigate({ verdict: undefined, archetype: undefined, execution_class: undefined, search: undefined, offset: undefined });
+    setSelectedVerdict('BUILDABLE'); setSelectedArchetype('ALL'); setSelectedClass('ALL'); setSearchQuery('');
+    navigate({ verdict: undefined, track: undefined, archetype: undefined, execution_class: undefined, search: undefined, offset: undefined });
   };
 
 
@@ -98,18 +103,30 @@ export function FeedClient({ initialItems, suppressEmptyState, total, hasMore, o
           {/* Verdict Tabs */}
           <div className="flex flex-wrap items-center gap-1.5">
             {[
-              { id: 'ALL', label: t('feed.tabAll') },
+              { id: 'BUILDABLE', label: t('feed.tabBuildable') },
               { id: 'BUILD_NOW', label: t('feed.tabBuildNow') },
               { id: 'EARLY_BET', label: t('feed.tabEarlyBet') },
               { id: 'WATCH', label: t('feed.tabWatch') },
               { id: 'WINDOW_CLOSING', label: t('feed.tabWindowClosing') },
+              { id: 'PASS', label: t('feed.tabPass') },
+              { id: 'ALL', label: t('feed.tabAll') },
             ].map((tab) => {
               const active = selectedVerdict === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => { setSelectedVerdict(tab.id); navigate({ verdict: tab.id, offset: undefined }); }}
+                  onClick={() => {
+                    setSelectedVerdict(tab.id);
+                    if (tab.id === 'BUILDABLE') {
+                      // 默认分栏：不带 verdict 也不带 track，服务端按可构建出。
+                      navigate({ verdict: undefined, track: undefined, offset: undefined });
+                    } else if (tab.id === 'ALL') {
+                      navigate({ verdict: undefined, track: 'ALL', offset: undefined });
+                    } else {
+                      navigate({ verdict: tab.id, track: undefined, offset: undefined });
+                    }
+                  }}
                   className={`rounded-sm px-3.5 py-1.5 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                     active
                       ? 'on-inverse bg-inverse text-inverse-fg'

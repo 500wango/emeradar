@@ -318,10 +318,12 @@ export interface TranslationDictionary {
     delayRealtime: string;
     delayDays: string;
     tabAll: string;
+    tabBuildable: string;
     tabBuildNow: string;
     tabEarlyBet: string;
     tabWatch: string;
     tabWindowClosing: string;
+    tabPass: string;
     archetypeFilter: string;
     classFilter: string;
     allArchetypes: string;

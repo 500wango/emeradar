@@ -15,7 +15,18 @@
  */
 import type { ResultType } from './types';
 
-export const PAGE_CLASSIFIER_VERSION = 'page-classifier-v2';
+// v3（2026-10-23 审计 02）：新增查询级任务满足度 queryRelevance。
+// 「是工具页」≠「能解决这个搜索任务」；判定口径变了，历史快照按版本分组。
+export const PAGE_CLASSIFIER_VERSION = 'page-classifier-v3';
+
+/**
+ * 查询级任务满足度（审计 02）。
+ *
+ * 与 `kind`（页面性质）相互独立：同一个产品页对匹配查询是 SATISFIES，
+ * 对无关查询是 NOT_SATISFIED。证据不足时明确 UNKNOWN——不可靠证据
+ * 不允许影响 SERP 缺口分。
+ */
+export type QueryRelevance = 'SATISFIES' | 'NOT_SATISFIED' | 'UNKNOWN';
 
 export type PageKind =
   /** 为这个需求专门做的产品/工具页：最值得警惕的竞争形态。 */
@@ -167,6 +178,8 @@ export interface PageClassification {
   resultType: ResultType;
   /** 该页是否“为这个需求做的产品页”。只有它算正面竞争。 */
   isDedicatedTool: boolean;
+  /** 该页是否能解决目标查询的任务（审计 02）。与 kind 独立；证据不足即 UNKNOWN。 */
+  queryRelevance: QueryRelevance;
   classifierVersion: string;
 }
 
@@ -189,8 +202,16 @@ const KIND_TO_RESULT_TYPE: Record<PageKind, ResultType> = {
  *
  * 顺序固定：注册表（世界知识）→ 路径/标题证据（产品页 vs 内容页）→ 未知。
  * 注册表优先，因为“wix 是建站平台”比“这个 URL 里有 /pricing”更根本。
+ *
+ * `query` 可选（审计 02）：传入目标查询时同时给出查询级满足度；
+ * 不传时满足度为 UNKNOWN，页面性质判定与旧版完全一致。
  */
-export function classifyPage(url: string, title = '', snippet = ''): PageClassification {
+export function classifyPage(
+  url: string,
+  title = '',
+  snippet = '',
+  query = ''
+): PageClassification {
   const host = hostnameOf(url);
   const path = pathOf(url);
   const text = `${title} ${snippet}`;
@@ -224,8 +245,55 @@ export function classifyPage(url: string, title = '', snippet = ''): PageClassif
     kind,
     resultType: KIND_TO_RESULT_TYPE[kind],
     isDedicatedTool: kind === 'DEDICATED_TOOL',
+    queryRelevance: assessQueryRelevance(query, title, snippet, path),
     classifierVersion: PAGE_CLASSIFIER_VERSION,
   };
+}
+
+/** 判满足度时忽略的查询词：虚词与泛工具词不携带主题信息。 */
+const RELEVANCE_STOPWORDS = new Set([
+  'the', 'a', 'an', 'for', 'to', 'of', 'and', 'or', 'with', 'my', 'your', 'best',
+  'free', 'online', 'tool', 'tools', 'app', 'apps', 'software', 'web',
+  'how', 'what', 'why', 'when', 'is', 'are', 'in', 'on', 'at',
+]);
+
+/** 页面侧没有主题信息的词：出现它们不构成可判定的证据。 */
+const EVIDENCE_NOISE = /\b(welcome|home|homepage|index|official|start|login|signup|404)\b/i;
+
+/**
+ * 查询级满足度启发式（确定性）。
+ *
+ *   - 查询无实义词 → UNKNOWN（没有可判定的东西）；
+ *   - 页面证据（标题+摘要+路径）无实义词 → UNKNOWN（首页「Welcome」可能正是
+ *     这个工具的官网——证据不足时宁可不知道，不自动当缺口）；
+ *   - ≥ 半数查询实义词出现在证据里 → SATISFIES；
+ *   - 有实义证据但零重叠 → NOT_SATISFIED（确证「不是这个任务」）；
+ *   - 其余（少量重叠）→ UNKNOWN。
+ */
+export function assessQueryRelevance(
+  query: string,
+  title: string,
+  snippet: string,
+  path: string
+): QueryRelevance {
+  const tokenize = (text: string): string[] =>
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 3 && !RELEVANCE_STOPWORDS.has(t));
+
+  const queryTokens = [...new Set(tokenize(query))];
+  if (queryTokens.length === 0) return 'UNKNOWN';
+
+  const evidenceText = `${title} ${snippet} ${path.replace(/\//g, ' ')}`;
+  const evidenceTokens = tokenize(evidenceText).filter((t) => !EVIDENCE_NOISE.test(t));
+  if (evidenceTokens.length === 0) return 'UNKNOWN';
+
+  const evidenceSet = new Set(evidenceTokens);
+  const matched = queryTokens.filter((token) => evidenceSet.has(token)).length;
+  if (matched * 2 >= queryTokens.length) return 'SATISFIES';
+  if (matched === 0) return 'NOT_SATISFIED';
+  return 'UNKNOWN';
 }
 
 /** 域名权威度分类，与页面分类共用同一份注册表，避免两处各判各的。 */

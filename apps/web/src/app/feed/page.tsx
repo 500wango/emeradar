@@ -31,19 +31,23 @@ export default async function FeedPage({
   const realtime = !ent.feedSelectedWeekly;
   const params = searchParams ? await searchParams : {};
   const verdictParam = firstParam(params.verdict);
+  const trackParam = firstParam(params.track);
   const archetypeParam = firstParam(params.archetype);
   const executionClassParam = firstParam(params.execution_class);
   const searchParam = firstParam(params.search)?.trim() || undefined;
   const offsetParam = Number.parseInt(firstParam(params.offset) || '0', 10);
   const offset = Number.isFinite(offsetParam) ? Math.max(0, Math.floor(offsetParam / 10) * 10) : 0;
-  const verdicts = ['BUILD_NOW', 'EARLY_BET', 'WATCH', 'WINDOW_CLOSING'];
+  const verdicts = ['BUILD_NOW', 'EARLY_BET', 'WATCH', 'WINDOW_CLOSING', 'PASS'];
   const archetypes = ['TOOL', 'MICRO_SAAS', 'PSEO_SITE', 'DIRECTORY', 'CONTENT_SITE'];
   const executionClasses = ['S', 'M', 'L'];
   const selectedVerdict = verdicts.includes(verdictParam || '') ? verdictParam : undefined;
   const selectedArchetype = archetypes.includes(archetypeParam || '') ? archetypeParam : undefined;
   const selectedExecutionClass = executionClasses.includes(executionClassParam || '') ? executionClassParam : undefined;
+  // 审计 03：verdict 未指定时服务端默认 BUILDABLE 分栏；?track=ALL 看全部裁决。
+  const selectedTrack = !selectedVerdict && trackParam === 'ALL' ? ('ALL' as const) : undefined;
   const feedFilters = {
     verdict: selectedVerdict as any,
+    track: selectedTrack,
     archetype: selectedArchetype as any,
     executionClass: selectedExecutionClass as any,
     search: searchParam,
@@ -130,6 +134,7 @@ export default async function FeedPage({
           pageSize={10}
           activeFilters={{
             verdict: selectedVerdict,
+            track: selectedTrack,
             archetype: selectedArchetype,
             executionClass: selectedExecutionClass,
             search: searchParam,

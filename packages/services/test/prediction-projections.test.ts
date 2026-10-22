@@ -211,7 +211,9 @@ describe('v3 prediction specification on report and opportunity detail projectio
     assert.ok(!Object.hasOwn(report.data.section1.decisionBasis, 'predictionSpec'));
     assert.doesNotMatch(report.markdown, /ev-projection-historic/);
 
-    const feed = await OpportunityService.listFeedCards({ limit: 10 });
+    // 审计 03 起 Feed 默认走 BUILDABLE 分栏（WATCH 不进首屏）；本用例验证的是
+    // 投影形状（不夹带 predictionSpec），不是分栏语义，因此显式跨栏取全量。
+    const feed = await OpportunityService.listFeedCards({ limit: 10, track: 'ALL' });
     assert.equal(feed.total, 4);
     for (const item of feed.items) {
       assert.ok(!Object.hasOwn(item, 'predictionSpec'));

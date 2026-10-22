@@ -201,6 +201,26 @@ export async function observeOpportunity(
   );
   const newQueries7d = freshRes.rows[0]?.count ?? 0;
 
+  // 审计 04：「第一次被采到」不等于需求增长——补齐旧词、加深采集、供应商波动都会
+  // 推高上面的数字。持久新词要求近 7 天内在 ≥2 个观测日重复出现且此前窗口没有，
+  // 评分只吃这个口径；raw newQueries7d 保留为「新发现」展示值。
+  const persistentFreshRes = await query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM (
+       SELECT unnest(suggestions) AS s
+       FROM autocomplete_observations
+       WHERE query_id = $1 AND observed_date <= $2::date AND observed_date > $2::date - 7
+       GROUP BY 1
+       HAVING COUNT(DISTINCT observed_date) >= 2
+     ) recent
+     WHERE s NOT IN (
+       SELECT DISTINCT unnest(suggestions)
+       FROM autocomplete_observations
+       WHERE query_id = $1 AND observed_date <= $2::date - 7
+     )`,
+    [primary.id, obsDate]
+  );
+  const newQueriesPersistent7d = persistentFreshRes.rows[0]?.count ?? 0;
+
   const trendRes = await query<{ recent_days: number; prior_days: number; recent_avg: number; prior_avg: number }>(
     `SELECT
        COUNT(*) FILTER (WHERE observed_date > $2::date - 7 AND observed_date <= $2::date)::int AS recent_days,
@@ -411,8 +431,8 @@ export async function observeOpportunity(
             `INSERT INTO serp_results (
               serp_snapshot_id, rank, url, domain, title, snippet,
               result_type, domain_authority_class, is_weak, weakness_type,
-              page_kind, classifier_version
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+              page_kind, query_relevance, classifier_version
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
               snapshotId,
               item.rank,
@@ -425,6 +445,7 @@ export async function observeOpportunity(
               item.isWeak,
               item.weaknessType || null,
               item.pageKind ?? null,
+              item.queryRelevance ?? 'UNKNOWN',
               item.classifierVersion ?? null,
             ]
           );
@@ -707,6 +728,8 @@ export async function observeOpportunity(
     demand: {
       clusterSize: clusterRes.rows[0]?.count ?? 1,
       newQueries7d,
+      newQueriesPersistent7d,
+      growthBaselineDays: historyDays,
       clusterGrowth30d,
       expansionSlope30d: autocompleteCoverage >= 0.5 ? expansionSlope30d : 0,
       attentionSourcesActive14d,
@@ -853,6 +876,7 @@ export async function observeOpportunity(
     market_w_band: output.marketWBand,
     confidence: output.confidence,
     history_days: historyDays,
+    new_queries_persistent_7d: newQueriesPersistent7d,
     serp_history_days: serpHistoryDays,
     autocomplete_recent_days: autocompleteRecentDays,
     autocomplete_prior_days: autocompletePriorDays,

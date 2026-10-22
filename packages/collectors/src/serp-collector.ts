@@ -36,6 +36,11 @@ export interface SerpCollectedItem {
   /** 页面种类（确定性分类器），落库后可按版本重算。 */
   pageKind?: string;
   classifierVersion?: string;
+  /**
+   * 查询级任务满足度（审计 02）：「是工具页」≠「能解决这个搜索任务」。
+   * 与 resultType 一起落库（serp_results.query_relevance）。
+   */
+  queryRelevance?: 'SATISFIES' | 'NOT_SATISFIED' | 'UNKNOWN';
   domainAuthorityClass: string;
   isWeak: boolean;
   weaknessType?: string;
@@ -205,6 +210,9 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
         title: raw.title,
         resultType: raw.resultType,
         ageDays: raw.ageDays,
+        // 审计 02：确证不满足的工具页按低相关参与 W 调整；UNKNOWN 不改分。
+        queryRelevance: this.classifyItem(raw.url, raw.title, raw.snippet, item.queryText)
+          .queryRelevance,
       }));
 
       const weaknessResult = calculateSerpWeakness(scoredInput);
@@ -216,6 +224,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
 
       const items: SerpCollectedItem[] = top.map((raw) => {
         const scored = weaknessByRank.get(raw.rank);
+        const classification = this.classifyItem(raw.url, raw.title, raw.snippet, item.queryText);
         return {
           rank: raw.rank,
           url: raw.url,
@@ -223,7 +232,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           title: raw.title,
           snippet: raw.snippet,
           resultType: raw.resultType,
-          pageKind: this.classifyItem(raw.url, raw.title, raw.snippet).kind,
+          pageKind: classification.kind,
+          queryRelevance: classification.queryRelevance,
           classifierVersion: PAGE_CLASSIFIER_VERSION,
           domainAuthorityClass: this.classifyDomainAuthority(raw.domain),
           isWeak: scored ? scored.isWeak : false,
@@ -271,6 +281,8 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
       const evidence: EvidenceDraft[] = [];
       if (item.opportunityId && items.length > 0) {
         const weakCount = items.filter((i) => i.isWeak).length;
+        // 审计 02：任务满足度是独立于页面性质的观察结论，进证据载荷供审计。
+        const satisfiedCount = items.filter((i) => i.queryRelevance === 'SATISFIES').length;
         const topWeak = items.find((i) => i.isWeak);
         evidence.push({
           opportunityId: item.opportunityId,
@@ -281,7 +293,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
           title: `SERP Top 10 Weakness Ratio for "${item.queryText}"`,
           snippet: `${weakCount}/${items.length} stored organic results are marked weak (ratio ${Math.round(
             weakRatio * 100
-          )}%).`,
+          )}%). ${satisfiedCount}/${items.length} verifiably satisfy the query.`,
           payload: {
             queryText: item.queryText,
             provider: fetched.provider,
@@ -289,6 +301,7 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
             weakCount,
             weakRatio,
             weaknessScore: weaknessResult.score,
+            querySatisfiedCount: satisfiedCount,
             results: items.slice(0, 5),
           },
           observedAt: ctx.clock(),
@@ -451,9 +464,9 @@ export class SerpCollector implements Collector<SerpTarget[], SerpTarget> {
     return classifyPage(url, title, snippet).resultType;
   }
 
-  /** 页面种类与分类器版本一起返回，落库后历史可按版本分组重算。 */
-  private classifyItem(url: string, title: string, snippet: string) {
-    return classifyPage(url, title, snippet);
+  /** 页面种类、查询满足度与分类器版本一起返回，落库后历史可按版本分组重算。 */
+  private classifyItem(url: string, title: string, snippet: string, query = '') {
+    return classifyPage(url, title, snippet, query);
   }
 
 
