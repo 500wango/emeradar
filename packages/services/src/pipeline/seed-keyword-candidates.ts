@@ -115,6 +115,51 @@ export const TOOL_MODIFIERS = [
  */
 const NON_SOFTWARE = /\b(electric|diesel|gas|petrol|portable|inverter|home|for sale|near me|repair|install|wiring|motor|engine|buy online|apk|crack|torrent|download free pdf|hardware|machine|generator set)\b/i;
 
+/**
+ * 载体的 ICP 标签（审计 07）。
+ *
+ * 目标客户是零 GPU、主要使用 AI 编程的独立开发者。有些载体即使有真实搜索数据，
+ * 也超出这类开发者的执行范围——要么算力依赖（video generation），要么强行业
+ * 合规（payroll compliance）。标签让「为什么排除」可解释，而不是黑名单。
+ */
+export const ICP_CARRIER_TAGS: Record<string, readonly string[]> = {
+  // GPU / 重媒体处理：视频、音频、图像的生成与转换都不是纯前端+API 能交付的形态。
+  gpu_media: ['video', 'audio', 'image', 'photo', 'screenshot', 'logo'],
+  // 强合规行业：工资、税务、合规的计算错误有法律责任，需要行业知识而非纯软件能力。
+  regulated: ['payroll', 'tax', 'compliance'],
+};
+
+/** 默认排除的 ICP 标签。`SEED_ICP_EXCLUDE=""` 可整体关闭过滤。 */
+export const DEFAULT_ICP_EXCLUSIONS: readonly string[] = ['gpu_media', 'regulated'];
+
+/**
+ * `SEED_ICP_EXCLUDE="gpu_media"` / `SEED_ICP_EXCLUDE=""`（关闭）。
+ * 未设置时用默认排除表；未知标签忽略（它们本来就不命中任何载体）。
+ */
+export function parseSeedIcpExclusions(raw: string | undefined = process.env.SEED_ICP_EXCLUDE): string[] {
+  const value = raw === undefined ? DEFAULT_ICP_EXCLUSIONS.join(',') : raw;
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+export function icpTagsForCarrier(carrier: string): string[] {
+  const normalized = carrier.toLowerCase().trim();
+  return Object.entries(ICP_CARRIER_TAGS)
+    .filter(([, carriers]) => carriers.includes(normalized))
+    .map(([tag]) => tag);
+}
+
+/** 载体的标签与排除表无交集才算适配目标开发者的机会。 */
+export function icpAllowsCarrier(
+  carrier: string,
+  excludedTags: readonly string[] = parseSeedIcpExclusions()
+): boolean {
+  const tags = icpTagsForCarrier(carrier);
+  return !tags.some((tag) => excludedTags.includes(tag));
+}
+
 /** 每天展开的种子数。2 × $0.018 = $0.036/天。 */
 export const SEEDS_PER_RUN = Number(process.env.SEED_PER_RUN ?? 4);
 /** 每天最多新增的候选数。每个候选此后每天约 $0.005（autocomplete + SERP + 抓取）。 */
@@ -261,6 +306,8 @@ export interface SeedKeywordResult {
   skipped: boolean;
   reason?: string;
   seeds: string[];
+  /** 因 ICP 标签被排除的载体（审计 07）：「没做」要能跟「做不了」区分开。 */
+  excludedSeeds: string[];
   fetched: number;
   created: number;
   failures: number;
@@ -289,7 +336,7 @@ export async function seedKeywordCandidates(
   /** 测试用：显式指定本轮载体，避免依赖“今天是第几天”的轮换。 */
   options: { seeds?: Array<{ seed: string; archetype: 'TOOL' | 'MICRO_SAAS' | 'DIRECTORY' | 'CONTENT_SITE' }> } = {}
 ): Promise<SeedKeywordResult> {
-  const result: SeedKeywordResult = { skipped: false, seeds: [], fetched: 0, created: 0, failures: 0 };
+  const result: SeedKeywordResult = { skipped: false, seeds: [], excludedSeeds: [], fetched: 0, created: 0, failures: 0 };
   if (!collector) return { ...result, skipped: true, reason: 'neither DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD nor AISA_API_KEY is set' };
 
   const active = await query<{ n: number }>(
@@ -311,6 +358,15 @@ export async function seedKeywordCandidates(
     });
 
   const markets = parseSeedMarkets();
+  // 审计 07：候选进池前先过 ICP——载体不适合目标开发者（GPU 依赖、强合规）时，
+  // 搜索数据再好也不该变成观测成本。轮换与显式传入的种子走同一条过滤。
+  const icpExclusions = parseSeedIcpExclusions();
+  const usableSeeds = seeds.filter(({ seed }) => {
+    if (icpAllowsCarrier(seed, icpExclusions)) return true;
+    result.excludedSeeds.push(seed);
+    return false;
+  });
+
   const existing = await query<{ query_text: string; market_country: string }>(
     `SELECT q.query_text, q.market_country
        FROM opportunity_queries oq JOIN queries q ON q.id = oq.query_id
@@ -318,7 +374,7 @@ export async function seedKeywordCandidates(
   );
   const seen = new Set(existing.rows.map((r) => `${r.market_country}:${dedupeKey(r.query_text)}`));
 
-  for (const { seed, archetype } of seeds) {
+  for (const { seed, archetype } of usableSeeds) {
     result.seeds.push(seed);
     for (const market of markets) {
       const marketArg = {
@@ -360,7 +416,8 @@ export async function seedKeywordCandidates(
         const reason =
           `Tool seed "${seed}" (Google ${market.country}, DataForSEO Labs, ${obsDate}): ` +
           `~${s.searchVolume}/mo (${volumeBand(s.searchVolume)}), difficulty ${s.keywordDifficulty ?? 'n/a'}, ` +
-          `intent ${s.mainIntent ?? 'n/a'}. Entry filter only — volume is not a scoring input.`;
+          `intent ${s.mainIntent ?? 'n/a'}. Entry filter only — volume is not a scoring input. ` +
+          `ICP fit: no excluded tags (${icpExclusions.join(', ') || 'none'}).`;
 
       const created = await transaction(async (client) => {
         const q = await client.query<{ id: string }>(
