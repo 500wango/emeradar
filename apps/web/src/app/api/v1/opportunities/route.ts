@@ -18,6 +18,11 @@ export async function GET(request: NextRequest) {
     const ent = await EntitlementService.getUserEntitlements(auth.user.id);
     const { searchParams } = new URL(request.url);
     const verdict = searchParams.get('verdict') as any;
+    // 审计 03：分栏。缺省由 listFeedCards 按 BUILDABLE 处理；显式 ALL 跨栏。
+    const trackParam = searchParams.get('track');
+    const track = trackParam === 'ALL' || trackParam === 'WATCHLIST' || trackParam === 'EXCLUDED' || trackParam === 'BUILDABLE'
+      ? trackParam
+      : undefined;
     const archetype = searchParams.get('archetype') as any;
     const executionClass = searchParams.get('execution_class') as any;
     const minD = searchParams.get('min_d') ? parseInt(searchParams.get('min_d')!, 10) : undefined;
@@ -33,6 +38,7 @@ export async function GET(request: NextRequest) {
 
     const data = await OpportunityService.listFeedCards({
       verdict,
+      track,
       archetype,
       executionClass,
       minD,
