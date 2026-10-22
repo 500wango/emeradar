@@ -53,7 +53,9 @@ describe('商业抽样覆盖的「待验证」分层（审计 06）', () => {
   });
 
   it('从未抽样（无覆盖数据）不触发封顶：存量调用方兼容', () => {
-    const res = bandM(summary({ sampledDomains: undefined, sampleCoverage: undefined }));
+    const res = bandM(
+      summary({ ...strong, sampledDomains: undefined, sampleCoverage: undefined })
+    );
     assert.strictEqual(res.band, 'HIGH');
     assert.strictEqual(res.commercialVerification, 'VERIFIED');
   });

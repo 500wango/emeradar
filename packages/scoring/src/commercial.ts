@@ -34,6 +34,12 @@ export interface CommercialBandResult {
   negativeReasons: string[];
   downgraded: boolean;
   coverageInsufficient: boolean;
+  /**
+   * 商业结论的可信分层（审计 06）。coverageInsufficient 且未开启强制 Gate 时，
+   * band 封顶 MEDIUM 且本值为 PENDING——「待验证」不等于「已验证商业需求」。
+   * 没有抽样覆盖数据（字段缺省）的存量调用方视为 VERIFIED，行为不变。
+   */
+  commercialVerification: 'VERIFIED' | 'PENDING';
   persistenceDaysNeeded: number;
   reason: string;
   /**
@@ -296,6 +302,21 @@ export function bandM(
     summary.persistenceDaysNeeded ??
     Math.max(0, cfg.persistenceDays - (summary.maxSnapshotSpanDays ?? 0));
 
+  // 审计 06：Gate 保持默认关闭（15 §1.7 的保底优先），但覆盖不足的机会不得挂
+  // 高可信商业标签——HIGH 封顶 MEDIUM 并标 PENDING。影子统计确认误杀率之前，
+  // enforceCoverageGate 不开启；开启时走既有的 INSUFFICIENT 分支，同样标 PENDING。
+  const verificationPending = coverageInsufficient && !cfg.enforceCoverageGate;
+  if (verificationPending && band === 'HIGH') {
+    band = 'MEDIUM';
+    reason = `${reason} Coverage pending: commercial sampling is insufficient (${sampled ?? 0} domains, coverage ${
+      coverage === undefined ? 'n/a' : `${Math.round(coverage * 100)}%`
+    }); high-confidence commercial claim withheld.`;
+  }
+  // 覆盖不足时无论 Gate 开关，商业结论都只是「待验证」。
+  const commercialVerification: 'VERIFIED' | 'PENDING' = coverageInsufficient
+    ? 'PENDING'
+    : 'VERIFIED';
+
   const inferredOnly =
     priced === 0 &&
     categoryOrAnalog === 0 &&
@@ -312,6 +333,7 @@ export function bandM(
     negativeReasons: reasons,
     downgraded,
     coverageInsufficient,
+    commercialVerification,
     persistenceDaysNeeded,
     reason,
     inferredOnly,
