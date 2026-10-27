@@ -119,6 +119,17 @@ docker compose -f docker-compose.prod.yml ps worker             # healthcheck �
 | `ingest-external-demand` | `30 5 * * *` | 拉取外部需求序列（H1 评估输入） |
 | `verify-ledger` | `0 7 * * *` | 验证最新账本检查点（失败即 P0，不重试） |
 
+**停用一个每日任务要两步**：把 `tasks.ts` 里的 `cron` 改成 `null` 并发部署之后，库里那条旧排期**不会**自动消失（`queue.ts` 只在 `cron` 有值时才 `schedule`，从不清理）。所以在生产库再执行一次：
+
+```bash
+docker exec emeradar-postgres-1 psql -U postgres -d emeradar \
+  -c "DELETE FROM pgboss.schedule WHERE name = '<任务名>';"
+```
+
+恢复时把 cron 改回去、部署即可（worker 启动时会把排期重新写入）。只删库不做代码改动是**不耐久**的：worker 任何一次重启都会按代码把排期补回来。
+
+- **2026-10-27**：`seed-keywords` 暂停每日排期（原 `20 3 * * *` UTC），只保留手工/Admin 触发。
+
 需要手工跑一次某个任务时，显式给命令（默认 CMD 是 `start`，不是某个任务）：
 
 ```bash

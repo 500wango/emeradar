@@ -204,7 +204,7 @@ Query 注册（去重键：normalized text + market + language）
 升级为 TRACKED（分配 tier A/B），或长期无信号则 ARCHIVED
 ```
 
-- **2026-10-18 实现裁决**：候选只从「修饰词模板」一路进入——每日任务 `seed-keywords`（`20 3 * * *`）把工具意图种子（generator / calculator / converter / template …，见 `seed-keyword-candidates.ts`）交给 DataForSEO Labs `keyword_suggestions`，取月搜索量 200–20,000、难度 ≤ 30 的 Google US 长尾词，主 query 记 **tier A**（有 SERP）。每天 ≤ 8 个新候选、活跃候选 ≤ 150。**词量与难度只决定是否进池，不进任何评分输入**（06 §7.1a 的 `external_demand_formed` 用同一份词量判结果，进 D 轴即自证）。注意力实体（HN / RSS）不再孵化候选，只作 Why Now 证据。Autocomplete 扩展得到的词挂为原机会的 `CLUSTER`（tier C），不再各自成为候选——此前的做法让候选主 query 落在 tier C（无 SERP，W 恒 `INSUFFICIENT`）、簇规模恒为 1（D 轴 MEDIUM 需 ≥ 5），结构上不可能发布。
+- **2026-10-18 实现裁决**：候选只从「修饰词模板」一路进入——每日任务 `seed-keywords`（`20 3 * * *`；2026-10-27 起暂停排期，仅手工/Admin 触发）把工具意图种子（generator / calculator / converter / template …，见 `seed-keyword-candidates.ts`）交给 DataForSEO Labs `keyword_suggestions`，取月搜索量 200–20,000、难度 ≤ 30 的 Google US 长尾词，主 query 记 **tier A**（有 SERP）。每天 ≤ 8 个新候选、活跃候选 ≤ 150。**词量与难度只决定是否进池，不进任何评分输入**（06 §7.1a 的 `external_demand_formed` 用同一份词量判结果，进 D 轴即自证）。注意力实体（HN / RSS）不再孵化候选，只作 Why Now 证据。Autocomplete 扩展得到的词挂为原机会的 `CLUSTER`（tier C），不再各自成为候选——此前的做法让候选主 query 落在 tier C（无 SERP，W 恒 `INSUFFICIENT`）、簇规模恒为 1（D 轴 MEDIUM 需 ≥ 5），结构上不可能发布。
 - **冷启动基线**：任一种子被首次观测后的前 14 天视为基线期，其间的 `first_observed` 不计入"新增 query"指标。
 - 聚类以 SERP 重叠为主，语言无关，为 Phase 2 引入 zh-CN 研究语言留出空间。
 - 品牌导航词判定：Top1 为实体官方站且 Top10 中超过半数结果均以该实体为主题。

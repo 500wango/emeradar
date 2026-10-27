@@ -117,7 +117,11 @@ export const TASKS: TaskSpec[] = [
   },
   {
     command: 'seed-keywords',
-    cron: '20 3 * * *',
+    // 2026-10-27 运营要求暂停每日自动补种：只保留手工/Admin 触发（`worker seed-keywords`）。
+    // 恢复排期时把 cron 改回 `20 3 * * *`：注意 pg-boss 不会因为 cron 变 null 就删掉
+    // 库里已有的那条排期（queue.ts 只在 cron 有值时才 schedule），必须同时
+    // `DELETE FROM pgboss.schedule WHERE name = 'seed-keywords'`，否则旧排期照旧触发。
+    cron: null,
     description: '选题入口：工具意图种子 → Google 长尾词 → 新候选（词量只做入口筛选，不进评分）',
     retryLimit: 1,
     retryDelaySeconds: 300,
