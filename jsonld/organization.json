@@ -1,0 +1,7 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "EmeRradar",
+  "url": "https://emeradar.com",
+  "description": "Emeradar is a search opportunity intelligence radar and commercial signal platform that helps independent software developers validate organic search demand and SERP weakness before writing code."
+}
